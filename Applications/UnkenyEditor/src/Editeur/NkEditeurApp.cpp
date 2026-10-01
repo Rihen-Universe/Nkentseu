@@ -763,7 +763,7 @@ namespace nkentseu {
 			// lettre, pas l'entite ; Espace s'ecrit, il ne lance pas la scene.
 			// La recherche du menu des composants a le clavier, elle aussi.
 			if (ctx.inputId != nkgui::NKGUI_ID_NONE || c.ui.filtreFocus || c.ui.nomFocus || c.ui.arbre.renaming != 0 ||
-				c.ui.menu == NkMenuEditeur::NK_COMPOSANT) {
+				c.ui.menu == NkMenuEditeur::NK_COMPOSANT || c.ui.menu == NkMenuEditeur::NK_TEXTURE_SPRITE) {
 				return;
 			}
 			// (2026-10-01) Les CHAMPS du navigateur (recherche, recherche d'une section,

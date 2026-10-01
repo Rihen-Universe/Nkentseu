@@ -37,6 +37,7 @@
 
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurReferences.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/Components/NkContentBrowserDisque.h"
@@ -1172,6 +1173,8 @@ namespace nkentseu {
 				editorkit::NkGuiComponentPaint peintre(c.ctx, c.theme);
 				const editorkit::NkContentBrowserResult res = editorkit::NkDrawContentBrowser(
 					peintre, ci, editorkit::NkPaintRect{zone.x, zone.y, zone.w, zone.h}, ui.contenu, s, hooks);
+				// Ce qu'on TRAINE : les cibles de depot hors du tiroir s'eclairent.
+				ui.contenuGlisse = res.glisserChemin;
 				ui.boutonImporter = NkRect{res.importerX, res.importerY, res.importerW, res.importerH};
 				ui.contenuPrecedent = NkRect{res.precedentX, res.precedentY, res.precedentW, res.precedentH};
 				ui.contenuSuivant = NkRect{res.suivantX, res.suivantY, res.suivantW, res.suivantH};
@@ -1349,12 +1352,31 @@ namespace nkentseu {
 				}
 
 				auto &over = c.ctx.dlOverlay;
+				// (2026-10-01, retour 4 de Rihen) Une IMAGE trainee vise aussi un
+				// SPRITE : la reference de texture des Details, ou le sprite sous le
+				// curseur dans la vue (Unreal pose un materiau ainsi).
+				const bool image = !res.glisserChemin.Empty() && NkEditeurEstImage(res.glisserChemin.CStr());
+				const bool surDetails = image && c.m.aSelection && NkEditeurDans(ui.detailsTexture, in.mousePos);
+				ecs::NkEntityId spriteVise;
+				if (image && !surDetails && NkEditeurDans(ui.viseur, in.mousePos)) {
+					const NkVec2f monde = c.m.scene.Camera().EcranVersMonde(NkVec2f(in.mousePos.x, in.mousePos.y));
+					ecs::NkEntityId e;
+					if (NkEditeurPrendreSous(c.m, monde, e) && c.m.scene.Monde().Has<NkSprite2D>(e)) {
+						spriteVise = e;
+					}
+				}
 				if (!res.glisserChemin.Empty()) {
 					if (in.mouseReleased[0]) {
 						// LE DEPOT DANS LA VUE : lache hors des volets du composant. Un
 						// acteur du catalogue s'y pose ; un PREFAB s'y instancie ; une
-						// IMAGE y devient un sprite. Un dossier ne pose rien.
-						if (NkEditeurDans(ui.viseur, in.mousePos)) {
+						// IMAGE y devient un sprite -- ou, lachee SUR un sprite (ou sur
+						// la reference de texture des Details), devient SA texture. Un
+						// dossier ne pose rien.
+						if (surDetails) {
+							NkEditeurTextureSprite(c.m, c.m.selection, res.glisserChemin.CStr());
+						} else if (spriteVise.IsValid()) {
+							NkEditeurTextureSprite(c.m, spriteVise, res.glisserChemin.CStr());
+						} else if (NkEditeurDans(ui.viseur, in.mousePos)) {
 							const NkVec2f monde = c.m.scene.Camera().EcranVersMonde(NkVec2f(in.mousePos.x, in.mousePos.y));
 							const int32 acteur = ActeurDuChemin(res.glisserChemin.CStr());
 							if (acteur != -1) {
@@ -1366,8 +1388,14 @@ namespace nkentseu {
 							}
 						}
 					} else {
-						// Le fantome : ce qu'on emporte, sous le curseur.
-						const char *lib = res.glisserLibelle.Empty() ? res.glisserChemin.CStr() : res.glisserLibelle.CStr();
+						// Le fantome : ce qu'on emporte, sous le curseur -- et ce qu'il
+						// deviendra s'il vise un sprite.
+						NkString libelle = res.glisserLibelle.Empty() ? res.glisserChemin : res.glisserLibelle;
+						if (surDetails || spriteVise.IsValid()) {
+							const NkEtiquette *et = c.m.scene.Monde().Get<NkEtiquette>(surDetails ? c.m.selection : spriteVise);
+							libelle.Append(NkString::Format("  →  texture de « %s »", et != nullptr ? et->nom : "").CStr());
+						}
+						const char *lib = libelle.CStr();
 						const float32 w = renderer::NkTexteLargeur(c.police, lib) + 16.f;
 						const NkRect g{in.mousePos.x + 12.f, in.mousePos.y + 10.f, w, 22.f};
 						over.AddRectFilled(g, c.pal.entete, 2.f);
@@ -1922,6 +1950,22 @@ namespace nkentseu {
 				}
 			}
 			return NkEditeurExporter(m, fichiers, destination);
+		}
+
+		void NkEditeurContenuMontrer(NkEditeurInterface &ui, const NkString &nav) {
+			// Unreal « Browse to Asset » : meme verrouille, le navigateur y va -- c'est
+			// une demande explicite.
+			if (!NkEditeurCheminEstContenu(nav.CStr()) || Rel(nav).Empty()) {
+				return;
+			}
+			ui.voirTiroir = true;
+			ui.ongletTiroir = 0;
+			AllerContenu(ui, editorkit::NkDisqueParent(Rel(nav).CStr()));
+			ui.contenuChoisis.Clear();
+			ui.contenuChoisis.PushBack(nav);
+			ui.contenuActif = nav;
+			ui.contenuAncre = nav;
+			ui.contenu.focus = true;
 		}
 
 		void NkEditeurDessinerTiroir(NkEditeurCadre &c) {

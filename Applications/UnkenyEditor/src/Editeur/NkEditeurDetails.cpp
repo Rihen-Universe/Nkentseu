@@ -39,6 +39,7 @@
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurReferences.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/NkEditorTextField.h"
@@ -533,6 +534,122 @@ namespace nkentseu {
 			}
 
 			// =================================================================
+			// LA REFERENCE D'ASSET (Unreal, document 02 §5)
+			// =================================================================
+			/// La TEXTURE d'un sprite comme le « Static Mesh » d'Unreal : la vignette,
+			/// la liste deroulante des images du Contenu (filtree par type, avec sa
+			/// recherche), « utiliser la selection du Content Browser » (fleche),
+			/// « parcourir » (loupe : saute a l'asset), et la fleche qui remet
+			/// « Aucune ». Une image GLISSEE du Content Browser s'y depose
+			/// (NkEditeurTiroir.cpp lit `detailsTexture`). Tout est retenu (Ctrl+Z).
+			/// (2026-10-01, retour 4 de Rihen : « comment mettre une texture sur un
+			/// sprite ? aujourd'hui rien ne le permet ».)
+			void ReferenceTexture(NkInspecteur &I) {
+				NkEditeurCadre &c = I.c;
+				NkEditeurInterface &ui = c.ui;
+				const NkSprite2D *s = c.m.scene.Monde().Get<NkSprite2D>(I.id);
+				constexpr float32 H = 58.f;
+				NkRect champ, lib;
+				Rangee(I, "Texture", H, champ, lib);
+				const NkRect rangee{lib.x - 12.f, lib.y, champ.x + champ.w + 8.f - (lib.x - 12.f), lib.h};
+				ui.detailsTexture = rangee;
+				const uint32 tex = s->texId;
+				// La fleche de remise, a la hauteur d'une rangee simple, centree.
+				bool remise = false;
+				if (tex != 0u) {
+					NkRect court{champ.x, champ.y + (champ.h - (RANG_H - 4.f)) * 0.5f, champ.w, RANG_H - 4.f};
+					remise = Remettre(I, court);
+					champ.w = court.w;
+				}
+				auto &dl = c.ctx.DL();
+				const bool dedans = NkEditeurDans(I.zone, c.ctx.input.mousePos);
+				// ── La vignette : l'image dans son rapport, sur le fond sombre ──
+				const float32 cote = H - 10.f;
+				const NkRect vig{champ.x, champ.y + (champ.h - cote) * 0.5f, cote, cote};
+				dl.AddRectFilled(vig, c.pal.fond, 2.f);
+				int32 tw = 0, th = 0;
+				if (tex != 0u && c.m.textures.Taille(tex, tw, th) && tw > 0 && th > 0) {
+					float32 iw = cote - 4.f, ih = cote - 4.f;
+					if (tw > th) {
+						ih = iw * static_cast<float32>(th) / static_cast<float32>(tw);
+					} else {
+						iw = ih * static_cast<float32>(tw) / static_cast<float32>(th);
+					}
+					const NkRect img{vig.x + (vig.w - iw) * 0.5f, vig.y + (vig.h - ih) * 0.5f, iw, ih};
+					dl.AddImage(tex, img, NkVec2{s->uv0.x, s->uv0.y}, NkVec2{s->uv1.x, s->uv1.y}, NkColor{255, 255, 255, 255});
+				} else {
+					renderer::NkTexteDansBoite(dl, c.petite, vig, "Aucune", c.pal.attenue);
+				}
+				dl.AddRect(vig, c.pal.bord, 1.f, 2.f);
+				// ── La liste deroulante : le nom de l'asset, et ▾ ──
+				const NkString nav = NkEditeurNavDeTexture(c.m, tex);
+				NkString nom("Aucune");
+				if (tex != 0u) {
+					nom = editorkit::NkDisqueNom(nav.Empty() ? c.m.textures.Nom(tex) : nav.CStr());
+				}
+				const float32 x0 = vig.x + vig.w + 6.f;
+				const NkRect liste{x0, champ.y + 4.f, champ.x + champ.w - x0, 20.f};
+				const bool ouverte = ui.menu == NkMenuEditeur::NK_TEXTURE_SPRITE;
+				if (NkEditeurBouton(c, liste, "", ouverte, dedans, &dl)) {
+					NkEditeurImagesDuContenu(c.m, ui.texturesProposees);
+					NkEditeurOuvrirMenu(c, NkMenuEditeur::NK_TEXTURE_SPRITE, liste);
+				}
+				const NkColor surListe = ouverte ? c.pal.surAccent : c.pal.texte;
+				dl.PushClipRect(NkRect{liste.x + 4.f, liste.y, liste.w - 18.f, liste.h}, true);
+				renderer::NkTexte(dl, c.petite, liste.x + 6.f, liste.y + (liste.h - renderer::NkTexteHauteurLigne(c.petite, 12.f)) * 0.5f,
+								  nom.CStr(), surListe);
+				dl.PopClipRect();
+				const float32 fx = liste.x + liste.w - 9.f, fy = liste.y + liste.h * 0.5f;
+				dl.AddTriangleFilled(NkVec2{fx - 4.f, fy - 2.f}, NkVec2{fx + 4.f, fy - 2.f}, NkVec2{fx, fy + 3.f}, surListe);
+				// ── « Utiliser la selection du Content Browser » : la fleche ←
+				NkString candidat;
+				if (NkEditeurEstImage(ui.contenuActif.CStr())) {
+					candidat = ui.contenuActif;
+				}
+				for (uint32 i = 0; i < ui.contenuChoisis.Size() && candidat.Empty(); ++i) {
+					if (NkEditeurEstImage(ui.contenuChoisis[i].CStr())) {
+						candidat = ui.contenuChoisis[i];
+					}
+				}
+				const NkRect bSel{x0, liste.y + liste.h + 4.f, 24.f, 20.f};
+				const NkRect bPar{bSel.x + bSel.w + 4.f, bSel.y, 24.f, 20.f};
+				const bool clicSel = NkEditeurBouton(c, bSel, "", false, dedans && !candidat.Empty(), &dl);
+				{
+					const NkColor col = candidat.Empty() ? c.pal.attenue : c.pal.texte;
+					const float32 cx = bSel.x + bSel.w * 0.5f, cy = bSel.y + bSel.h * 0.5f;
+					dl.AddCircle(NkVec2{cx, cy}, 6.5f, col, 1.2f);
+					dl.AddLine(NkVec2{cx - 3.5f, cy}, NkVec2{cx + 3.5f, cy}, col, 1.4f);
+					dl.AddTriangleFilled(NkVec2{cx - 4.5f, cy}, NkVec2{cx - 1.f, cy - 3.f}, NkVec2{cx - 1.f, cy + 3.f}, col);
+				}
+				// ── « Parcourir » : la loupe ; saute a l'asset dans le Content Browser
+				const bool clicPar = NkEditeurBouton(c, bPar, "", false, dedans && !nav.Empty(), &dl);
+				{
+					const NkColor col = nav.Empty() ? c.pal.attenue : c.pal.texte;
+					const float32 cx = bPar.x + bPar.w * 0.5f - 1.5f, cy = bPar.y + bPar.h * 0.5f - 1.5f;
+					dl.AddCircle(NkVec2{cx, cy}, 4.5f, col, 1.4f);
+					dl.AddLine(NkVec2{cx + 3.2f, cy + 3.2f}, NkVec2{cx + 7.f, cy + 7.f}, col, 1.8f);
+				}
+				ui.detailsTextureListe = liste;
+				ui.detailsTextureSelection = bSel;
+				ui.detailsTextureParcourir = bPar;
+				// ── Une image TRAINEE depuis le Content Browser : la cible s'eclaire
+				if (!ui.contenuGlisse.Empty() && NkEditeurEstImage(ui.contenuGlisse.CStr())) {
+					const bool dessus = NkEditeurDans(rangee, c.ctx.input.mousePos);
+					if (dessus) {
+						dl.AddRectFilled(rangee, NkColor{c.pal.selection.r, c.pal.selection.g, c.pal.selection.b, 40}, 2.f);
+					}
+					dl.AddRect(rangee, c.pal.selection, dessus ? 2.f : 1.f, 2.f);
+				}
+				if (clicSel) {
+					NkEditeurTextureSprite(c.m, I.id, candidat.CStr());
+				} else if (clicPar) {
+					NkEditeurContenuMontrer(ui, nav);
+				} else if (remise) {
+					NkEditeurSansTexture(c.m, I.id);
+				}
+			}
+
+			// =================================================================
 			// LES CARTES
 			// =================================================================
 			/// Le Transform a la maniere d'Unreal : Position, Rotation, Echelle, une
@@ -595,7 +712,8 @@ namespace nkentseu {
 				Paire(I, "Pivot", s->pivot.x, s->pivot.y, 0.01f, 0.f, 1.f);
 				Teinte(I, "Teinte", s->couleur);
 				Entier(I, "Couche", s->couche);
-				Info(I, "Texture", s->texId != 0u ? I.c.m.textures.Nom(s->texId) : "(aucune)");
+				// (2026-10-01) La reference d'asset d'Unreal, au lieu du nom en lecture seule.
+				ReferenceTexture(I);
 				Fin(I);
 			}
 
@@ -1153,6 +1271,7 @@ namespace nkentseu {
 				NkGuiContext &ctx = c.ctx;
 				auto &dl = ctx.dl;
 				c.ui.caseActif = NkRect{0.f, 0.f, 0.f, 0.f};
+				c.ui.detailsTexture = NkRect{0.f, 0.f, 0.f, 0.f};
 				if (!c.m.aSelection || !c.m.scene.Monde().IsAlive(c.m.selection)) {
 					// Un etat vide qui PARLE (UI_SPEC §0, regle 3) : il dit quoi faire.
 					const float32 lh = renderer::NkTexteHauteurLigne(c.police, 16.f);

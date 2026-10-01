@@ -94,7 +94,9 @@ namespace nkentseu {
 			NK_CONTENU_DEPOSER,	   ///< apres un glisser : « Deplacer ici / Copier ici »
 			NK_CONTENU_COULEUR,	   ///< sous-menu « Couleur du dossier »
 			NK_CONTENU_COLLECTION, ///< sous-menu « Ajouter a la collection »
-			NK_CTX_COLLECTION	   ///< clic droit sur une collection
+			NK_CTX_COLLECTION,	   ///< clic droit sur une collection
+			// L'etape 2 d'Unreal (2026-10-01, document 02 §5) : AJOUTES A LA FIN.
+			NK_TEXTURE_SPRITE ///< la liste deroulante de la texture d'un sprite (Details)
 		};
 
 		/// LA table des actions. Les plages a partir de 100 portent un indice
@@ -210,7 +212,10 @@ namespace nkentseu {
 			NK_A_CONTENU_COULEUR = 1340,		 ///< + indice de NkCouleursDossier (0 = celle par defaut)
 			NK_A_CONTENU_TAILLE = 1352,			 ///< + indice de taille (petite, moyenne, grande, enorme)
 			NK_A_CONTENU_TRI = 1360,			 ///< + NkBrowserTri
-			NK_A_CONTENU_COLLECTION = 1370		 ///< + indice de collection : la selection y entre
+			NK_A_CONTENU_COLLECTION = 1370,		 ///< + indice de collection : la selection y entre
+			// La reference d'asset des Details (2026-10-01, document 02 §5) : une plage
+			// loin des autres (des branches paralleles ajoutent les leurs).
+			NK_A_TEXTURE_SPRITE = 2100 ///< + 0 = « Aucune », + 1 + i = texturesProposees[i]
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
@@ -408,7 +413,20 @@ namespace nkentseu {
 				float32 agePrecedent = 99.f;
 				float32 defilJournal = 0.f;
 
+				/// (2026-10-01) Ce que le Content Browser TRAINE a cette trame (chemin du
+				/// navigateur ; vide = rien) : les cibles de depot (la reference de
+				/// texture des Details, un sprite de la vue) s'eclairent.
+				NkString contenuGlisse;
+
 				// --- Les Details ------------------------------------------------
+				/// La reference de TEXTURE du sprite (Unreal) : les images proposees
+				/// par sa liste deroulante, et son rectangle a l'ecran (cible du
+				/// glisser depuis le Content Browser ; le banc y vise).
+				NkVector<NkString> texturesProposees;
+				nkgui::NkRect detailsTexture{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect detailsTextureListe{0.f, 0.f, 0.f, 0.f};	   ///< la liste deroulante
+				nkgui::NkRect detailsTextureSelection{0.f, 0.f, 0.f, 0.f}; ///< « utiliser la selection »
+				nkgui::NkRect detailsTextureParcourir{0.f, 0.f, 0.f, 0.f}; ///< « parcourir »
 				ecs::NkEntityId nomDe; ///< l'entite dont `nom` est le tampon
 				char nom[32] = {};
 				bool nomFocus = false;
@@ -658,6 +676,10 @@ namespace nkentseu {
 		/// dedans) : Ctrl+C / X / V / D / A, F2, Suppr. Rend vrai si une touche a
 		/// ete prise -- la scene ne la recoit pas aussi.
 		bool NkEditeurContenuAuClavier(NkEditeurCadre &c);
+		/// (2026-10-01) « Parcourir » d'une reference d'asset (Unreal « Browse to
+		/// Asset ») : le tiroir montre le Content Browser, sur le dossier de `nav`,
+		/// l'asset choisi.
+		void NkEditeurContenuMontrer(NkEditeurInterface &ui, const NkString &nav);
 		/// La palette des couleurs de dossier (Unreal « Set Color ») : son nom et sa
 		/// couleur (0 = celle du theme).
 		int32 NkEditeurNbCouleursDossier() noexcept;

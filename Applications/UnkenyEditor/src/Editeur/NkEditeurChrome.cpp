@@ -20,6 +20,7 @@
 #include "Editeur/NkEditeurInterface.h"
 #include "NKEditorKit/Components/NkContentBrowserDisque.h"
 #include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurReferences.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/NkThemeToGui.h"
@@ -633,6 +634,23 @@ namespace nkentseu {
 						}
 						break;
 					}
+					case NkMenuEditeur::NK_TEXTURE_SPRITE: {
+						// (2026-10-01) La liste deroulante de la reference de texture
+						// (Details) : « Aucune », puis les IMAGES du Contenu (filtre
+						// par type), relevees a l'ouverture ; la texture du sprite cochee.
+						const NkSprite2D *s = m.aSelection && m.scene.Monde().IsAlive(m.selection) ? m.scene.Monde().Get<NkSprite2D>(m.selection)
+																							   : nullptr;
+						const NkString actuelle = s != nullptr ? NkEditeurNavDeTexture(m, s->texId) : NkString();
+						out.PushBack(Entree("Aucune", NK_A_TEXTURE_SPRITE, "", s != nullptr && s->texId == 0u));
+						out.PushBack(Separateur());
+						out.PushBack(Intitule(c.ui.texturesProposees.Empty() ? "(aucune image dans le Contenu)" : "Images du Contenu"));
+						for (uint32 k = 0; k < c.ui.texturesProposees.Size() && k < 99u; ++k) {
+							const NkString &nav = c.ui.texturesProposees[k];
+							out.PushBack(Entree(NkEditeurRelatifContenu(nav.CStr()).CStr(), NK_A_TEXTURE_SPRITE + 1 + static_cast<int32>(k), "",
+												nav == actuelle));
+						}
+						break;
+					}
 					case NkMenuEditeur::NK_COMPOSANT: {
 						if (!m.aSelection || !m.scene.Monde().IsAlive(m.selection)) {
 							out.PushBack(Intitule("(aucune sélection)"));
@@ -1173,6 +1191,16 @@ namespace nkentseu {
 			}
 			if (action >= NK_A_OUTIL && action <= NK_A_OUTIL + static_cast<int32>(NkOutil::NK_ECHELLE)) {
 				m.outil = static_cast<NkOutil>(action - NK_A_OUTIL);
+				return;
+			}
+			// (2026-10-01) La liste deroulante de la texture d'un sprite (Details).
+			if (action >= NK_A_TEXTURE_SPRITE && action < NK_A_TEXTURE_SPRITE + 100) {
+				const int32 k = action - NK_A_TEXTURE_SPRITE;
+				if (k == 0) {
+					NkEditeurSansTexture(m, m.selection);
+				} else if (static_cast<uint32>(k - 1) < ui.texturesProposees.Size()) {
+					NkEditeurTextureSprite(m, m.selection, ui.texturesProposees[static_cast<uint32>(k - 1)].CStr());
+				}
 				return;
 			}
 			switch (action) {
@@ -1914,7 +1942,9 @@ namespace nkentseu {
 			// « Ajouter un composant » se CHERCHE (Unity) : on tape, la liste filtre,
 			// Entree prend la premiere ligne restante.
 			int32 premiere = NK_A_AUCUNE;
-			if (ui.menu == NkMenuEditeur::NK_COMPOSANT && ui.sousMenu == NkMenuEditeur::NK_AUCUN) {
+			// (2026-10-01) La liste des TEXTURES d'un sprite se cherche de meme.
+			const bool cherchable = ui.menu == NkMenuEditeur::NK_COMPOSANT || ui.menu == NkMenuEditeur::NK_TEXTURE_SPRITE;
+			if (cherchable && ui.sousMenu == NkMenuEditeur::NK_AUCUN) {
 				usize n = 0;
 				while (ui.menuFiltre[n] != '\0') {
 					++n;
@@ -1960,7 +1990,7 @@ namespace nkentseu {
 					gardees.PushBack(e);
 				}
 				if (n > 0u && premiere == NK_A_AUCUNE) {
-					gardees.PushBack(Intitule("(aucun composant de ce nom)"));
+					gardees.PushBack(Intitule(ui.menu == NkMenuEditeur::NK_COMPOSANT ? "(aucun composant de ce nom)" : "(aucune image de ce nom)"));
 				}
 				entrees = gardees;
 			}

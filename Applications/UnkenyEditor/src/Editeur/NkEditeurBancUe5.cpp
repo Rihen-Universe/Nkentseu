@@ -20,6 +20,13 @@
 //         courant, memes cartes, memes dossiers au rail ; une scene rangee dans
 //         un dossier lui-meme nomme « Contenu » garde le projet (retenu) ; sans
 //         memoire, une scene rangee dans le Contenu donne son projet
+//   (u4)  la TEXTURE D'UN SPRITE depuis les Details (reference d'asset
+//         d'Unreal) : le champ est la ; sa liste deroulante ne propose que les
+//         IMAGES du Contenu et se cherche (taper, Entree) ; Ctrl+Z / Ctrl+Y ;
+//         « utiliser la selection du Content Browser » ; « parcourir » saute a
+//         l'asset ; une image GLISSEE sur le champ, puis SUR le sprite dans la
+//         vue, devient sa texture (aucune entite creee) ; lachee dans le vide,
+//         elle pose toujours un sprite neuf
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -27,6 +34,7 @@
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurBancTrame.h"
 #include "Editeur/NkEditeurContenu.h"
+#include "Editeur/NkEditeurReferences.h"
 
 #include "NKEditorKit/Components/NkRecordingPaint.h"
 #include "NKFileSystem/NkDirectory.h"
@@ -46,6 +54,35 @@ namespace nkentseu {
 			}
 			bool Contient(const NkString &s, const char *mot) {
 				return std::strstr(s.CStr(), mot) != nullptr;
+			}
+			uint32 NbEntites(NkScene &s) {
+				NkVector<ecs::NkEntityId> ids;
+				s.Entites(ids);
+				return static_cast<uint32>(ids.Size());
+			}
+			/// La premiere entite dont le nom COMMENCE par `prefixe` (« Caisse 1 »...).
+			ecs::NkEntityId Par(NkScene &s, const char *prefixe) {
+				ecs::NkEntityId t = ecs::NkEntityId::Invalid();
+				const usize n = std::strlen(prefixe);
+				s.Monde().Query<NkEtiquette>().ForEach([&](ecs::NkEntityId id, NkEtiquette &e) {
+					if (std::strncmp(e.nom, prefixe, n) == 0 && !t.IsValid()) {
+						t = id;
+					}
+				});
+				return t;
+			}
+			/// Une VRAIE image PNG (1 x 1, rouge) : la texture se charge pour de bon.
+			void EcrirePng(const char *chemin) {
+				static const uint8 kPng[] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+											 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+											 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00,
+											 0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xDD, 0x8D, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
+											 0x44, 0xAE, 0x42, 0x60, 0x82};
+				NkVector<nk_uint8> octets;
+				for (uint32 i = 0; i < sizeof(kPng); ++i) {
+					octets.PushBack(kPng[i]);
+				}
+				NkFile::WriteAllBytes(chemin, octets);
 			}
 		} // namespace
 
@@ -284,6 +321,117 @@ namespace nkentseu {
 					   static_cast<float32>(cartes));
 				m.projet = NkString();
 				NkDirectory::Delete("banc_u3", true);
+			}
+
+			// (u4) LA TEXTURE D'UN SPRITE (retour 4 de Rihen : « comment mettre une
+			// texture sur un sprite ? aujourd'hui rien ne le permet »).
+			{
+				NkDirectory::Delete("banc_u4", true);
+				NkDirectory::CreateRecursive("banc_u4/projet/Contenu/Textures");
+				EcrirePng("banc_u4/projet/Contenu/Textures/bleu.png");
+				EcrirePng("banc_u4/projet/Contenu/Textures/rouge.png");
+				NkFile::WriteAllText("banc_u4/projet/Contenu/Textures/son.wav", "s");
+				NkEditeurNouvelleScene(m);
+				NkEditeurOublierHistorique(m);
+				m.projet = NkString();
+				m.chemin = NkString("banc_u4/projet/scene.nkscene");
+				NkEditeurBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				NkEditeurCadre c = t.Cadre();
+				ui.contenuCorbeille = false;
+				const ecs::NkEntityId caisse = Par(m.scene, "Caisse");
+				m.selection = caisse;
+				m.aSelection = caisse.IsValid();
+				t.Trame();
+				t.Trame();
+				// ⚠️ Annuler / refaire RESTAURE la scene : les poignees changent, on
+				//    retrouve la caisse par son nom a chaque mesure.
+				auto Tex = [&]() {
+					const ecs::NkEntityId e = Par(m.scene, "Caisse");
+					const NkSprite2D *sp = e.IsValid() ? m.scene.Monde().Get<NkSprite2D>(e) : nullptr;
+					return sp != nullptr ? NkEditeurNavDeTexture(m, sp->texId) : NkString("?");
+				};
+				auto Milieu = [](const nkgui::NkRect &r) { return nkgui::NkVec2{r.x + r.w * 0.5f, r.y + r.h * 0.5f}; };
+				const NkString avant = Tex();
+				// (a) le champ est la (vignette, liste, selection, parcourir)
+				const bool champ = ui.detailsTexture.w > 0.f && ui.detailsTextureListe.w > 0.f && ui.detailsTextureSelection.w > 0.f &&
+								   ui.detailsTextureParcourir.w > 0.f && avant.Empty();
+				// (b) la LISTE : les seules images, cherchee (« rou », Entree)
+				const nkgui::NkVec2 pl = Milieu(ui.detailsTextureListe);
+				t.Clic(0, pl.x, pl.y);
+				const bool liste = ui.menu == NkMenuEditeur::NK_TEXTURE_SPRITE && ui.texturesProposees.Size() == 2u &&
+								   ui.texturesProposees[0] == NkString("Contenu/Textures/bleu.png") &&
+								   ui.texturesProposees[1] == NkString("Contenu/Textures/rouge.png");
+				t.Taper("rou");
+				t.Touche(nkgui::NkGuiKey::Enter);
+				const bool choisie = Tex() == NkString("Contenu/Textures/rouge.png") && ui.menu == NkMenuEditeur::NK_AUCUN;
+				// (c) Ctrl+Z la retire, Ctrl+Y la remet
+				t.Fermer();
+				t.Touche(nkgui::NkGuiKey::Z, true);
+				const bool annulee = Tex() == avant;
+				t.Touche(nkgui::NkGuiKey::Y, true);
+				const bool refaite = Tex() == NkString("Contenu/Textures/rouge.png");
+				// (d) « utiliser la selection du Content Browser » : bleu.png choisie
+				ui.contenuMenuChemin = NkString("Contenu/Textures");
+				ui.contenuMenuDossier = true;
+				NkEditeurExecuter(c, NK_A_CONTENU_OUVRIR);
+				ui.contenuMenuChemin = NkString();
+				t.Trame();
+				t.Trame();
+				const bool carteBleue = t.CliquerCarte("Contenu/Textures/bleu.png");
+				const nkgui::NkVec2 ps = Milieu(ui.detailsTextureSelection);
+				t.Clic(0, ps.x, ps.y);
+				const bool selection = carteBleue && Tex() == NkString("Contenu/Textures/bleu.png");
+				// (e) « parcourir » : le navigateur, a la racine, saute a l'asset
+				ui.contenuMenuChemin = NkString();
+				NkEditeurExecuter(c, NK_A_CONTENU_RACINE);
+				t.Trame();
+				const nkgui::NkVec2 pp = Milieu(ui.detailsTextureParcourir);
+				t.Clic(0, pp.x, pp.y);
+				t.Trame();
+				const bool parcourir = ui.contenuDossier == NkString("Textures") && ui.contenuActif == NkString("Contenu/Textures/bleu.png") &&
+									   ui.voirTiroir && ui.ongletTiroir == 0;
+				// (f) GLISSER rouge.png du Content Browser sur le CHAMP des Details
+				auto Glisser = [&](nkgui::NkVec2 de, nkgui::NkVec2 a) {
+					t.Ctx().input.mousePos = de;
+					t.souris.Appui(t.Ctx().input, 0);
+					t.Trame();
+					t.Ctx().input.mousePos = nkgui::NkVec2{(de.x + a.x) * 0.5f, (de.y + a.y) * 0.5f + 3.f};
+					t.Trame();
+					t.Ctx().input.mousePos = a;
+					t.Trame();
+					t.souris.Relache(t.Ctx().input, 0);
+					t.Trame();
+				};
+				auto CentreCarte = [&](const char *chemin) {
+					const int32 k = t.Carte(chemin);
+					return k < 0 ? nkgui::NkVec2{-1.f, -1.f}
+								 : nkgui::NkVec2{ui.contenuCartes[static_cast<uint32>(k)].x + 20.f, ui.contenuCartes[static_cast<uint32>(k)].y + 20.f};
+				};
+				const uint32 n0 = NbEntites(m.scene);
+				Glisser(CentreCarte("Contenu/Textures/rouge.png"), Milieu(ui.detailsTexture));
+				const bool surChamp = Tex() == NkString("Contenu/Textures/rouge.png") && NbEntites(m.scene) == n0;
+				// (g) GLISSER bleu.png SUR la caisse dans la vue : sa texture, pas un sprite neuf
+				const ecs::NkEntityId caisse2 = Par(m.scene, "Caisse");
+				const NkTransform2D *tc = caisse2.IsValid() ? m.scene.Monde().Get<NkTransform2D>(caisse2) : nullptr;
+				const NkVec2f ecran = tc != nullptr ? m.scene.Camera().MondeVersEcran(tc->position) : NkVec2f(-1.f, -1.f);
+				Glisser(CentreCarte("Contenu/Textures/bleu.png"), nkgui::NkVec2{ecran.x, ecran.y});
+				const bool surSprite = Tex() == NkString("Contenu/Textures/bleu.png") && NbEntites(m.scene) == n0;
+				// (h) lachee dans le VIDE de la vue : un sprite neuf, comme avant
+				Glisser(CentreCarte("Contenu/Textures/rouge.png"), nkgui::NkVec2{ui.viseur.x + 12.f, ui.viseur.y + 12.f});
+				const bool neuf = NbEntites(m.scene) == n0 + 1u && Tex() == NkString("Contenu/Textures/bleu.png");
+				const bool ok = champ && liste && choisie && annulee && refaite && selection && parcourir && surChamp && surSprite && neuf;
+				if (!ok) {
+					std::printf("        champ %d liste %d (%u) choisie %d annulee %d refaite %d selection %d parcourir %d (« %s ») "
+								"surChamp %d surSprite %d (ecran %.0f,%.0f) neuf %d ; texture « %s »\n",
+								champ, liste, static_cast<uint32>(ui.texturesProposees.Size()), choisie, annulee, refaite, selection, parcourir,
+								ui.contenuDossier.CStr(), surChamp, surSprite, static_cast<double>(ecran.x), static_cast<double>(ecran.y), neuf,
+								Tex().CStr());
+				}
+				Temoin(ok, "(u4) texture d'un sprite : liste filtree, Ctrl+Z/Y, selection, parcourir, glisser (champ, sprite)",
+					   static_cast<float32>(champ + liste + choisie + annulee + refaite + selection + parcourir + surChamp + surSprite + neuf));
+				m.projet = NkString();
+				NkDirectory::Delete("banc_u4", true);
 			}
 
 			m.chemin = cheminAvant;
