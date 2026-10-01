@@ -31,6 +31,7 @@
 #include "Unkeny/Banc/NkUnkenyBancLumiere.h"
 #include "Unkeny/Banc/NkUnkenyBancLivraison.h"
 #include "Unkeny/Jeu/NkUnkenyNiveauGelee.h"
+#include "Unkeny/Livraison/NkUnkenyLivraison.h"
 #include <cstdio>
 
 namespace nkentseu {
@@ -192,7 +193,16 @@ namespace nkentseu {
 				return NkOptional<int>(-1);
 			}
 			NkEditeurModele &m = *mModele;
+			NkString cuire;
 			for (uint32 i = 0; i < args.Size(); ++i) {
+				// --cuire=DOSSIER (2026-10-01) : cuit les DONNEES du jeu (scene,
+				// textures, regle de camera) sans rien construire, pour les jouer
+				// aussitot : UnkenyPlayer --jeu=DOSSIER. Avec --exemple=hud,
+				// --scene=, --appareil= ; le viseur de reference est 1280x720.
+				if (args[i].StartsWith("--cuire=")) {
+					cuire = NkString(args[i].SubStr(8));
+					continue;
+				}
 				if (args[i].StartsWith("--profil=")) {
 					const int32 n = NkString(args[i].SubStr(9)).ToInt32();
 					m.profil = (n >= 0 && n < NkNbProfils()) ? n : 0;
@@ -354,7 +364,46 @@ namespace nkentseu {
 					return NkOptional<int>(NkEditeurConstruireEnLigne(args));
 				}
 			}
+			if (!cuire.Empty()) {
+				return NkOptional<int>(CuireSeulement(cuire));
+			}
 			return NkOptional<int>();
+		}
+
+		int32 NkEditeurApp::CuireSeulement(const NkString &dossier) {
+			NkEditeurModele &m = *mModele;
+			NkCreerRessourcesSim(m.ressources, &m.textures, nullptr);
+			NkEditeurNouvelleScene(m);
+			if (!mSceneDepart.Empty()) {
+				m.chemin = mSceneDepart;
+				if (!NkEditeurOuvrir(m)) {
+					std::printf("[editeur] --cuire : scene illisible %s\n", mSceneDepart.CStr());
+					return 4;
+				}
+			}
+			if (mExempleHud) {
+				NkEditeurExempleHud(m);
+			}
+			// Le viseur de reference, cadre sur toute la scene, comme a l'ouverture.
+			NkVue2D &cam = m.scene.Camera();
+			cam.PoserViseur(NkRect{0.f, 0.f, 1280.f, 720.f});
+			NkVec2f centre(0.f, 0.f);
+			NkVec2f taille(24.f, 11.f);
+			m.aSelection = false;
+			if (NkEditeurZoneACadrer(m, centre, taille)) {
+				cam.Cadrer(centre, taille);
+			}
+			unkeny::NkDemandeCuisson d;
+			d.dossier = dossier.EndsWith("/") || dossier.EndsWith("\\") ? dossier : dossier + "/";
+			d.nomJeu = "Essai";
+			d.vueLargeur = 1280.f;
+			d.vueHauteur = 720.f;
+			d.regleCamera = m.appareil.regleCamera;
+			unkeny::NkRapportCuisson rapport;
+			const bool ok = unkeny::NkCuireJeu(m.scene, m.textures, d, rapport);
+			std::printf("[editeur] --cuire : %s dans %s (%u fichier(s), camera %s)\n", ok ? "cuit" : "ECHEC", d.dossier.CStr(),
+						static_cast<unsigned>(rapport.fichiers.Size()), unkeny::NkNomRegleCamera(d.regleCamera));
+			return ok ? 0 : 1;
 		}
 
 		// =====================================================================

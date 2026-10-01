@@ -111,6 +111,8 @@ namespace nkentseu {
 				/// Les boutons de la souris, sans clic perdu entre deux trames.
 				NkEditeurSouris mBoutons;
 				bool mExempleNuit = false; ///< --exemple=nuit : la nuit au feu de camp (NkEditeurLumiere.h)
+				/// --cuire=DOSSIER : les donnees du jeu seulement (voir OnCommandLine).
+				int32 CuireSeulement(const NkString &dossier);
 				bool mExempleHud = false;  ///< --exemple=hud : quatre elements ancres a la zone sure (document 03)
 				bool mEclairageEteint = false; ///< --eclairage=off : la scene de depart, eclairage eteint
 		};
