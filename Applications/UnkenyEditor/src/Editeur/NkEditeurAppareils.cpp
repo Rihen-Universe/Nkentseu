@@ -472,5 +472,225 @@ namespace nkentseu {
 			return i >= 0 && i < 5 ? kNoms[i] : "?";
 		}
 
+		// =====================================================================
+		// L'appareil personnalise et son fichier
+		// =====================================================================
+
+		NkReglagesAppareil::NkReglagesAppareil() noexcept {
+			perso = NkPersonnaliser(NkProfil(persoBase));
+		}
+
+		NkProfilAppareil NkPersonnaliser(const NkProfilAppareil &base) noexcept {
+			NkProfilAppareil p = NkOrienter(base, NkOrientation::NK_PORTRAIT);
+			p.nom = "Personnalisé";
+			p.provenance = "Appareil personnalise, enregistre avec la scene (.nkappareil). Les marges suivent les "
+						   "regles du systeme choisi.";
+			return p;
+		}
+
+		NkString NkFichierAppareil(const char *cheminScene) {
+			NkString s(cheminScene != nullptr ? cheminScene : "scene.nkscene");
+			if (s.EndsWith(".nkscene")) {
+				s = s.SubStr(0, s.Length() - 8);
+			}
+			s += ".nkappareil";
+			return s;
+		}
+
+		namespace {
+			const char *const kOrientations[4] = {"portrait", "paysage-gauche", "portrait-inverse", "paysage-droite"};
+
+			void Ligne(NkString &t, const char *cle, const NkString &v) {
+				t += cle;
+				t += " = ";
+				t += v;
+				t += "\n";
+			}
+			void LigneF(NkString &t, const char *cle, float32 v) {
+				Ligne(t, cle, NkString::Format("%.9g", static_cast<double>(v)));
+			}
+			void LigneI(NkString &t, const char *cle, int32 v) {
+				Ligne(t, cle, NkString::Format("%d", v));
+			}
+
+			/// Les longueurs de l'appareil personnalise, toutes en points.
+			struct NkChampLongueur {
+					const char *cle;
+					float32 NkProfilAppareil::*champ;
+			};
+			const NkChampLongueur kLongueurs[] = {
+				{"perso.rayonCoins", &NkProfilAppareil::rayonCoins},
+				{"perso.barreEtat", &NkProfilAppareil::barreEtat},
+				{"perso.margeDecoupe", &NkProfilAppareil::margeDecoupe},
+				{"perso.indicateur", &NkProfilAppareil::indicateur},
+				{"perso.indicateurPaysage", &NkProfilAppareil::indicateurPaysage},
+				{"perso.navBoutons", &NkProfilAppareil::navBoutons},
+				{"perso.margeConseillee", &NkProfilAppareil::margeConseillee},
+				{"perso.bordure", &NkProfilAppareil::bordure},
+				{"perso.bordureHautBas", &NkProfilAppareil::bordureHautBas},
+			};
+			const NkChampLongueur *const kFinLongueurs = kLongueurs + sizeof(kLongueurs) / sizeof(kLongueurs[0]);
+		} // namespace
+
+		NkString NkEcrireAppareil(int32 profil, NkOrientation o, const NkReglagesAppareil &r) {
+			NkString t("# Unkeny -- l'appareil simule de l'editeur (document 03). Une cle absente garde sa valeur.\n");
+			Ligne(t, "format", NkString("unkeny.appareil"));
+			LigneI(t, "version", 1);
+			LigneI(t, "profil", profil);
+			Ligne(t, "orientation", NkString(kOrientations[static_cast<int32>(o) & 3]));
+			LigneI(t, "cadre", r.voirCadre ? 1 : 0);
+			LigneI(t, "zoneSure", r.voirZoneSure ? 1 : 0);
+			LigneI(t, "decoupe", r.voirDecoupe ? 1 : 0);
+			LigneI(t, "cadreClair", r.cadreClair ? 1 : 0);
+			LigneI(t, "apercuJeu", r.apercuJeu ? 1 : 0);
+			const NkProfilAppareil &p = r.perso;
+			LigneI(t, "perso.base", r.persoBase);
+			LigneI(t, "perso.systeme", static_cast<int32>(p.systeme));
+			LigneI(t, "perso.famille", static_cast<int32>(p.famille));
+			LigneI(t, "perso.largeur", static_cast<int32>(p.largeur));
+			LigneI(t, "perso.hauteur", static_cast<int32>(p.hauteur));
+			LigneF(t, "perso.densite", p.densite);
+			LigneI(t, "perso.rond", p.rond ? 1 : 0);
+			LigneI(t, "perso.decoupe", static_cast<int32>(p.decoupe));
+			LigneF(t, "perso.decoupe.x", p.rectDecoupe.x);
+			LigneF(t, "perso.decoupe.y", p.rectDecoupe.y);
+			LigneF(t, "perso.decoupe.w", p.rectDecoupe.w);
+			LigneF(t, "perso.decoupe.h", p.rectDecoupe.h);
+			LigneI(t, "perso.barreEtatPaysage", p.barreEtatPaysage ? 1 : 0);
+			LigneI(t, "perso.decoupeSymetrique", p.decoupeSymetrique ? 1 : 0);
+			LigneI(t, "perso.boutonAccueil", p.boutonAccueil ? 1 : 0);
+			for (const NkChampLongueur *c = kLongueurs; c != kFinLongueurs; ++c) {
+				LigneF(t, c->cle, p.*(c->champ));
+			}
+			return t;
+		}
+
+		bool NkLireAppareil(const NkString &texte, int32 &profil, NkOrientation &o, NkReglagesAppareil &r) {
+			// Les paires d'abord : rien n'est change si l'entete manque.
+			NkVector<NkString> cles;
+			NkVector<NkString> valeurs;
+			bool format = false;
+			usize debut = 0;
+			const usize n = texte.Length();
+			while (debut < n) {
+				usize fin = debut;
+				while (fin < n && texte.CStr()[fin] != '\n') {
+					++fin;
+				}
+				NkString ligne(texte.SubStr(debut, fin - debut));
+				debut = fin + 1;
+				ligne.Trim();
+				if (ligne.Empty() || ligne.StartsWith('#')) {
+					continue;
+				}
+				const usize egal = ligne.Find('=');
+				if (egal == NkString::npos) {
+					continue;
+				}
+				NkString cle(ligne.SubStr(0, egal));
+				NkString val(ligne.SubStr(egal + 1));
+				cle.Trim();
+				val.Trim();
+				if (cle == NkString("format")) {
+					format = val == NkString("unkeny.appareil");
+				}
+				cles.PushBack(cle);
+				valeurs.PushBack(val);
+			}
+			if (!format) {
+				return false;
+			}
+			// Le type de base d'abord : il donne les boutons du cadre, puis les
+			// cles du fichier ecrasent ce qu'elles nomment.
+			for (usize i = 0; i < cles.Size(); ++i) {
+				if (cles[i] == NkString("perso.base")) {
+					const int32 b = valeurs[i].ToInt32(-1);
+					if (b >= 0 && b < NkNbProfils()) {
+						r.persoBase = b;
+						r.perso = NkPersonnaliser(NkProfil(b));
+					}
+				}
+			}
+			NkProfilAppareil &p = r.perso;
+			for (usize i = 0; i < cles.Size(); ++i) {
+				const NkString &c = cles[i];
+				const NkString &v = valeurs[i];
+				float32 f = 0.f;
+				const bool estF = v.ToFloat(f);
+				const int32 e = v.ToInt32(-1);
+				const bool oui = v == NkString("1") || v == NkString("oui") || v == NkString("true");
+				if (c == NkString("profil")) {
+					if (e >= 0 && e <= NkNbProfils()) {
+						profil = e;
+					}
+				} else if (c == NkString("orientation")) {
+					for (int32 k = 0; k < 4; ++k) {
+						if (v == NkString(kOrientations[k])) {
+							o = static_cast<NkOrientation>(k);
+						}
+					}
+				} else if (c == NkString("cadre")) {
+					r.voirCadre = oui;
+				} else if (c == NkString("zoneSure")) {
+					r.voirZoneSure = oui;
+				} else if (c == NkString("decoupe")) {
+					r.voirDecoupe = oui;
+				} else if (c == NkString("cadreClair")) {
+					r.cadreClair = oui;
+				} else if (c == NkString("apercuJeu")) {
+					r.apercuJeu = oui;
+				} else if (c == NkString("perso.systeme")) {
+					if (e >= 0 && e < static_cast<int32>(NkSystemeAppareil::NK_COUNT)) {
+						p.systeme = static_cast<NkSystemeAppareil>(e);
+					}
+				} else if (c == NkString("perso.famille")) {
+					if (e >= 0 && e < static_cast<int32>(NkFamilleAppareil::NK_COUNT)) {
+						p.famille = static_cast<NkFamilleAppareil>(e);
+					}
+				} else if (c == NkString("perso.largeur")) {
+					if (e > 0) {
+						p.largeur = static_cast<uint32>(e);
+					}
+				} else if (c == NkString("perso.hauteur")) {
+					if (e > 0) {
+						p.hauteur = static_cast<uint32>(e);
+					}
+				} else if (c == NkString("perso.densite")) {
+					if (estF && f > 0.f) {
+						p.densite = f;
+					}
+				} else if (c == NkString("perso.rond")) {
+					p.rond = oui;
+				} else if (c == NkString("perso.decoupe")) {
+					if (e >= 0 && e < static_cast<int32>(NkTypeDecoupe::NK_COUNT)) {
+						p.decoupe = static_cast<NkTypeDecoupe>(e);
+					}
+				} else if (c == NkString("perso.decoupe.x")) {
+					p.rectDecoupe.x = estF ? f : p.rectDecoupe.x;
+				} else if (c == NkString("perso.decoupe.y")) {
+					p.rectDecoupe.y = estF ? f : p.rectDecoupe.y;
+				} else if (c == NkString("perso.decoupe.w")) {
+					p.rectDecoupe.w = estF && f >= 0.f ? f : p.rectDecoupe.w;
+				} else if (c == NkString("perso.decoupe.h")) {
+					p.rectDecoupe.h = estF && f >= 0.f ? f : p.rectDecoupe.h;
+				} else if (c == NkString("perso.barreEtatPaysage")) {
+					p.barreEtatPaysage = oui;
+				} else if (c == NkString("perso.decoupeSymetrique")) {
+					p.decoupeSymetrique = oui;
+				} else if (c == NkString("perso.boutonAccueil")) {
+					p.boutonAccueil = oui;
+				} else if (estF && f >= 0.f) {
+					for (const NkChampLongueur *ch = kLongueurs; ch != kFinLongueurs; ++ch) {
+						if (c == NkString(ch->cle)) {
+							p.*(ch->champ) = f;
+						}
+					}
+				}
+			}
+			p.orientation = NkOrientation::NK_PORTRAIT;
+			p.zoneSure = NkMargesSysteme(p, NkOrientation::NK_PORTRAIT);
+			return true;
+		}
+
 	} // namespace editeur
 } // namespace nkentseu

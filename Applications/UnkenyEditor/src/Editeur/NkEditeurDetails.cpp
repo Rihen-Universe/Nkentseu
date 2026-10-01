@@ -1300,13 +1300,9 @@ namespace nkentseu {
 				nkgui::Checkbox(ctx, "vitesses", m.rendu.vitesses);
 				NkEditeurSectionEclairageMonde(c); // 2026-09-30 : NkEditeurLumiere.cpp
 				nkgui::Separator(ctx);
-				// L'appareil simule : ce que la zone sure du viseur represente.
-				const NkProfilAppareil pa = m.ProfilCourant();
-				nkgui::Text(ctx, "Appareil simulé");
-				nkgui::Text(ctx, NkString::Format("%s  %ux%u", pa.nom, pa.largeur, pa.hauteur).CStr());
-				nkgui::Text(ctx, NkString::Format("zone sure  h:%.0f b:%.0f g:%.0f d:%.0f", pa.zoneSure.top,
-												  pa.zoneSure.bottom, pa.zoneSure.left, pa.zoneSure.right)
-									 .CStr());
+				// L'appareil simule : orientation, interrupteurs, provenance, et
+				// l'appareil personnalise (2026-10-01, NkEditeurAppareilsUi.cpp).
+				NkEditeurSectionAppareil(c);
 				nkgui::EndChild(ctx);
 			}
 

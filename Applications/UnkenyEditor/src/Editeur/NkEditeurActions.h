@@ -259,6 +259,11 @@ namespace nkentseu {
 		const char *NkEditeurChemin(NkEditeurModele &m);
 		bool NkEditeurSauver(NkEditeurModele &m);
 		bool NkEditeurOuvrir(NkEditeurModele &m);
+		/// L'appareil simule de la scene (`<scene>.nkappareil`, document 03) :
+		/// ecrit par NkEditeurSauver, relu par NkEditeurOuvrir. Charger un
+		/// fichier absent rend false et ne change rien.
+		bool NkEditeurAppareilEnregistrer(const NkEditeurModele &m, const char *cheminScene);
+		bool NkEditeurAppareilCharger(NkEditeurModele &m, const char *cheminScene);
 		void NkEditeurAnnoncer(NkEditeurModele &m, const char *texte);
 
 		/// Le banc de l'editeur (e1..), lance par `--selftest` APRES celui

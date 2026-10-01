@@ -337,10 +337,36 @@ namespace nkentseu {
 												NK_A_EMETTEUR_ICI + p));
 						}
 						break;
-					case NkMenuEditeur::NK_APPAREIL:
-						for (int32 k = 0; k < NkNbProfils(); ++k) {
-							out.PushBack(Entree(NkProfil(k).nom, NK_A_APPAREIL + k, "", m.profil == k));
+					case NkMenuEditeur::NK_APPAREIL: {
+						// (2026-10-01) Le catalogue PAR FAMILLE : 21 appareils en vrac ne
+						// se parcourent pas. Les indices, eux, ne bougent pas.
+						struct NkGroupe {
+								const char *titre;
+								NkFamilleAppareil a;
+								NkFamilleAppareil b;
+						};
+						static const NkGroupe kGroupes[] = {
+							{"Téléphones", NkFamilleAppareil::NK_TELEPHONE, NkFamilleAppareil::NK_TELEPHONE},
+							{"Tablettes et pliables", NkFamilleAppareil::NK_TABLETTE, NkFamilleAppareil::NK_PLIABLE},
+							{"Bureau, navigateur, TV", NkFamilleAppareil::NK_BUREAU, NkFamilleAppareil::NK_TV},
+							{"Consoles, montre", NkFamilleAppareil::NK_CONSOLE, NkFamilleAppareil::NK_MONTRE},
+						};
+						for (const NkGroupe &g : kGroupes) {
+							out.PushBack(Intitule(g.titre));
+							for (int32 k = 0; k < NkNbProfils(); ++k) {
+								const NkFamilleAppareil f = NkProfil(k).famille;
+								const bool dedans = (f == g.a || f == g.b) ||
+													(g.a == NkFamilleAppareil::NK_BUREAU && f == NkFamilleAppareil::NK_NAVIGATEUR);
+								if (dedans) {
+									out.PushBack(Entree(NkProfil(k).nom, NK_A_APPAREIL + k, "", m.profil == k));
+								}
+							}
 						}
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Personnalisé", NK_A_APPAREIL + NkNbProfils(), "", m.ProfilPersonnalise()));
+						out.PushBack(Entree("Personnaliser cet appareil",
+											NK_A_OPTION_APPAREIL + static_cast<int32>(NkOptionAppareil::NK_PERSONNALISER), "",
+											false, !m.ProfilPersonnalise()));
 						out.PushBack(Separateur());
 						// (2026-10-01) Les QUATRE orientations : le sens du paysage
 						// change le cote de la decoupe (document 03, §2.3).
@@ -353,7 +379,18 @@ namespace nkentseu {
 													m.orientation == o));
 							}
 						}
+						out.PushBack(Separateur());
+						{
+							static const char *kOptions[5] = {"Cadre", "Zone sûre", "Découpe de caméra", "Cadre clair",
+															  "Aperçu de la caméra du jeu"};
+							const bool etats[5] = {m.appareil.voirCadre, m.appareil.voirZoneSure, m.appareil.voirDecoupe,
+												   m.appareil.cadreClair, m.appareil.apercuJeu};
+							for (int32 k = 0; k < 5; ++k) {
+								out.PushBack(Entree(kOptions[k], NK_A_OPTION_APPAREIL + k, "", etats[k]));
+							}
+						}
 						break;
+					}
 					case NkMenuEditeur::NK_REGLAGES: {
 						out.PushBack(Entree("Grille", NK_A_GRILLE, "", m.voirGrille));
 						out.PushBack(Entree("Collisionneurs", NK_A_COLLISIONNEURS, "", m.voirCollisionneurs));
@@ -916,8 +953,41 @@ namespace nkentseu {
 				m.rendu.mode = static_cast<NkModeRenduParticules>(action - NK_A_MODE_RENDU);
 				return;
 			}
-			if (action >= NK_A_APPAREIL && action < NK_A_APPAREIL + NkNbProfils()) {
+			// <= : l'indice NkNbProfils() est l'appareil PERSONNALISE.
+			if (action >= NK_A_APPAREIL && action <= NK_A_APPAREIL + NkNbProfils()) {
 				m.profil = action - NK_A_APPAREIL;
+				return;
+			}
+			if (action >= NK_A_OPTION_APPAREIL && action < NK_A_OPTION_APPAREIL + static_cast<int32>(NkOptionAppareil::NK_COUNT)) {
+				NkReglagesAppareil &r = m.appareil;
+				switch (static_cast<NkOptionAppareil>(action - NK_A_OPTION_APPAREIL)) {
+					case NkOptionAppareil::NK_CADRE:
+						r.voirCadre = !r.voirCadre;
+						break;
+					case NkOptionAppareil::NK_ZONE_SURE:
+						r.voirZoneSure = !r.voirZoneSure;
+						break;
+					case NkOptionAppareil::NK_DECOUPE:
+						r.voirDecoupe = !r.voirDecoupe;
+						break;
+					case NkOptionAppareil::NK_CADRE_CLAIR:
+						r.cadreClair = !r.cadreClair;
+						break;
+					case NkOptionAppareil::NK_APERCU_JEU:
+						r.apercuJeu = !r.apercuJeu;
+						break;
+					case NkOptionAppareil::NK_PERSONNALISER:
+						// Une copie modifiable de l'appareil regarde, qui devient
+						// l'appareil courant (Details > Monde pour la modifier).
+						if (!m.ProfilPersonnalise()) {
+							r.persoBase = m.profil;
+							r.perso = NkPersonnaliser(NkProfil(m.profil));
+							m.profil = NkNbProfils();
+						}
+						break;
+					default:
+						break;
+				}
 				return;
 			}
 			if (action >= NK_A_ORIENTATION && action < NK_A_ORIENTATION + static_cast<int32>(NkOrientation::NK_COUNT)) {

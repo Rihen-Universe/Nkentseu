@@ -30,11 +30,22 @@
 //         (ilot : 1179x2556, haut 177, bas 102, densite 3)
 //   (a12) TV et montre ronde : AUCUNE marge rendue par le systeme, une marge
 //         CONSEILLEE a part
+//   (a13) l'appareil PERSONNALISE s'ecrit et se relit a l'identique (texte
+//         .nkappareil) : systeme, tailles, decoupe, regles, orientation,
+//         interrupteurs ; ses marges sont rededuites
+//   (a14) retro-compatible : sans entete, rien ne change ; une cle absente
+//         garde sa valeur, une cle inconnue est ignoree
+//   (a15) avec la SCENE : Enregistrer puis Ouvrir rend l'appareil
+//         personnalise et son orientation ; une scene SANS fichier .nkappareil
+//         s'ouvre sans toucher a l'appareil regarde ; le personnalise tourne
+//         comme les autres (Android, poinçon a gauche : marge a droite en
+//         paysage droite)
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
 // =============================================================================
 
+#include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurAppareils.h"
 
 #include <cmath>
@@ -192,6 +203,78 @@ namespace nkentseu {
 				Temoin(tv.zoneSure.IsZero() && montre.zoneSure.IsZero() && tv.margeConseillee > 0.f && montre.rond &&
 						   montre.margeConseillee > 0.14f,
 					   "(a12) TV, montre : aucune marge systeme, une marge conseillee", montre.margeConseillee);
+			}
+
+			// Un appareil personnalise reconnaissable : Android, poinçon A GAUCHE.
+			NkReglagesAppareil perso;
+			perso.persoBase = 7;
+			perso.perso = NkPersonnaliser(NkProfil(7));
+			perso.perso.largeur = 400u;
+			perso.perso.hauteur = 900u;
+			perso.perso.densite = 2.5f;
+			perso.perso.rectDecoupe = NkRectAppareil{40.f, 6.f, 22.f, 22.f};
+			perso.perso.margeDecoupe = 32.f;
+			perso.perso.rayonCoins = 30.f;
+			perso.voirCadre = false;
+			perso.cadreClair = true;
+
+			// (a13)
+			{
+				const NkString texte = NkEcrireAppareil(NkNbProfils(), kD, perso);
+				int32 profil = 0;
+				NkOrientation o = kP;
+				NkReglagesAppareil lu;
+				const bool ok = NkLireAppareil(texte, profil, o, lu);
+				const NkProfilAppareil &a = lu.perso;
+				Temoin(ok && profil == NkNbProfils() && o == kD && !lu.voirCadre && lu.cadreClair && lu.persoBase == 7 &&
+						   a.systeme == NkSystemeAppareil::NK_ANDROID && a.largeur == 400u && a.hauteur == 900u &&
+						   Proche(a.densite, 2.5f) && MemeRect(a.rectDecoupe, perso.perso.rectDecoupe) &&
+						   Proche(a.margeDecoupe, 32.f) && Proche(a.rayonCoins, 30.f) && Proche(a.zoneSure.top, 32.f) &&
+						   a.nbBoutons == NkProfil(7).nbBoutons,
+					   "(a13) appareil personnalise : ecrit, relu a l'identique", a.zoneSure.top);
+			}
+
+			// (a14)
+			{
+				int32 profil = 3;
+				NkOrientation o = kG;
+				NkReglagesAppareil r;
+				const bool sansEntete = !NkLireAppareil(NkString("profil = 6\norientation = paysage-droite\n"), profil, o, r);
+				const bool rienChange = profil == 3 && o == kG;
+				const bool partiel =
+					NkLireAppareil(NkString("# ancien\nformat = unkeny.appareil\nprofil = 6\ncle.future = 9\n"), profil, o, r);
+				Temoin(sansEntete && rienChange && partiel && profil == 6 && o == kG && r.voirCadre && r.voirZoneSure &&
+						   r.persoBase == 2,
+					   "(a14) retro-compatible : entete exige, cles absentes gardees", static_cast<float32>(profil));
+			}
+
+			// (a15)
+			{
+				NkEditeurModele *pm = memory::NkGetDefaultAllocator().New<NkEditeurModele>(); // gros : sur le tas
+				NkEditeurModele &m = *pm;
+				NkCreerRessourcesSim(m.ressources, &m.textures, nullptr);
+				NkEditeurNouvelleScene(m);
+				m.chemin = "unkeny_editeur_banc_appareil.nkscene";
+				m.appareil = perso;
+				m.profil = NkNbProfils();
+				m.orientation = kD;
+				const bool sauve = NkEditeurSauver(m);
+				m.profil = 0;
+				m.orientation = kP;
+				m.appareil = NkReglagesAppareil();
+				const bool ouvert = NkEditeurOuvrir(m);
+				const NkProfilAppareil pc = m.ProfilCourant();
+				const bool rendu = sauve && ouvert && m.ProfilPersonnalise() && m.orientation == kD && pc.largeur == 900u &&
+								   Proche(pc.zoneSure.right, 32.f) && Proche(pc.zoneSure.left, 0.f) && !m.appareil.voirCadre;
+				// Le meme, sans son fichier d'appareil : l'appareil regarde reste.
+				std::remove(NkFichierAppareil(m.chemin.CStr()).CStr());
+				m.profil = 6;
+				m.orientation = kG;
+				const bool rouvert = NkEditeurOuvrir(m);
+				const bool garde = rouvert && m.profil == 6 && m.orientation == kG;
+				std::remove("unkeny_editeur_banc_appareil.nkscene");
+				memory::NkGetDefaultAllocator().Delete(pm);
+				Temoin(rendu && garde, "(a15) avec la scene : rendu a l'ouverture ; absent, rien ne change", pc.zoneSure.right);
 			}
 
 			std::printf("\n%s : %d reussis, %d echec%s\n", gE == 0 ? "BANC APPAREILS REUSSI" : "BANC APPAREILS EN ECHEC", gR, gE,

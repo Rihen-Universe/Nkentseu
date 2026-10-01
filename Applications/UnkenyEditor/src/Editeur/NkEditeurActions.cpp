@@ -9,6 +9,7 @@
 #include "Editeur/NkEditeurViseur.h"
 
 #include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkPath.h"
 #include "Unkeny/Partie/NkUnkenyPartie.h"
 
@@ -1815,8 +1816,28 @@ namespace nkentseu {
 				NkEditeurArreter(m);
 			}
 			const bool ok = NkSauverSceneFichier(m.scene, NkEditeurChemin(m), m.RessourcesScene());
+			// L'appareil simule part AVEC la scene (document 03, §2.2) : un
+			// fichier a cote, comme les entrees (.nkentrees).
+			if (ok) {
+				NkEditeurAppareilEnregistrer(m, NkEditeurChemin(m));
+			}
 			NkEditeurAnnoncer(m, ok ? "Scene enregistree" : "Enregistrement impossible");
 			return ok;
+		}
+
+		bool NkEditeurAppareilEnregistrer(const NkEditeurModele &m, const char *cheminScene) {
+			const NkString chemin = NkFichierAppareil(cheminScene);
+			return NkFile::WriteAllText(chemin.CStr(), NkEcrireAppareil(m.profil, m.orientation, m.appareil).CStr());
+		}
+
+		bool NkEditeurAppareilCharger(NkEditeurModele &m, const char *cheminScene) {
+			// ⚠️ ABSENT = RIEN NE CHANGE : une scene d'avant le 01/10 n'a pas ce
+			// fichier, et l'ouvrir ne doit pas jeter l'appareil qu'on regardait.
+			const NkString chemin = NkFichierAppareil(cheminScene);
+			if (!NkFile::Exists(chemin.CStr())) {
+				return false;
+			}
+			return NkLireAppareil(NkFile::ReadAllText(chemin.CStr()), m.profil, m.orientation, m.appareil);
 		}
 
 		bool NkEditeurOuvrir(NkEditeurModele &m) {
@@ -1825,6 +1846,7 @@ namespace nkentseu {
 			DeclarerDrapeaux(m.scene);
 			const bool ok = NkChargerSceneFichier(m.scene, NkEditeurChemin(m), m.RessourcesScene(), &erreur);
 			if (ok) {
+				NkEditeurAppareilCharger(m, NkEditeurChemin(m));
 				NkEditeurOublierHistorique(m);
 				Aligner(m);
 				m.etat = NkEtatJeu::NK_EDITION;

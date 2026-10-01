@@ -214,6 +214,59 @@ namespace nkentseu {
 		const char *NkNomSysteme(NkSystemeAppareil s) noexcept;
 		const char *NkNomDecoupe(NkTypeDecoupe d) noexcept;
 
+		// =====================================================================
+		// L'APPAREIL PERSONNALISE et les REGLAGES du viseur (document 03, §2.2
+		// et §2.4) -- enregistres avec la scene, dans `<scene>.nkappareil`.
+		// =====================================================================
+
+		/// Les interrupteurs du menu Appareil (NK_A_OPTION_APPAREIL + valeur).
+		enum class NkOptionAppareil : uint8 {
+			NK_CADRE = 0,	  ///< le cadre de l'appareil (bordure, boutons)
+			NK_ZONE_SURE,	  ///< les bandes de la zone sure
+			NK_DECOUPE,		  ///< la decoupe de camera
+			NK_CADRE_CLAIR,	  ///< cadre clair (sinon sombre)
+			NK_APERCU_JEU,	  ///< la camera du JEU dans l'ecran de l'appareil
+			NK_PERSONNALISER, ///< copie l'appareil courant dans l'appareil personnalise
+			NK_COUNT
+		};
+
+		struct NkReglagesAppareil {
+				bool voirCadre = true;
+				bool voirZoneSure = true;
+				bool voirDecoupe = true;
+				bool cadreClair = false;
+				bool apercuJeu = false;
+				/// Le type de base de l'appareil personnalise (indice du
+				/// catalogue) : il donne les boutons du cadre.
+				int32 persoBase = 2;
+				/// L'appareil personnalise, EN PORTRAIT.
+				NkProfilAppareil perso;
+
+				NkReglagesAppareil() noexcept;
+		};
+
+		/// Une copie modifiable de `base` (ramenee en portrait), nommee
+		/// « Personnalisé ».
+		NkProfilAppareil NkPersonnaliser(const NkProfilAppareil &base) noexcept;
+
+		/// Le fichier des reglages d'appareil d'une scene : `x.nkscene` ->
+		/// `x.nkappareil`.
+		NkString NkFichierAppareil(const char *cheminScene);
+
+		/// Le texte du fichier : `cle = valeur` par ligne, `#` commente.
+		NkString NkEcrireAppareil(int32 profil, NkOrientation o, const NkReglagesAppareil &r);
+
+		/// Relit ce texte. ⚠️ RETRO-COMPATIBLE DANS LES DEUX SENS : une cle
+		/// absente garde sa valeur, une cle inconnue est ignoree. false si le
+		/// texte ne porte pas l'entete `format = unkeny.appareil` (rien n'est
+		/// alors change).
+		bool NkLireAppareil(const NkString &texte, int32 &profil, NkOrientation &o, NkReglagesAppareil &r);
+
+		/// La section « Appareil simulé » de Details > Monde
+		/// (NkEditeurAppareilsUi.cpp).
+		struct NkEditeurCadre;
+		void NkEditeurSectionAppareil(NkEditeurCadre &c);
+
 		/// `--selftest` : le banc des appareils (NkEditeurBancAppareils.cpp),
 		/// compte a part. 0 quand tout tient.
 		int32 NkEditeurLancerBancAppareils();

@@ -119,6 +119,9 @@ namespace nkentseu {
 				/// « paysage » : le portrait inverse et le SENS du paysage changent
 				/// la zone sure (document 03, §2.3).
 				NkOrientation orientation = NkOrientation::NK_PORTRAIT;
+				/// Interrupteurs du viseur et appareil personnalise : enregistres
+				/// avec la scene (`<scene>.nkappareil`, NkEditeurAppareilEnregistrer).
+				NkReglagesAppareil appareil;
 
 				/// La physique tourne-t-elle ?
 				///
@@ -191,7 +194,14 @@ namespace nkentseu {
 				/// Le profil effectif, rotation comprise (NkOrienter : la rotation
 				/// exacte, marges selon les regles du systeme).
 				NkProfilAppareil ProfilCourant() const noexcept {
-					return NkOrienter(NkProfil(profil), orientation);
+					return NkOrienter(ProfilDeBase(), orientation);
+				}
+				/// Le profil choisi, EN PORTRAIT : du catalogue, ou le personnalise.
+				NkProfilAppareil ProfilDeBase() const noexcept {
+					return profil == NkNbProfils() ? appareil.perso : NkProfil(profil);
+				}
+				bool ProfilPersonnalise() const noexcept {
+					return profil == NkNbProfils();
 				}
 
 				/// Le pointeur de selection attendu par les fonctions de dessin
