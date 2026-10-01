@@ -154,6 +154,10 @@ namespace nkentseu {
 		/// projet et les classes C++ du registre (« cpp:Porte »).
 		void NkEditeurScriptsProposes(NkEditeurScripts &s, NkVector<NkString> &sortie);
 
+		/// Le banc des scripts de l'editeur (Script/NkEditeurBancScripts.cpp) :
+		/// lance par --selftest. 0 = tout tient (un temoin INDETERMINE n'echoue pas).
+		int32 NkEditeurLancerBancScripts();
+
 	} // namespace editeur
 } // namespace nkentseu
 

@@ -67,7 +67,7 @@ namespace nkentseu {
 						S(p, "autre", "entite");
 					} else if (e.genre == NK_UNK_EV_ZONE_ENTREE || e.genre == NK_UNK_EV_ZONE_SORTIE) {
 						S(p, "autre", "entite");
-						S(p, "soi est la zone", "booleen");
+						S(p, "soiEstLaZone", "booleen");
 					} else if (e.genre == NK_UNK_EV_ACTION_PRESSEE || e.genre == NK_UNK_EV_ACTION_RELACHEE) {
 						E(p, "action", "texte"); // une constante : le NOM de l'action, jamais une touche
 						S(p, "valeur", "reel");
@@ -84,9 +84,9 @@ namespace nkentseu {
 					v.PushBack(p);
 					NkProtoBp q = Proto("bp.sequence", "Séquence", "Flot", NkGenreNoeudBp::NK_SEQUENCE);
 					E(q, "exec", "exec");
-					S(q, "alors 0", "exec");
-					S(q, "alors 1", "exec");
-					S(q, "alors 2", "exec");
+					S(q, "alors0", "exec");
+					S(q, "alors1", "exec");
+					S(q, "alors2", "exec");
 					v.PushBack(q);
 				}
 				// ── Les variables (sauvees par nom dans le composant, exposees) ──
@@ -496,7 +496,7 @@ namespace nkentseu {
 								unkeny::NkArgBp arg = unkeny::NkArgBp::NK_DT;
 								if (s.name == "autre") {
 									arg = unkeny::NkArgBp::NK_AUTRE;
-								} else if (s.name == "soi est la zone") {
+								} else if (s.name == "soiEstLaZone") {
 									arg = unkeny::NkArgBp::NK_SOI_EST_ZONE;
 								} else if (s.name == "valeur") {
 									arg = unkeny::NkArgBp::NK_VALEUR;
@@ -798,7 +798,7 @@ namespace nkentseu {
 			NkBpPoserDefaut(g, ecrire, "valeur", "vrai");
 			Fil(g, ev, "suite", si, "exec");
 			Fil(g, ev, "autre", nomEst, "entité");
-			Fil(g, ev, "soi est la zone", et, "a");
+			Fil(g, ev, "soiEstLaZone", et, "a");
 			Fil(g, nomEst, "égal", et, "b");
 			Fil(g, lire, "valeur", non, "a");
 			Fil(g, et, "r", et2, "a");
