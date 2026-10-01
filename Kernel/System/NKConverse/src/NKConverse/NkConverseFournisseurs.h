@@ -90,7 +90,7 @@ namespace nkentseu::converse {
 			case NkGenreFournisseur::NK_OPENAI: return "Serveur compatible OpenAI";
 			case NkGenreFournisseur::NK_ANTHROPIC: return "Claude (API Anthropic)";
 			case NkGenreFournisseur::NK_CLAUDE_CLI: return "Claude (CLI Claude Code)";
-			case NkGenreFournisseur::NK_PROCESSUS: return "Modele local (processus GGUF)";
+			case NkGenreFournisseur::NK_PROCESSUS: return "Modèle local (processus GGUF)";
 			default: return "?";
 		}
 	}
@@ -98,15 +98,15 @@ namespace nkentseu::converse {
 	inline const char *NkGenreFournisseurAide(NkGenreFournisseur g) {
 		switch (g) {
 			case NkGenreFournisseur::NK_OLLAMA:
-				return "Ollama sur ce PC ou un PC du reseau (http://IP:11434) ; « ollama pull qwen2.5:7b » installe un modele.";
+				return "Ollama sur ce PC ou un PC du réseau (http://IP:11434) ; « ollama pull qwen2.5:7b » installe un modèle.";
 			case NkGenreFournisseur::NK_OPENAI:
 				return "LM Studio (http://127.0.0.1:1234/v1), llama.cpp server (:8080/v1), vLLM (:8000/v1), ou un service en ligne.";
 			case NkGenreFournisseur::NK_ANTHROPIC:
-				return "La cle se saisit ici et se range HORS du depot ; l'invite part chez Anthropic.";
+				return "La clé se saisit ici et se range HORS du dépôt ; l'invite part chez Anthropic.";
 			case NkGenreFournisseur::NK_CLAUDE_CLI:
-				return "Le CLI « claude » deja connecte (NKCode > Comptes) : aucune cle a saisir.";
+				return "Le CLI « claude » déjà connecté (NKCode > Comptes) : aucune clé à saisir.";
 			case NkGenreFournisseur::NK_PROCESSUS:
-				return "L'executable (NKDesignLLM.exe) et le modele (.gguf ou nom Ollama) ; sans serveur.";
+				return "L'exécutable (NKDesignLLM.exe) et le modèle (.gguf ou nom Ollama) ; sans serveur.";
 			default: return "";
 		}
 	}
@@ -305,7 +305,7 @@ namespace nkentseu::converse {
 		NkReglagesFournisseur a;
 		a.id = NkString("claude-api");
 		a.genre = NkGenreFournisseur::NK_ANTHROPIC;
-		a.nom = NkString("Claude (API, cle)");
+		a.nom = NkString("Claude (API, clé)");
 		a.adresse = NkString(NkAdresseParDefaut(a.genre));
 		out.PushBack(a);
 		NkReglagesFournisseur c;
@@ -507,16 +507,16 @@ namespace nkentseu::converse {
 	/// La consigne qui l'enseigne, a mettre dans le message systeme.
 	inline void NkIaConsigneOutilsTexte(const nkentseu::NkVector<NkOutilIA> &outils, NkString &out) {
 		out.Append("\n## Comment agir\n");
-		out.Append("Pour agir sur l'editeur, ecris un ou plusieurs blocs, chacun ainsi :\n");
+		out.Append("Pour agir sur l'éditeur, écris un ou plusieurs blocs, chacun ainsi :\n");
 		out.Append("<outil nom=\"NOM_DE_L_OUTIL\">{\"parametre\": valeur}</outil>\n");
-		out.Append("Le contenu est un OBJET JSON (des guillemets droits). L'editeur execute chaque bloc et te rend "
-				   "son resultat dans le message suivant ; attends-le avant de conclure. N'invente pas d'outil.\n");
+		out.Append("Le contenu est un OBJET JSON (des guillemets droits). L'éditeur exécute chaque bloc et te rend "
+				   "son résultat dans le message suivant ; attends-le avant de conclure. N'invente pas d'outil.\n");
 		out.Append("\n## Outils\n");
 		for (nkentseu::usize i = 0; i < outils.Size(); ++i) {
 			out.Append("- ");
 			out.Append(outils[i].nom);
 			if (outils[i].irreversible)
-				out.Append(" [IRREVERSIBLE : l'utilisateur confirme]");
+				out.Append(" [IRRÉVERSIBLE : l'utilisateur confirme]");
 			out.Append(" : ");
 			out.Append(outils[i].description);
 			out.Append("\n  parametres : ");
@@ -1119,33 +1119,33 @@ namespace nkentseu::converse {
 	// ═══════════════════════════════════════════════════════════════════════
 	inline NkDiagIA NkIaDiagnostiquer(const NkReglagesFournisseur &r, const NkResultatHttpIA &h, NkString &motif) {
 		if (h.annule) {
-			motif = NkString("Arrete : la reponse a ete interrompue a votre demande.");
+			motif = NkString("Arrêté : la réponse a été interrompue à votre demande.");
 			return NkDiagIA::NK_ANNULE;
 		}
 		if (h.statut == 0u) {
 			const NkString &e = h.erreur;
 			if (e.Find("timeout") != NkString::npos || e.Find("Timeout") != NkString::npos ||
 				e.Find("timed out") != NkString::npos) {
-				motif = NkString("Reessayez : pas de reponse dans le delai. C'est NOTRE plafond d'attente, pas une "
-								 "panne du modele (le premier appel le charge depuis le disque).");
+				motif = NkString("Réessayez : pas de réponse dans le délai. C'est NOTRE plafond d'attente, pas une "
+								 "panne du modèle (le premier appel le charge depuis le disque).");
 				return NkDiagIA::NK_DELAI;
 			}
 			if (e.Find("ne s'est pas lance") != NkString::npos) {
-				motif = NkString("Construisez avec NK_ENABLE_TLS=1, ou installez curl : ce depot n'a pas HTTPS et curl "
+				motif = NkString("Construisez avec NK_ENABLE_TLS=1, ou installez curl : ce dépôt n'a pas HTTPS et curl "
 								 "est introuvable (") +
 						e + ")";
 				return NkDiagIA::NK_TRANSPORT_ABSENT;
 			}
 			if (r.genre == NkGenreFournisseur::NK_OLLAMA)
 				motif = NkString("Lancez Ollama (« ollama serve », ou l'application) ou corrigez l'adresse : personne "
-								 "ne repond a ") +
+								 "ne répond à ") +
 						r.adresse;
 			else if (r.genre == NkGenreFournisseur::NK_OPENAI)
 				motif = NkString("Lancez le serveur (LM Studio : Developer > Start Server ; llama.cpp : llama-server) "
-								 "ou corrigez l'adresse : personne ne repond a ") +
+								 "ou corrigez l'adresse : personne ne répond à ") +
 						r.adresse;
 			else
-				motif = NkString("Verifiez la connexion internet ou l'adresse : personne ne repond a ") + r.adresse;
+				motif = NkString("Vérifiez la connexion internet ou l'adresse : personne ne répond à ") + r.adresse;
 			if (!e.Empty()) {
 				motif.Append(" (");
 				motif.Append(e);
@@ -1155,7 +1155,7 @@ namespace nkentseu::converse {
 		}
 		if (h.statut == 401u || h.statut == 403u) {
 			char b[96];
-			std::snprintf(b, sizeof(b), "Verifiez la cle dans Reglages : le service la refuse (%u : ",
+			std::snprintf(b, sizeof(b), "Vérifiez la clé dans Réglages : le service la refuse (%u : ",
 						  static_cast<unsigned>(h.statut));
 			motif = NkString(b) + protocoles::MessageDeRefus(h.corps) + ")";
 			return NkDiagIA::NK_CLE_REFUSEE;
@@ -1164,15 +1164,15 @@ namespace nkentseu::converse {
 		if (h.statut == 400u && (msg.Find("does not support tools") != NkString::npos ||
 								 msg.Find("tools is not supported") != NkString::npos ||
 								 (msg.Find("tool") != NkString::npos && msg.Find("support") != NkString::npos))) {
-			motif = NkString("Le modele ne sait pas les outils natifs : les outils passent en texte (") + msg + ")";
+			motif = NkString("Le modèle ne sait pas les outils natifs : les outils passent en texte (") + msg + ")";
 			return NkDiagIA::NK_OUTILS_REFUSES;
 		}
 		if (h.statut == 404u && (msg.Find("model") != NkString::npos || msg.Find("modele") != NkString::npos)) {
 			if (r.genre == NkGenreFournisseur::NK_OLLAMA)
-				motif = NkString("Installez le modele : « ollama pull ") + r.modele +
-						" » -- le serveur repond, mais ce modele n'y est pas (" + msg + ")";
+				motif = NkString("Installez le modèle : « ollama pull ") + r.modele +
+						" » -- le serveur répond, mais ce modèle n'y est pas (" + msg + ")";
 			else
-				motif = NkString("Choisissez un modele de la liste (Reglages > Actualiser) : « ") + r.modele +
+				motif = NkString("Choisissez un modèle de la liste (Réglages > Actualiser) : « ") + r.modele +
 						" » est inconnu du serveur (" + msg + ")";
 			return NkDiagIA::NK_MODELE_ABSENT;
 		}
@@ -1225,7 +1225,7 @@ namespace nkentseu::converse {
 					return NkIaDiagnostiquer(r, h, motif);
 				NkString m2;
 				if (!NkConverseOllamaModeles(base.CStr(), out, m2)) {
-					motif = m2.Empty() ? NkString("Aucun modele installe : « ollama pull qwen2.5:7b » en installe un.") : m2;
+					motif = m2.Empty() ? NkString("Aucun modèle installé : « ollama pull qwen2.5:7b » en installe un.") : m2;
 					return NkDiagIA::NK_MODELE_ABSENT;
 				}
 				return NkDiagIA::NK_OK;
@@ -1233,7 +1233,7 @@ namespace nkentseu::converse {
 			case NkGenreFournisseur::NK_OPENAI:
 			case NkGenreFournisseur::NK_ANTHROPIC: {
 				if (r.genre == NkGenreFournisseur::NK_ANTHROPIC && cle.Empty()) {
-					motif = NkString("Saisissez la cle dans Reglages (ou la variable ANTHROPIC_API_KEY) : aucune cle "
+					motif = NkString("Saisissez la clé dans Réglages (ou la variable ANTHROPIC_API_KEY) : aucune clé "
 									 "pour ce fournisseur.");
 					return NkDiagIA::NK_CLE_ABSENTE;
 				}
@@ -1250,7 +1250,7 @@ namespace nkentseu::converse {
 					return NkIaDiagnostiquer(r, h, motif);
 				NkJsonDoc d;
 				if (!d.Lire(h.corps)) {
-					motif = NkString("Le serveur a repondu, mais pas une liste de modeles lisible.");
+					motif = NkString("Le serveur a répondu, mais pas une liste de modèles lisible.");
 					return NkDiagIA::NK_ILLISIBLE;
 				}
 				const int32 data = d.Membre(d.Racine(), "data");
@@ -1263,7 +1263,7 @@ namespace nkentseu::converse {
 						out.PushBack(m);
 				}
 				if (out.Empty()) {
-					motif = NkString("Chargez un modele dans le serveur : il n'en liste aucun.");
+					motif = NkString("Chargez un modèle dans le serveur : il n'en liste aucun.");
 					return NkDiagIA::NK_MODELE_ABSENT;
 				}
 				return NkDiagIA::NK_OK;
@@ -1281,7 +1281,7 @@ namespace nkentseu::converse {
 					m.nom = r.modele;
 					out.PushBack(m);
 				}
-				motif = NkString("Saisissez le modele : le chemin d'un .gguf, ou un nom Ollama installe.");
+				motif = NkString("Saisissez le modèle : le chemin d'un .gguf, ou un nom Ollama installé.");
 				return out.Empty() ? NkDiagIA::NK_MODELE_ABSENT : NkDiagIA::NK_OK;
 			}
 			default: break;
@@ -1300,7 +1300,7 @@ namespace nkentseu::converse {
 		nkentseu::NkVector<NkConverseModeleInfo> liste;
 		if (r.genre == NkGenreFournisseur::NK_PROCESSUS) {
 			if (r.adresse.Empty() || !nkentseu::NkFile::Exists(r.adresse.CStr())) {
-				message = NkString("Indiquez l'executable du modele local (NKDesignLLM.exe) : « ") + r.adresse +
+				message = NkString("Indiquez l'exécutable du modèle local (NKDesignLLM.exe) : « ") + r.adresse +
 						  " » n'existe pas.";
 				return NkDiagIA::NK_TRANSPORT_ABSENT;
 			}
@@ -1323,21 +1323,21 @@ namespace nkentseu::converse {
 					installes.Append(liste[i].nom);
 				}
 				if (r.genre == NkGenreFournisseur::NK_OLLAMA)
-					message = NkString("Installez le modele : « ollama pull ") + r.modele +
-							  " » -- le serveur repond, mais il ne l'a pas (installes : " + installes + ")";
+					message = NkString("Installez le modèle : « ollama pull ") + r.modele +
+							  " » -- le serveur répond, mais il ne l'a pas (installés : " + installes + ")";
 				else
-					message = NkString("Choisissez un modele de la liste : « ") + r.modele +
+					message = NkString("Choisissez un modèle de la liste : « ") + r.modele +
 							  " » est inconnu du serveur (il propose : " + installes + ")";
 				return NkDiagIA::NK_MODELE_ABSENT;
 			}
 		}
 		char b[160];
-		std::snprintf(b, sizeof(b), "Connecte : %u modele(s) disponible(s)", static_cast<unsigned>(liste.Size()));
+		std::snprintf(b, sizeof(b), "Connecté : %u modèle(s) disponible(s)", static_cast<unsigned>(liste.Size()));
 		message = NkString(b);
 		if (!r.modele.Empty()) {
 			message.Append(", « ");
 			message.Append(r.modele);
-			message.Append(" » pret");
+			message.Append(" » prêt");
 		}
 		message.Append(r.Distant() ? " -- l'invite QUITTE ce PC." : " -- rien ne quitte ce PC.");
 		return NkDiagIA::NK_OK;
@@ -1395,7 +1395,7 @@ namespace nkentseu::converse {
 		rep = NkReponseIA();
 		if (r.modele.Empty() && r.genre != NkGenreFournisseur::NK_CLAUDE_CLI) {
 			rep.diag = NkDiagIA::NK_MODELE_ABSENT;
-			rep.erreur = NkString("Choisissez un modele (Reglages > Actualiser la liste) : aucun n'est choisi.");
+			rep.erreur = NkString("Choisissez un modèle (Réglages > Actualiser la liste) : aucun n'est choisi.");
 			return false;
 		}
 		if (r.genre == NkGenreFournisseur::NK_CLAUDE_CLI || r.genre == NkGenreFournisseur::NK_PROCESSUS) {
@@ -1450,7 +1450,7 @@ namespace nkentseu::converse {
 		}
 		if (r.genre == NkGenreFournisseur::NK_ANTHROPIC && cle.Empty()) {
 			rep.diag = NkDiagIA::NK_CLE_ABSENTE;
-			rep.erreur = NkString("Saisissez la cle dans Reglages (ou la variable ANTHROPIC_API_KEY) : aucune cle pour "
+			rep.erreur = NkString("Saisissez la clé dans Réglages (ou la variable ANTHROPIC_API_KEY) : aucune clé pour "
 								  "ce fournisseur.");
 			return false;
 		}
@@ -1518,13 +1518,13 @@ namespace nkentseu::converse {
 			rep.diag = NkIaDiagnostiquer(r, faux, rep.erreur);
 			if (rep.diag == NkDiagIA::NK_ERREUR && dec.erreur.Find("not found") != NkString::npos) {
 				rep.diag = NkDiagIA::NK_MODELE_ABSENT;
-				rep.erreur = NkString("Installez le modele : « ollama pull ") + r.modele + " » (" + dec.erreur + ")";
+				rep.erreur = NkString("Installez le modèle : « ollama pull ") + r.modele + " » (" + dec.erreur + ")";
 			}
 			return false;
 		}
 		if (rep.texte.Empty() && rep.appels.Empty()) {
 			rep.diag = NkDiagIA::NK_ILLISIBLE;
-			rep.erreur = NkString("Le modele a repondu 200 sans texte ni outil -- ce n'est pas un succes.");
+			rep.erreur = NkString("Le modèle a répondu 200 sans texte ni outil -- ce n'est pas un succès.");
 			return false;
 		}
 		(void)statutVu;
