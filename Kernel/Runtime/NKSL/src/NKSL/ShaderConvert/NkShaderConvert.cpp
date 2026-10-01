@@ -299,6 +299,17 @@ namespace nkentseu {
 			// utilisant des features 310/320 (SSBO, image load/store, sampler
 			// binding explicite...) -> cascade de "no GLSL stage provided".
 			opts.version = targetES ? 320 : 450;
+#if defined(__APPLE__) || defined(NK_GL_SIMULER_41)
+			// macOS plafonne a OpenGL 4.1 core : du GLSL 410, que SPIRV-Cross
+			// ecrit en connaissant ses limites (pas de layout(offset), pas de
+			// SSBO...). Les layout(binding) restent emis, sous l'extension
+			// GL_ARB_shading_language_420pack qu'Apple n'expose pas : le device
+			// GL les retire et les repose par nom apres le link (NkGL41AdapterGLSL,
+			// NkOpenglDevice.cpp). Windows/Linux restent en 450, octet pour octet
+			// (NK_GL_SIMULER_41 : outil de mise au point, cf. NkOpenglCompat41.h).
+			if (!targetES)
+				opts.version = 410;
+#endif
 			opts.es = targetES;
 			// flip_vert_y : pour les VS géométrie dont les matrices sont en convention
 			// VK (NDC Y=-1 au top). Deux exceptions ne doivent PAS être flippées :

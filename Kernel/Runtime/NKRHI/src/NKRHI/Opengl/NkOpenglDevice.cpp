@@ -13,6 +13,17 @@
 #include <cstring>
 #include <cstdarg>
 
+// ── Contexte NSOpenGL 4.1 core (macOS) ──────────────────────────────────────
+// Contexte (NkOpenglContexteApple.mm) et doublures 4.2-4.5 des fonctions que ce
+// device appelle (NkOpenglCompat41.cpp) : macOS plafonne a OpenGL 4.1 core.
+#include "NkOpenglCompat41.h" // NK_GL_41 : macOS, ou simulation NK_GL_SIMULER_41
+#if defined(NKENTSEU_PLATFORM_MACOS)
+#include "NkOpenglContexteApple.h"
+#endif
+#if defined(NK_GL_41)
+#include <cstdlib> // atoi (NkGL41AdapterLigne)
+#endif
+
 // ── Contexte GLX (Linux/X11) ────────────────────────────────────────────────
 // glad (via NkOpenglDevice.h) définit __gl_h_ AVANT -> <GL/glx.h> n'inclut pas
 // <GL/gl.h> une 2e fois (pas de conflit avec glad). On retire ensuite les macros
@@ -298,8 +309,16 @@ namespace nkentseu {
 			(void)minSeverity;
 			return;
 #else
+#if defined(NK_GL_41)
+			// macOS 4.1 : KHR_debug absente. Avec glad en mode debug, `glDebugMessage*`
+			// sont les enveloppes, JAMAIS nulles : c'est le pointeur BRUT qu'il faut
+			// tester (sinon « GLAD: ERROR glDebugMessageCallback is NULL! » et plantage).
+			if (!glad_glDebugMessageCallback || !glad_glDebugMessageControl)
+				return;
+#else
 			if (!glDebugMessageCallback || !glDebugMessageControl)
 				return;
+#endif
 			gGLDebugMinSeverity = minSeverity;
 			glEnable(GL_DEBUG_OUTPUT);
 			// GL_DEBUG_OUTPUT_SYNCHRONOUS force le driver a vider sa pipeline avant
@@ -918,16 +937,38 @@ namespace nkentseu {
 		// BRUTS glad_* pour ne pas re-passer par le wrapper debug).
 		gladSetGLES2PostCallback(&NkWebGladPostCallback);
 
-#elif defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
-		// ── REFUS NOMME sur les plateformes Apple ───────────────────────────────
-		// Ce device n'a AUCUN chemin de contexte Apple (ni NSGL ni EAGL), et il
-		// exige OpenGL 4.3 quand macOS plafonne a 4.1 : meme ecrit, le contexte
-		// serait refuse par la verification juste en dessous. Sans ce refus, les
-		// pointeurs glad restaient nuls et le premier glGetIntegerv plantait le
-		// processus (« GLAD: ERROR glGetIntegerv is NULL! », NKCraft sur la CI
-		// macOS du 2026-09-30). Sur Apple, le GPU passe par Metal.
-		NK_GL_ERR("OpenGL (NKRHI) indisponible sur macOS/iOS : aucun chemin de contexte, et 4.3 "
-				  "exige quand macOS plafonne a 4.1 -- utiliser Metal\n");
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+		// ── OpenGL 4.1 CORE sur macOS (2026-10-01) ──────────────────────────────
+		// Jusqu'ici : refus nomme, faute de chemin de contexte et parce que ce
+		// device exigeait 4.3 quand macOS plafonne a 4.1. Le repli de NKRenderer
+		// apres Metal tombait donc sur le rendu logiciel.
+		// Maintenant : contexte NSOpenGL 4.1 core (NkOpenglContexteApple.mm),
+		// glad charge depuis OpenGL.framework, puis DOUBLURES des fonctions
+		// 4.2-4.5 que ce device appelle (NkOpenglCompat41.cpp) : le reste du
+		// fichier ne change pas. Ce qui n'a pas de doublure est refuse par son nom.
+		{
+			const bool vsync = static_cast<int>(init.context.opengl.swapInterval) != 0;
+			if (!NkGLAppleCreerContexte((void *)init.surface.view, vsync, mNsglContexte, mNsglFormat)) {
+				NK_GL_ERR("macOS : contexte NSOpenGL 4.1 core refuse\n");
+				return false;
+			}
+			if (!gladLoaderLoadGL()) {
+				NK_GL_ERR("macOS : gladLoaderLoadGL (OpenGL.framework) a echoue\n");
+				NkGLAppleDetruire(mNsglContexte, mNsglFormat);
+				return false;
+			}
+			const int doublures = NkGLCompat41Installer();
+			NK_GL_LOG("macOS : OpenGL %s (%s), %d doublures 4.2-4.5 posees\n",
+					  (const char *)glGetString(GL_VERSION), (const char *)glGetString(GL_RENDERER), doublures);
+			NK_GL_LOG("macOS : refus nommes en 4.1 core : %s\n", NkGLCompat41Refus());
+		}
+#elif defined(NKENTSEU_PLATFORM_IOS)
+		// ── REFUS NOMME sur iOS ─────────────────────────────────────────────────
+		// Aucun chemin de contexte EAGL dans ce device (et OpenGL ES y est
+		// deprecie) : sans ce refus, les pointeurs glad restaient nuls et le
+		// premier glGetIntegerv plantait le processus. Sur iOS, le GPU passe par
+		// Metal.
+		NK_GL_ERR("OpenGL (NKRHI) indisponible sur iOS : aucun chemin de contexte EAGL -- utiliser Metal\n");
 		return false;
 #endif
 
@@ -941,11 +982,25 @@ namespace nkentseu {
 			NK_GL_ERR("OpenGL ES 3.0+ required (got %d.%d)\n", major, minor);
 			return false;
 		}
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+		// macOS : 4.1 core suffit, le calcul et les SSBO sont refuses par nom.
+		if (major < 4 || (major == 4 && minor < 1)) {
+			NK_GL_ERR("OpenGL 4.1 core requis sur macOS (obtenu %d.%d)\n", major, minor);
+			NkGLAppleDetruire(mNsglContexte, mNsglFormat);
+			return false;
+		}
 #else
 		if (major < 4 || (major == 4 && minor < 3)) {
 			NK_GL_ERR("OpenGL 4.3+ required (got %d.%d)\n", major, minor);
 			return false;
 		}
+#endif
+#if defined(NK_GL_SIMULER_41)
+		// Outil de mise au point (cf. NkOpenglCompat41.h) : contexte du PC garde,
+		// pointeurs 4.2-4.5 vides, doublures posees, comme sur macOS.
+		NkGLCompat41Simuler();
+		NK_GL_LOG("simulation 4.1 : %d doublures posees ; refus nommes : %s\n", NkGLCompat41Installer(),
+				  NkGLCompat41Refus());
 #endif
 
 		mWidth = NkDeviceInitWidth(init);
@@ -972,8 +1027,17 @@ namespace nkentseu {
 		// Desktop seulement : glClipControl n'existe pas en GLES et son symbole glad
 		// (glad_debug_glClipControl, défini dans gl.c) n'est pas linké sur mobile/web —
 		// le null-check runtime ne suffit pas, il faut aussi garder le site au link.
+#if defined(NK_GL_41)
+		// macOS 4.1 : pas de glClipControl. Avec glad en mode debug, `glClipControl`
+		// est l'enveloppe (jamais nulle) : c'est le pointeur BRUT qu'il faut tester.
+		// La profondeur [0,1] des matrices est remappee dans chaque vertex shader
+		// (NkGL41AdapterGLSL) : le tampon de profondeur contient les memes valeurs.
+		if (glad_glClipControl)
+			glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+#else
 		if (glClipControl)
 			glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+#endif
 #endif
 
 		// Créer le render pass et framebuffer swapchain virtuels
@@ -1080,6 +1144,8 @@ namespace nkentseu {
 			// eglTerminate ici (d'autres devices/contextes peuvent le partager).
 			mEglDisplay = nullptr;
 		}
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+		NkGLAppleDetruire(mNsglContexte, mNsglFormat);
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 		if (mWebGLContext) {
 			emscripten_webgl_make_context_current(0);
@@ -1262,6 +1328,18 @@ namespace nkentseu {
 		// innocent.
 		NkGLClearErrors();
 		mCaps.computeShaders = NkDeviceInitComputeEnabledForApi(mInit, NkGraphicsApi::NK_GFX_API_OPENGL);
+#if defined(NK_GL_41)
+		// 4.1 core : ni calcul ni SSBO -- on le DIT au moteur au lieu de le laisser
+		// tirer des dispatch que la doublure refuserait (NkOpenglCompat41.cpp).
+		if (!NkGLHasComputeAndSSBO())
+			mCaps.computeShaders = false;
+#endif
+#if defined(NK_GL_SIMULER_41)
+		// Simulation : les limites d'Apple, pas celles de la carte du PC.
+		mCaps.computeShaders = false;
+		if (mCaps.maxFragmentTextureUnits == 0 || mCaps.maxFragmentTextureUnits > 16)
+			mCaps.maxFragmentTextureUnits = 16;
+#endif
 		mCaps.geometryShaders = true;
 		mCaps.tessellationShaders = true;
 		mCaps.drawIndirect = true;
@@ -2291,6 +2369,269 @@ namespace nkentseu {
 	} // namespace
 #endif // NKENTSEU_PLATFORM_EMSCRIPTEN
 
+	// =============================================================================
+	// Adaptation GLSL 4.1 core (macOS uniquement, 2026-10-01)
+	// =============================================================================
+	// Sur macOS, SPIRV-Cross ecrit deja du « #version 410 » (NkShaderConvert.cpp),
+	// mais il garde les layout(binding = N) sous GL_ARB_shading_language_420pack,
+	// extension qu'Apple n'expose pas ; et NkSL ecrit du 430. Ce shim, au moment
+	// de CreateShader :
+	//   1. pose « #version 410 core » et retire l'extension 420pack ;
+	//   2. retire les qualifiers binding/set, MAIS les collecte (nom -> binding),
+	//      puis les repose par nom apres le link (glUniformBlockBinding, glUniform1i)
+	//      -- meme contrat que le shim WebGL2 ci-dessus, locations conservees
+	//      (legales en 4.1 sur les varyings) ;
+	//   3. sans glClipControl, remappe la profondeur dans le vertex shader : le
+	//      main d'origine est renomme, un nouveau main l'appelle puis fait
+	//      z = 2z - w. Les matrices du moteur visent [0,1] (convention Vulkan) ;
+	//      ainsi le tampon de profondeur contient les MEMES valeurs qu'ailleurs
+	//      (ombres, reconstruction de position) et rien n'est coupe devant.
+	// Zero impact hors macOS : tout est sous NK_GL_41 (macOS, ou la simulation
+	// NK_GL_SIMULER_41, jamais definie par defaut -- cf. NkOpenglCompat41.h).
+#if defined(NK_GL_41)
+	namespace {
+
+		struct NkGL41Liaison {
+				char nom[96] = {0};
+				int liaison = 0;
+				int nombre = 1;	   // > 1 : tableau d'echantillonneurs (unites consecutives)
+				bool bloc = false; // bloc UBO, sinon echantillonneur
+		};
+
+		inline bool NkGL41Ident(char c) {
+			return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+		}
+
+		// Mot entier `mot` dans [s,e), borne a la ligne.
+		const char *NkGL41Mot(const char *s, const char *e, const char *mot) {
+			const size_t l = strlen(mot);
+			for (const char *p = s; p + l <= e; ++p) {
+				if (strncmp(p, mot, l) != 0)
+					continue;
+				if ((p == s || !NkGL41Ident(p[-1])) && (p + l == e || !NkGL41Ident(p[l])))
+					return p;
+			}
+			return nullptr;
+		}
+
+		const char *NkGL41Sous(const char *s, const char *e, const char *sous) {
+			const size_t l = strlen(sous);
+			for (const char *p = s; p + l <= e; ++p)
+				if (strncmp(p, sous, l) == 0)
+					return p;
+			return nullptr;
+		}
+
+		void NkGL41AdapterLigne(const char *ligne, const char *fin, bool sommet, NkString &out,
+								NkVector<NkGL41Liaison> &liaisons, bool &mainRenomme) {
+			const char *p = ligne;
+			while (p < fin && (*p == ' ' || *p == '\t'))
+				++p;
+
+			// ── 1. En-tete et extension 420pack ─────────────────────────────────
+			if (fin - p >= 8 && strncmp(p, "#version", 8) == 0) {
+				out += "#version 410 core\n";
+				return;
+			}
+			if (fin - p >= 10 && strncmp(p, "#extension", 10) == 0 &&
+				NkGL41Sous(p, fin, "shading_language_420pack") != nullptr)
+				return; // retiree : ses bindings le sont aussi
+
+			// ── 3. main du vertex shader : renomme (le vrai main est ajoute) ────
+			if (sommet && !mainRenomme) {
+				const char *v = NkGL41Mot(p, fin, "void");
+				const char *m = NkGL41Mot(p, fin, "main");
+				if (v == p && m) {
+					const char *q = m + 4;
+					while (q < fin && (*q == ' ' || *q == '\t'))
+						++q;
+					if (q < fin && *q == '(' && memchr(q, ';', (size_t)(fin - q)) == nullptr) {
+						out.Append(ligne, (uint32)(m - ligne));
+						out += "nk_main_gl41";
+						out.Append(m + 4, (uint32)(fin - (m + 4)));
+						out += "\n";
+						mainRenomme = true;
+						return;
+					}
+				}
+			}
+
+			// ── 2. layout(...) : binding et set retires, binding collecte ───────
+			const char *lay = NkGL41Mot(p, fin, "layout");
+			const char *ouvre = nullptr;
+			if (lay) {
+				ouvre = lay + 6;
+				while (ouvre < fin && (*ouvre == ' ' || *ouvre == '\t'))
+					++ouvre;
+				if (ouvre >= fin || *ouvre != '(')
+					lay = nullptr;
+			}
+			const char *ferme = ouvre;
+			if (lay) {
+				while (ferme < fin && *ferme != ')')
+					++ferme;
+				if (ferme >= fin)
+					lay = nullptr;
+			}
+			if (!lay) {
+				out.Append(ligne, (uint32)(fin - ligne));
+				out += "\n";
+				return;
+			}
+
+			char gardes[160] = {0};
+			size_t nGardes = 0;
+			int liaison = -1;
+			for (const char *q = ouvre + 1; q < ferme;) {
+				const char *qe = q;
+				while (qe < ferme && *qe != ',')
+					++qe;
+				const char *ts = q;
+				while (ts < qe && (*ts == ' ' || *ts == '\t'))
+					++ts;
+				const char *te = qe;
+				while (te > ts && (te[-1] == ' ' || te[-1] == '\t'))
+					--te;
+				const size_t tl = (size_t)(te - ts);
+				const bool estLiaison = tl >= 7 && strncmp(ts, "binding", 7) == 0 && !NkGL41Ident(ts[7]);
+				const bool estSet = tl >= 3 && strncmp(ts, "set", 3) == 0 && !NkGL41Ident(ts[3]);
+				if (estLiaison) {
+					const char *v = ts + 7;
+					while (v < te && (*v == ' ' || *v == '=' || *v == '\t'))
+						++v;
+					liaison = atoi(v);
+				} else if (!estSet && tl > 0 && nGardes + tl + 2 < sizeof(gardes)) {
+					if (nGardes) {
+						gardes[nGardes++] = ',';
+						gardes[nGardes++] = ' ';
+					}
+					memcpy(gardes + nGardes, ts, tl);
+					nGardes += tl;
+					gardes[nGardes] = '\0';
+				}
+				q = qe + 1;
+			}
+
+			const char *reste = ferme + 1;
+			if (liaison >= 0 && NkGL41Mot(reste, fin, "uniform") != nullptr) {
+				NkGL41Liaison l;
+				l.liaison = liaison;
+				const char *nom = nullptr;
+				size_t lNom = 0;
+				if (NkGL41Sous(reste, fin, "sampler") != nullptr) {
+					// echantillonneur : dernier identifiant avant ';', [N] eventuel
+					const char *e = (const char *)memchr(reste, ';', (size_t)(fin - reste));
+					if (!e)
+						e = fin;
+					while (e > reste && (e[-1] == ' ' || e[-1] == '\t'))
+						--e;
+					if (e > reste && e[-1] == ']') {
+						const char *crochet = e - 1;
+						while (crochet > reste && *crochet != '[')
+							--crochet;
+						const int n = atoi(crochet + 1);
+						l.nombre = n > 1 ? n : 1;
+						e = crochet;
+						while (e > reste && (e[-1] == ' ' || e[-1] == '\t'))
+							--e;
+					}
+					const char *s = e;
+					while (s > reste && NkGL41Ident(s[-1]))
+						--s;
+					nom = s;
+					lNom = (size_t)(e - s);
+				} else {
+					// bloc UBO : premier identifiant apres « uniform »
+					l.bloc = true;
+					const char *s = NkGL41Mot(reste, fin, "uniform") + 7;
+					while (s < fin && !NkGL41Ident(*s))
+						++s;
+					const char *e = s;
+					while (e < fin && NkGL41Ident(*e))
+						++e;
+					nom = s;
+					lNom = (size_t)(e - s);
+				}
+				if (nom && lNom > 0 && lNom < sizeof(l.nom)) {
+					memcpy(l.nom, nom, lNom);
+					l.nom[lNom] = '\0';
+					liaisons.PushBack(l);
+				}
+			}
+
+			out.Append(ligne, (uint32)(lay - ligne));
+			if (nGardes) {
+				out += "layout(";
+				out.Append(gardes, (uint32)nGardes);
+				out += ") ";
+			}
+			while (reste < fin && (*reste == ' ' || *reste == '\t'))
+				++reste;
+			out.Append(reste, (uint32)(fin - reste));
+			out += "\n";
+		}
+
+		NkString NkGL41AdapterGLSL(const char *src, bool sommet, bool remapperProfondeur,
+								   NkVector<NkGL41Liaison> &liaisons) {
+			NkString out;
+			bool mainRenomme = false;
+			const char *p = src;
+			const char *end = src + strlen(src);
+			while (p < end) {
+				const char *nl = (const char *)memchr(p, '\n', (size_t)(end - p));
+				const char *fin = nl ? nl : end;
+				const char *le = fin;
+				if (le > p && le[-1] == '\r')
+					--le;
+				NkGL41AdapterLigne(p, le, sommet && remapperProfondeur, out, liaisons, mainRenomme);
+				p = nl ? nl + 1 : end;
+			}
+			if (sommet && remapperProfondeur) {
+				if (mainRenomme) {
+					out += "\nvoid main()\n{\n"
+						   "    nk_main_gl41();\n"
+						   "    // OpenGL 4.1 (macOS) sans glClipControl : profondeur [0,w] -> [-w,w]\n"
+						   "    gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;\n"
+						   "}\n";
+				} else {
+					NK_GL_ERR("4.1 : main() du vertex shader introuvable -- profondeur NON remappee\n");
+				}
+			}
+			return out;
+		}
+
+		// Apres le link : repose PAR NOM les bindings retires du texte.
+		void NkGL41ReposerLiaisons(GLuint prog, const NkVector<NkGL41Liaison> &liaisons) {
+			GLint avant = 0;
+			glGetIntegerv(GL_CURRENT_PROGRAM, &avant);
+			glUseProgram(prog);
+			for (uint32 i = 0; i < liaisons.Size(); i++) {
+				const NkGL41Liaison &l = liaisons[i];
+				if (l.bloc) {
+					const GLuint idx = glGetUniformBlockIndex(prog, l.nom);
+					if (idx != GL_INVALID_INDEX)
+						glUniformBlockBinding(prog, idx, (GLuint)l.liaison);
+				} else {
+					const GLint loc = glGetUniformLocation(prog, l.nom);
+					if (loc < 0)
+						continue; // retire par le compilateur (inutilise) : rien a lier
+					if (l.nombre > 1) {
+						GLint unites[32];
+						const int n = l.nombre < 32 ? l.nombre : 32;
+						for (int k = 0; k < n; ++k)
+							unites[k] = l.liaison + k;
+						glUniform1iv(loc, n, unites);
+					} else {
+						glUniform1i(loc, l.liaison);
+					}
+				}
+			}
+			glUseProgram((GLuint)avant);
+		}
+
+	} // namespace
+#endif // NK_GL_41
+
 	namespace {
 
 	// =========================================================================
@@ -2361,6 +2702,64 @@ namespace nkentseu {
 		return n;
 	}
 
+	// FUSION DES COOKIES DE LUMIERE -- pilotee par le BUDGET, pas par la cible
+	// (2026-10-01). macOS n'accorde que 16 unites au fragment, et `PBR` en declare
+	// 24 : le seul retrait de PCSS (ci-dessous) n'y suffit pas. Meme mecanique que
+	// NkWebMergeCookieSamplers (declarations des cookies 1..9 retirees, usages
+	// rediriges vers le slot 0), ecrite SANS ses helpers NkWeb* pour la raison
+	// dite plus haut. Cout visuel : les lumieres a cookie partagent la texture du
+	// slot 0 (aucune dans les demos). Elle passe AVANT le retrait de PCSS : elle
+	// ne coute rien a l'image, PCSS si. Sur le Web la source est deja fusionnee
+	// (sans effet) ; sur un bureau large, jamais appelee.
+	inline bool NkBudgetIdent(char c) {
+		return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+	}
+
+	// Chiffre N de « tLight3D[Cube]CookieN » (N = 1..9, mot entier) dans [s,e).
+	inline char *NkBudgetChiffreCookie(char *s, const char *e) {
+		static const char *k2D = "tLight3DCookie";
+		static const char *kCube = "tLight3DCubeCookie";
+		const size_t l2D = strlen(k2D), lCube = strlen(kCube);
+		for (char *p = s; p + l2D + 1 <= e; ++p) {
+			if (p > s && NkBudgetIdent(p[-1]))
+				continue;
+			char *chiffre = nullptr;
+			if (p + lCube + 1 <= e && strncmp(p, kCube, lCube) == 0)
+				chiffre = p + lCube;
+			else if (strncmp(p, k2D, l2D) == 0)
+				chiffre = p + l2D;
+			if (!chiffre)
+				continue;
+			if (*chiffre >= '1' && *chiffre <= '9' && (chiffre + 1 == e || !NkBudgetIdent(chiffre[1])))
+				return chiffre;
+		}
+		return nullptr;
+	}
+
+	inline NkString NkFusionnerCookiesBudget(const char *src) {
+		NkString out;
+		const char *p = src;
+		const char *end = src + strlen(src);
+		while (p < end) {
+			const char *nl = (const char *)memchr(p, '\n', (size_t)(end - p));
+			const char *lineEnd = nl ? nl : end;
+			NkString ligne;
+			ligne.Append(p, (uint32)(lineEnd - p));
+			char *c = (char *)ligne.CStr();
+			char *ce = c + ligne.Length();
+			const bool declaration = strstr(c, "uniform") != nullptr && strstr(c, "sampler") != nullptr &&
+									 NkBudgetChiffreCookie(c, ce) != nullptr;
+			if (!declaration) {
+				for (char *d = NkBudgetChiffreCookie(c, ce); d; d = NkBudgetChiffreCookie(d + 1, ce))
+					*d = '0'; // meme longueur : remplacement en place
+				out.Append(c, ligne.Length());
+				out += "\n";
+			}
+			p = nl ? nl + 1 : end;
+		}
+		return out;
+	}
+
 	// Retire `tShadowAtlasRaw` et neutralise la branche qui l'utilise.
 	// Ligne par ligne, sur une COPIE : la source d'origine n'est jamais touchee,
 	// donc le chemin BUREAU reste identique octet pour octet -- « le bureau ne
@@ -2417,6 +2816,22 @@ namespace nkentseu {
 			char buf[2048];
 			glGetShaderInfoLog(s, 2048, nullptr, buf);
 			NK_GL_ERR("Shader compile error:\n%s\n", buf);
+#if defined(NK_GL_41)
+			// macOS 4.1 : la source ADAPTEE (NkGL41AdapterGLSL), numerotee, au
+			// journal d'erreur -- c'est elle que le pilote a refusee, et la CI
+			// n'a pas d'autre fenetre sur elle.
+			{
+				const char *pp = src;
+				int line = 1;
+				while (pp && *pp && line <= 800) {
+					const char *nl = strchr(pp, '\n');
+					fprintf(stderr, "[NkRHI_GL][4.1] %4d| %.*s\n", line, nl ? (int)(nl - pp) : (int)strlen(pp), pp);
+					pp = nl ? nl + 1 : nullptr;
+					++line;
+				}
+				fflush(stderr);
+			}
+#endif
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 			// NKTEMP-DIAG : a retirer (instrumentation blocage Web)
 			fprintf(stderr, "[NkRHI_GL][WebDiag] stage=0x%X compile FAIL:\n%s\n", (unsigned)stage, buf);
@@ -2447,6 +2862,24 @@ namespace nkentseu {
 		// par nom apres le link (voir NkWebGL2AdaptGLSL ci-dessus).
 		NkVector<NkWebGLBindingFix> webFixes;
 #endif
+#if defined(NK_GL_41)
+		// 4.1 core : bindings retires du GLSL, reposes par nom apres le link
+		// (NkGL41AdapterGLSL). Remap de profondeur dans le VS seulement s'il est
+		// le DERNIER etage avant la rasterisation : un geometry/tessellation
+		// shader le rendrait faux -- refus nomme dans ce cas.
+		NkVector<NkGL41Liaison> liaisons41;
+		bool etageApresSommet = false;
+		for (uint32 i = 0; i < desc.stages.Size(); i++) {
+			const GLenum e = ToGLShaderStage(desc.stages[i].stage);
+			if (desc.stages[i].glslSource && desc.stages[i].glslSource[0] &&
+				(e == GL_GEOMETRY_SHADER || e == GL_TESS_EVALUATION_SHADER))
+				etageApresSommet = true;
+		}
+		const bool remapperProfondeur = (glad_glClipControl == nullptr) && !etageApresSommet;
+		if (glad_glClipControl == nullptr && etageApresSommet)
+			NK_GL_ERR("4.1 : refus nomme -- profondeur non remappee (geometry/tessellation shader present, "
+					  "pas de glClipControl)\n");
+#endif
 
 		for (uint32 i = 0; i < desc.stages.Size(); i++) {
 			auto &s = desc.stages[i];
@@ -2458,7 +2891,27 @@ namespace nkentseu {
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 			NkString adapted = NkWebGL2AdaptGLSL(src, glStage, webFixes);
 			src = adapted.CStr();
+#elif defined(NK_GL_41)
+			NkString adapte41 = NkGL41AdapterGLSL(src, glStage == GL_VERTEX_SHADER, remapperProfondeur, liaisons41);
+			src = adapte41.CStr();
 #endif
+			// Cookies de lumiere d'abord (sans cout pour l'image), PCSS ensuite
+			// si cela ne suffit pas (cf. NkFusionnerCookiesBudget). Meme garde que
+			// le bloc suivant : sur bureau large, rien ne se passe.
+			NkString cookiesFusionnes;
+			if (glStage == GL_FRAGMENT_SHADER && mCaps.maxFragmentTextureUnits > 0 &&
+				NkCountDeclaredSamplers(src) > mCaps.maxFragmentTextureUnits) {
+				cookiesFusionnes = NkFusionnerCookiesBudget(src);
+				const uint32 avant = NkCountDeclaredSamplers(src);
+				const uint32 apres = NkCountDeclaredSamplers(cookiesFusionnes.CStr());
+				if (apres < avant) {
+					fprintf(stderr,
+							"[NkRHI_GL] budget d'unites de texture : %u demandees pour %u "
+							"accordees -> cookies de lumiere fusionnes sur le slot 0, %u restantes\n",
+							(unsigned)avant, (unsigned)mCaps.maxFragmentTextureUnits, (unsigned)apres);
+					src = cookiesFusionnes.CStr();
+				}
+			}
 			// BUDGET D'UNITES DE TEXTURE — aucune plateforme n'est interrogee.
 			// On compare ce que le shader DEMANDE a ce que le pilote ACCORDE.
 			// Sur bureau (32 unites accordees pour 17 demandees) la condition est
@@ -2508,6 +2961,10 @@ namespace nkentseu {
 			return {};
 		}
 
+#if defined(NK_GL_41)
+		if (!liaisons41.Empty())
+			NkGL41ReposerLiaisons(prog, liaisons41);
+#endif
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 		// Re-application PAR NOM des bindings retires du GLSL (WebGL2 ne permet
 		// pas layout(binding=N)). Blocs UBO -> glUniformBlockBinding ; samplers
@@ -3289,6 +3746,8 @@ namespace nkentseu {
 							 (void *)eglGetCurrentContext(), (void *)eglGetCurrentSurface(EGL_DRAW));
 			}
 		}
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+		NkGLApplePresenter(mNsglContexte);
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 		// Pas de swap explicite sur le Web : le navigateur compose le canvas a la
 		// fin du callback requestAnimationFrame. Un glFlush suffit pour pousser
@@ -3488,6 +3947,10 @@ namespace nkentseu {
 			fbo->w = w;
 			fbo->h = h;
 		}
+#if defined(NKENTSEU_PLATFORM_MACOS)
+		// NSOpenGL ne suit pas seul la taille de sa vue : [contexte update].
+		NkGLAppleMettreAJour(mNsglContexte);
+#endif
 		if (mInit.resizeCallback) {
 			mInit.resizeCallback(w, h);
 		}

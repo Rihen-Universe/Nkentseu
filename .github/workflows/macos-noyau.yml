@@ -199,6 +199,19 @@ jobs:
         # PBR complet), reste publie a cote mais ne sert pas d'etalon.
         run: python3 .github/scripts/comparer-captures.py --image "$JOURNAUX/captures/tuto03-metal.png" --reference docs/captures-reference/tuto03-dx11-windows.png --regles tuto03 --tolerance 60 --rapport "$JOURNAUX/captures/tuto03-comparaison.txt"
 
+      # OPENGL 4.1 CORE VERIFIE PAR L'IMAGE (2026-10-01). macOS plafonne a
+      # OpenGL 4.1 : contexte NSOpenGL (NkOpenglContexteApple.mm), doublures des
+      # fonctions 4.2-4.5 (NkOpenglCompat41.cpp), shaders adaptes en GLSL 410.
+      # Avant, NKRHI refusait OpenGL sur Apple et le repli apres Metal etait le
+      # rendu logiciel. Meme scene, meme etalon DX11 que Metal.
+      - name: Tuto03Scene - capture hors ecran OpenGL 4.1
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
+        run: .github/scripts/capturer-rendu.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" opengl 30 "$JOURNAUX/captures/tuto03-opengl.png" "$JOURNAUX/captures"
+
+      - name: Tuto03Scene - pixels de l'image OpenGL
+        if: ${{ !cancelled() && hashFiles('journaux/captures/tuto03-opengl.png') != '' }}
+        run: python3 .github/scripts/comparer-captures.py --image "$JOURNAUX/captures/tuto03-opengl.png" --reference docs/captures-reference/tuto03-dx11-windows.png --regles tuto03 --tolerance 60 --rapport "$JOURNAUX/captures/tuto03-opengl-comparaison.txt"
+
       # DORSAL PAR DEFAUT de NKRenderer (NkDeviceFactory::CreateAutoDetect) :
       # meme ordre que NKCanvas sur macOS ; sans SDK Vulkan, Metal attendu.
       - name: Tuto03Scene - dorsal par defaut (sans Vulkan, Metal attendu)
