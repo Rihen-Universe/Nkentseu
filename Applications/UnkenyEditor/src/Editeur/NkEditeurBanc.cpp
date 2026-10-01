@@ -98,6 +98,11 @@
 //         choisit deux assets, « Exporter » les copie (un second export ne
 //         remplace rien) ; les boutons de la barre et le clic droit d'un asset
 //         DEMANDENT le dialogue (ouvert par l'application, pas le banc)
+//   (e50) (2026-10-01) la case « active » de l'en-tete des Details, dans la
+//         vraie trame : la, des qu'une entite est choisie ; un clic l'eteint
+//         (corps hors du solveur, plus prise dans la vue), l'oeil intact ;
+//         Ctrl+Z la rallume (selection suivie), Ctrl+Y la reeteint ; cacher a
+//         l'oeil n'eteint pas
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -1400,6 +1405,52 @@ namespace nkentseu {
 
 				NkDirectory::Delete("banc_e49", true);
 				m.chemin = cheminAvant;
+			}
+
+			// (e50) (2026-10-01) la case « active » de l'EN-TETE des Details, dans la
+			// vraie trame : visible des qu'une entite est choisie ; decochee, l'entite
+			// sort du jeu (corps hors du solveur, plus prise dans la vue) sans toucher
+			// a l'oeil ; Ctrl+Z la rallume, Ctrl+Y la reeteint.
+			{
+				NkEditeurNouvelleScene(m);
+				NkBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				const ecs::NkEntityId caisse0 = Par(m.scene, "Caisse");
+				const NkVec2f pos = m.scene.Monde().Get<NkTransform2D>(caisse0)->position;
+				m.selection = caisse0;
+				m.aSelection = true;
+				t.Trame();
+				const bool visible = ui.caseActif.w > 0.f && NkEditeurDans(ui.details, nkgui::NkVec2{ui.caseActif.x, ui.caseActif.y});
+				t.Clic(0, ui.caseActif.x + ui.caseActif.w * 0.5f, ui.caseActif.y + ui.caseActif.h * 0.5f);
+				auto corpsDe = [&](ecs::NkEntityId e) {
+					const NkCorps2D *k = m.scene.Monde().IsAlive(e) ? m.scene.Monde().Get<NkCorps2D>(e) : nullptr;
+					return k != nullptr ? k->corpsId : 0xFFFFFFFFu;
+				};
+				ecs::NkEntityId pris;
+				const bool eteinte = !m.scene.EstActive(caisse0) && corpsDe(caisse0) == physics::NK_INVALID_BODY &&
+									 !NkEditeurEstCache(m, caisse0) && !(NkEditeurPrendreSous(m, pos, pris) && pris == caisse0) &&
+									 m.historique.annuler.Size() == 1u;
+				auto ctrl = [&](nkgui::NkGuiKey k) {
+					t.Ctx().input.ctrlDown = true;
+					t.Ctx().input.SetKey(k, true);
+					t.Trame();
+					t.Ctx().input.SetKey(k, false);
+					t.Ctx().input.ctrlDown = false;
+					t.Trame();
+				};
+				ctrl(nkgui::NkGuiKey::Z);
+				const ecs::NkEntityId caisse1 = m.selection;
+				const bool annulee = m.aSelection && Par(m.scene, "Caisse") == caisse1 && m.scene.EstActive(caisse1) &&
+									 corpsDe(caisse1) != physics::NK_INVALID_BODY && corpsDe(caisse1) != 0xFFFFFFFFu;
+				ctrl(nkgui::NkGuiKey::Y);
+				const bool retablie = m.aSelection && !m.scene.EstActive(m.selection) && corpsDe(m.selection) == physics::NK_INVALID_BODY;
+				// L'oeil, lui, ne touche pas au jeu : cacher n'eteint pas.
+				NkEditeurCacher(m, Par(m.scene, "Sol"), true);
+				const bool oeilDistinct = m.scene.EstActive(Par(m.scene, "Sol"));
+				NkEditeurCacher(m, Par(m.scene, "Sol"), false);
+				Temoin(visible && eteinte && annulee && retablie && oeilDistinct,
+					   "(e50) case active des Details : eteint le jeu, pas l'oeil ; Ctrl+Z / Ctrl+Y",
+					   static_cast<float32>(visible + eteinte + annulee + retablie + oeilDistinct));
 			}
 
 			memory::NkGetDefaultAllocator().Delete(pm);

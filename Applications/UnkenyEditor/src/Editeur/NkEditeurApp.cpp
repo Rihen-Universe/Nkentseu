@@ -634,6 +634,15 @@ namespace nkentseu {
 				return;
 			}
 			if (in.ctrlDown) {
+				// Ctrl+Z / Ctrl+Y, et Ctrl+Maj+Z (2026-10-01, NkHistoriqueEditeur).
+				if (in.KeyPressed(NkGuiKey::Z)) {
+					NkEditeurExecuter(c, in.shiftDown ? NK_A_REFAIRE : NK_A_ANNULER);
+					return;
+				}
+				if (in.KeyPressed(NkGuiKey::Y)) {
+					NkEditeurExecuter(c, NK_A_REFAIRE);
+					return;
+				}
 				struct NkRaccourci {
 						NkGuiKey touche;
 						int32 action;

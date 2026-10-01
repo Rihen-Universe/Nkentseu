@@ -126,6 +126,8 @@ namespace nkentseu {
 			NK_A_ENTREES,				///< le panneau Entrees (liaisons du jeu), ouvert / ferme
 			NK_A_CREER_PREFAB,			///< un prefab de la selection (2026-09-29)
 			NK_A_DETACHER,				///< la selection devient une racine, a sa place
+			NK_A_ANNULER,				///< Ctrl+Z (2026-10-01, NkHistoriqueEditeur)
+			NK_A_REFAIRE,				///< Ctrl+Y / Ctrl+Maj+Z
 			NK_A_POSER_ICI = 700,		///< + NkActeurSim : pose au point du clic droit
 			NK_A_OUTIL = 100,			///< + NkOutil
 			NK_A_POSER_ACTEUR = 200,	///< + NkActeurSim : pose au centre de la vue
@@ -297,6 +299,9 @@ namespace nkentseu {
 				bool importDemande = false;
 				bool exportDemande = false;
 				NkString importCible;		   ///< le dossier (chemin du navigateur) ou importer ; vide = le courant
+				/// La case « active » de l'en-tete des Details (2026-10-01), relevee au
+				/// dessin (vide = pas de selection).
+				nkgui::NkRect caseActif{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect boutonImporter{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect boutonExporter{0.f, 0.f, 0.f, 0.f};
 				bool cloisonContenu = false; ///< la cloison dossiers | cartes est tenue

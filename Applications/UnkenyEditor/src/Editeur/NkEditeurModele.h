@@ -89,6 +89,19 @@ namespace nkentseu {
 				float32 volume = 1.f;
 		};
 
+		/// L'HISTORIQUE de l'editeur (2026-10-01) : Ctrl+Z / Ctrl+Y. Une PHOTO de la
+		/// scene (NkScene::NkPhoto, celle de Jouer / Arreter) prise AVANT chaque
+		/// geste qui la retient (NkEditeurRetenir) ; annuler la rend, refaire rend
+		/// celle d'apres. En EDITION seulement : en jeu, « Arreter » rend deja la
+		/// scene d'avant. Borne : les plus vieilles s'en vont.
+		/// ⚠️ SEULS LES GESTES QUI APPELLENT NkEditeurRetenir S'ANNULENT. A ce jour :
+		///    la case « active » des Details. Les autres l'appelleront un par un.
+		struct NkHistoriqueEditeur {
+				NkVector<unkeny::NkScene::NkPhoto> annuler; ///< la plus recente a la fin
+				NkVector<unkeny::NkScene::NkPhoto> refaire;
+				uint32 maximum = 32u;
+		};
+
 		/// Les etats d'UE5 : on EDITE une scene figee, on la JOUE, on la met en
 		/// PAUSE. « Arreter » rend la scene d'avant le lancement (la photo).
 		enum class NkEtatJeu : uint8 { NK_EDITION = 0, NK_JEU, NK_PAUSE };
@@ -112,6 +125,8 @@ namespace nkentseu {
 				NkEtatJeu etat = NkEtatJeu::NK_EDITION;
 				/// La scene d'avant « Jouer ». Valide tant qu'on n'a pas « Arrete ».
 				NkScene::NkPhoto photo;
+				/// Ctrl+Z / Ctrl+Y (NkHistoriqueEditeur).
+				NkHistoriqueEditeur historique;
 
 				// --- Ce que « Poser » pose ------------------------------------
 				/// Un acteur du catalogue de simulation (Unkeny/Simulation), ou —

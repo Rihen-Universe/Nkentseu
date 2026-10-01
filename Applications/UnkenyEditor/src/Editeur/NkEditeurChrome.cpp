@@ -240,6 +240,9 @@ namespace nkentseu {
 						out.PushBack(Entree("Quitter", NK_A_QUITTER, "Ctrl+Q"));
 						break;
 					case NkMenuEditeur::NK_EDITION:
+						out.PushBack(Entree("Annuler", NK_A_ANNULER, "Ctrl+Z", false, !m.historique.annuler.Empty()));
+						out.PushBack(Entree("Rétablir", NK_A_REFAIRE, "Ctrl+Y", false, !m.historique.refaire.Empty()));
+						out.PushBack(Separateur());
 						out.PushBack(Entree("Nouvelle entité", NK_A_NOUVELLE_ENTITE, "Ctrl+E"));
 						out.PushBack(Entree("Dupliquer", NK_A_DUPLIQUER, "Ctrl+D", false, m.aSelection));
 						out.PushBack(Entree("Supprimer", NK_A_SUPPRIMER, "Suppr", false, m.aSelection));
@@ -1023,6 +1026,25 @@ namespace nkentseu {
 				case NK_A_CREER_PREFAB:
 					NkEditeurCreerPrefab(m);
 					break;
+				case NK_A_ANNULER:
+				case NK_A_REFAIRE: {
+					// L'ordre de l'Outliner suit par IDENTITE : la restauration change
+					// les poignees, et l'ordre perdu remettrait les lignes en vrac.
+					NkVector<uint64> ordre;
+					for (uint32 i = 0; i < ui.ordreArbre.Size(); ++i) {
+						ordre.PushBack(m.scene.Uid(ui.ordreArbre[i]));
+					}
+					if (action == NK_A_ANNULER ? NkEditeurAnnuler(m) : NkEditeurRefaire(m)) {
+						ui.ordreArbre.Clear();
+						for (uint32 i = 0; i < ordre.Size(); ++i) {
+							const ecs::NkEntityId e = ordre[i] != 0u ? m.scene.EntiteParUid(ordre[i]) : ecs::NkEntityId::Invalid();
+							if (e.IsValid()) {
+								ui.ordreArbre.PushBack(e);
+							}
+						}
+					}
+					break;
+				}
 				case NK_A_DETACHER:
 					if (m.aSelection) {
 						NkEditeurDetacher(m, m.selection);

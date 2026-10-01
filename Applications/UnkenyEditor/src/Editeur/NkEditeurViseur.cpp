@@ -142,7 +142,7 @@ namespace nkentseu {
 				const NkColor fondMarqueur(150, 160, 185, 90);
 				const NkColor bordMarqueur(200, 208, 225, 230);
 				scene.Monde().Query<NkTransform2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t) {
-					if (!NkEditeurSansVisuel(m, id) || NkEditeurCacheDansLaVue(m, id)) {
+					if (!NkEditeurSansVisuel(m, id) || NkEditeurCacheDansLaVue(m, id) || !scene.EstActive(id)) {
 						return;
 					}
 					const NkVec2f e = scene.Camera().MondeVersEcran(t.position);
