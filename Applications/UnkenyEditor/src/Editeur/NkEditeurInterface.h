@@ -367,6 +367,19 @@ namespace nkentseu {
 				/// Le dossier courant et le rail, relus du DISQUE au plus une fois par
 				/// seconde, et aussitot apres un import ou un changement de dossier.
 				NkVector<NkElementContenu> contenuListe;
+				/// (2026-10-01) Ce que CONTIENT chaque dossier de `contenuListe` (releve
+				/// avec elle, au plus une fois par seconde) : plein ou vide, et jusqu'a
+				/// quatre elements -- la carte du dossier les montre sur sa feuille.
+				struct NkApercuDossier {
+						NkString relatif;
+						uint8 contenu = 0; ///< editorkit::NkContenuDossier
+						uint8 n = 0;
+						NkString enfants[4];
+						uint8 icones[4] = {0, 0, 0, 0};
+						uint16 roles[4] = {0, 0, 0, 0};
+						bool images[4] = {false, false, false, false};
+				};
+				NkVector<NkApercuDossier> contenuApercus;
 				NkVector<NkString> contenuSousDossiers;
 				NkString contenuListeDe;
 				float32 contenuListeAge = 99.f;

@@ -65,6 +65,11 @@
 //         en Jouer, il se recadre entier dans la vue (le jeu a sa camera : le
 //         meme monde sous son centre) ; Arreter rend la vue d'avant ;
 //         « Recadrer l'appareil » lui rend sa taille ajustee
+//   (m10) UN DOSSIER PLEIN SE DISTINGUE D'UN VIDE (Content Browser, variante
+//         Unreal) : le kit peint une FEUILLE claire (la teinte du dossier,
+//         eclaircie) et ses apercus (la vignette de l'image) pour le plein, rien
+//         de tel pour le vide, et la feuille reste en petite vignette ; l'editeur
+//         renseigne plein / vide et les apercus de chaque dossier du Contenu
 //
 //   Les captures hors ecran : `--captures-assets=DOSSIER` (rasterisees, sans
 //   fenetre ni GPU, comme --captures-formes).
@@ -81,6 +86,7 @@
 #include "Editeur/NkEditeurPlacer.h"
 #include "Editeur/NkEditeurViseur.h"
 
+#include "NKEditorKit/Components/NkRecordingPaint.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKGui/Core/NkGuiDrawListRaster.h"
@@ -934,6 +940,103 @@ namespace nkentseu {
 					   static_cast<float32>(zoom + pano + jeu + arret + recadre));
 			}
 
+			// (m10) LES DOSSIERS PLEINS ET VIDES (Rihen, 01/10).
+			{
+				using namespace editorkit;
+				// A. Le KIT : deux dossiers de meme couleur, l'un plein (3 apercus, une
+				//    vignette 77), l'autre vide ; en grande puis en petite vignette.
+				NkComponentInstance inst(NkContentBrowserDecl());
+				inst.SetVariantByName("unreal");
+				NkContentBrowserStyle st;
+				st.values = &inst;
+				st.panelBg = 1;
+				st.headerBg = 2;
+				st.border = 3;
+				st.text = 4;
+				st.textMuted = 6;
+				st.cardBg = 7;
+				st.cardFooterBg = 8;
+				st.activeMark = 9;
+				st.chosenMark = 10;
+				st.folderTint = 11;
+				const uint32 bleu = 0x3C9AE0FFu;
+				const uint32 papier = NkTeinter(bleu, 0.86f);
+				auto Peindre = [&](float32 taille, int32 &feuilles, int32 &vignettes) {
+					NkContentBrowserModel mod;
+					mod.thumbSize = taille;
+					NkAssetEntry plein;
+					plein.name = NkString("Plein");
+					plein.path = NkString("Contenu/Plein");
+					plein.isFolder = true;
+					plein.couleur = bleu;
+					plein.contenu = static_cast<uint8>(NkContenuDossier::Plein);
+					plein.nbApercus = 3;
+					plein.apercusIcone[0] = static_cast<uint8>(NkAssetIcone::Image);
+					plein.apercusVignette[0] = 77u;
+					plein.apercusIcone[1] = static_cast<uint8>(NkAssetIcone::Archive);
+					plein.apercusIcone[2] = static_cast<uint8>(NkAssetIcone::Dossier);
+					NkAssetEntry vide = plein;
+					vide.name = NkString("Vide");
+					vide.path = NkString("Contenu/Vide");
+					vide.contenu = static_cast<uint8>(NkContenuDossier::Vide);
+					vide.nbApercus = 0;
+					vide.apercusVignette[0] = 0u;
+					mod.entries.PushBack(plein);
+					mod.entries.PushBack(vide);
+					NkContentBrowserHooks h;
+					NkComponentInput in;
+					NkRecordingPaint rp;
+					NkDrawContentBrowser(rp, in, NkPaintRect{0.f, 0.f, 1000.f, 500.f}, mod, st, h);
+					feuilles = vignettes = 0;
+					for (uint32 i = 0; i < rp.cmds.Size(); ++i) {
+						feuilles += rp.cmds[i].op == NkPaintOp::FillColor && rp.cmds[i].rgba == papier ? 1 : 0;
+						vignettes += rp.cmds[i].op == NkPaintOp::Image && rp.cmds[i].image == 77u ? 1 : 0;
+					}
+				};
+				int32 fG = 0, vG = 0, fP = 0, vP = 0;
+				Peindre(110.f, fG, vG);
+				Peindre(36.f, fP, vP);
+				const bool kit = fG == 1 && vG == 1 && fP == 1 && vP == 0;
+				// B. L'EDITEUR : plein / vide et les apercus de son Contenu.
+				NkDirectory::Delete("banc_m10", true);
+				NkDirectory::CreateRecursive("banc_m10/projet/Contenu/Plein");
+				NkDirectory::CreateRecursive("banc_m10/projet/Contenu/Vide");
+				EcrireImage("banc_m10/projet/Contenu/Plein/damier.png");
+				EcrireSon("banc_m10/projet/Contenu/Plein/la.wav");
+				NkEditeurNouvelleScene(m);
+				m.chemin = NkString("banc_m10/projet/scene.nkscene");
+				m.projet = NkString();
+				bool hote = false;
+				{
+					NkEditeurBancTrame t(m);
+					NkEditeurInterface &ui = t.Ui();
+					for (int32 k = 0; k < 4; ++k) {
+						t.Trame();
+					}
+					const NkAssetEntry *ep = nullptr;
+					const NkAssetEntry *ev = nullptr;
+					for (uint32 k = 0; k < ui.contenu.entries.Size(); ++k) {
+						const NkAssetEntry &e = ui.contenu.entries[k];
+						ep = e.path == NkString("Contenu/Plein") ? &e : ep;
+						ev = e.path == NkString("Contenu/Vide") ? &e : ev;
+					}
+					hote = ep != nullptr && ev != nullptr && ep->contenu == static_cast<uint8>(NkContenuDossier::Plein) && ep->nbApercus == 2u &&
+						   ep->apercusVignette[0] != 0u && ev->contenu == static_cast<uint8>(NkContenuDossier::Vide) && ev->nbApercus == 0u;
+					if (!hote) {
+						std::printf("        hote : plein %d (%u apercus, vignette %llu) vide %d%c", ep != nullptr ? ep->contenu : -1,
+									ep != nullptr ? static_cast<unsigned>(ep->nbApercus) : 0u,
+									ep != nullptr ? static_cast<unsigned long long>(ep->apercusVignette[0]) : 0ull, ev != nullptr ? ev->contenu : -1, 10);
+					}
+				}
+				NkDirectory::Delete("banc_m10", true);
+				const bool ok = kit && hote;
+				if (!ok) {
+					std::printf("        kit : feuilles %d/%d vignettes %d/%d%c", fG, fP, vG, vP, 10);
+				}
+				Temoin(ok, "(m10) dossiers : plein = feuille et apercus (toutes tailles), vide = dossier seul",
+					   static_cast<float32>(fG + vG + fP));
+			}
+
 			m.chemin = cheminAvant;
 			m.projet = NkString();
 			memory::NkGetDefaultAllocator().Delete(pm);
@@ -1181,7 +1284,9 @@ namespace nkentseu {
 				const NkString demo = NkString::Format("%s/projet_demo", dossier);
 				static const char *kSources[] = {"../../../../../References/Captures/etape1/projet_demo",
 												 "C:/Users/rihen/Documents/Projects/References/Captures/etape1/projet_demo"};
-				bool copie = NkDirectory::Exists(NkString::Format("%s/MonJeu2D/Contenu", demo.CStr()).CStr());
+				// Une copie NEUVE a chaque fois : les prefabs fabriques ne s'y accumulent pas.
+				NkDirectory::Delete(demo.CStr(), true);
+				bool copie = false;
 				for (const char *s : kSources) {
 					if (!copie && NkDirectory::Exists(s)) {
 						copie = NkDirectory::Copy(s, demo.CStr(), true, true);
@@ -1262,6 +1367,23 @@ namespace nkentseu {
 					}
 					(void)pJoueur;
 					NkEditeurFermerTousOnglets(cadre);
+					// 10 : les dossiers PLEINS (feuille et apercus) et le dossier VIDE, en
+					// trois tailles de vignettes.
+					{
+						ui.hauteurTiroir = 330.f;
+						static const float32 kTailles[3] = {56.f, 96.f, 150.f};
+						static const char *kNoms[3] = {"10a_dossiers_petits.png", "10b_dossiers_moyens.png", "10c_dossiers_grands.png"};
+						for (int32 k = 0; k < 3; ++k) {
+							ui.contenu.thumbSize = kTailles[k];
+							for (int32 j = 0; j < 6; ++j) {
+								T.Trame(); // les vignettes des images se chargent deux par trame
+							}
+							T.Fermer();
+							erreurs += EcrirePng(T, NkString::Format("%s/%s", dossier, kNoms[k]).CStr()) ? 0 : 1;
+						}
+						ui.hauteurTiroir = 230.f;
+						ui.contenu.thumbSize = 96.f;
+					}
 					// 04 : le VRAI prefab glisse du dossier Prefabs dans l'Outliner, puis
 					// dans la vue.
 					{

@@ -646,6 +646,35 @@ namespace nkentseu {
 				ui.contenuListeDe = ui.contenuDossier;
 				ui.contenuListeAge = 0.f;
 				ui.contenuPerime = false;
+				// (2026-10-01) Ce que contient chaque dossier : sa carte montre une
+				// feuille et des apercus (NkContentBrowserUnreal.cpp), vide le dossier seul.
+				ui.contenuApercus.Clear();
+				NkVector<NkElementContenu> enfants;
+				for (uint32 i = 0; i < ui.contenuListe.Size(); ++i) {
+					const NkElementContenu &d = ui.contenuListe[i];
+					if (!d.dossier) {
+						continue;
+					}
+					NkEditeurInterface::NkApercuDossier a;
+					a.relatif = d.relatif;
+					NkEditeurListerContenu(c.m, d.relatif.CStr(), enfants);
+					a.contenu = static_cast<uint8>(enfants.Empty() ? editorkit::NkContenuDossier::Vide : editorkit::NkContenuDossier::Plein);
+					// Les FICHIERS d'abord (ils disent ce qu'il y a), puis les sous-dossiers.
+					for (int32 passe = 0; passe < 2; ++passe) {
+						for (uint32 k = 0; k < enfants.Size() && a.n < 4u; ++k) {
+							const NkElementContenu &f = enfants[k];
+							if (f.dossier != (passe == 1)) {
+								continue;
+							}
+							a.enfants[a.n] = f.relatif;
+							a.icones[a.n] = f.dossier ? static_cast<uint8>(editorkit::NkAssetIcone::Dossier) : f.nature.icone;
+							a.roles[a.n] = f.dossier ? static_cast<uint16>(NkRole::TypeFolder) : f.nature.role;
+							a.images[a.n] = !f.dossier && f.nature.type == NkAssetType::Texture2D;
+							++a.n;
+						}
+					}
+					ui.contenuApercus.PushBack(a);
+				}
 			}
 
 			/// Le noeud du rail d'un dossier du Contenu (sa racine a defaut).
@@ -861,7 +890,26 @@ namespace nkentseu {
 					Restaurer(ui);
 				} else if (ui.contenuProjet) {
 					for (uint32 i = 0; i < ui.contenuListe.Size(); ++i) {
-						m.entries.PushBack(EntreeDe(ui, ui.contenuListe[i]));
+						editorkit::NkAssetEntry a = EntreeDe(ui, ui.contenuListe[i]);
+						if (a.isFolder) {
+							// Plein ou vide, et ses apercus (les images : leur vraie
+							// vignette, chargee comme celles des cartes).
+							for (uint32 k = 0; k < ui.contenuApercus.Size(); ++k) {
+								const NkEditeurInterface::NkApercuDossier &ap = ui.contenuApercus[k];
+								if (!(ap.relatif == ui.contenuListe[i].relatif)) {
+									continue;
+								}
+								a.contenu = ap.contenu;
+								a.nbApercus = ap.n;
+								for (uint32 j = 0; j < ap.n && j < 4u; ++j) {
+									a.apercusIcone[j] = ap.icones[j];
+									a.apercusRole[j] = ap.roles[j];
+									a.apercusVignette[j] = ap.images[j] ? TextureDe(c, CheminNavigateur(ap.enfants[j])) : 0u;
+								}
+								break;
+							}
+						}
+						m.entries.PushBack(a);
 					}
 					Restaurer(ui);
 				} else {

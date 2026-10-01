@@ -120,6 +120,18 @@ namespace nkentseu {
 				/// l'application garde (`NkContentBrowserDisque.h`, la memoire du
 				/// navigateur). 0 = la teinte du style, le dessin d'avant.
 				uint32 couleur = 0;
+
+				/// (2026-10-01) CE QUE CONTIENT UN DOSSIER, pour sa carte de la variante
+				/// Unreal : jusqu'a quatre APERCUS de ses elements -- leur silhouette
+				/// (`NkAssetIcone`), leur role de theme, leur vignette (une poignee de
+				/// texture, 0 : la silhouette). Un dossier PLEIN (`contenu`) montre une
+				/// FEUILLE qui depasse, et ces apercus dessus ; un dossier vide, le
+				/// dossier seul. AJOUTES A LA FIN, neutres : `nbApercus` = 0 et
+				/// `contenu` inconnu gardent le dessin d'avant.
+				uint8 nbApercus = 0;
+				uint8 apercusIcone[4] = {0, 0, 0, 0};
+				uint16 apercusRole[4] = {0, 0, 0, 0};
+				nk_uint64 apercusVignette[4] = {0, 0, 0, 0};
 		};
 
 		/// (2026-10-01) UNE COLLECTION, telle que la section « Collections » de la
