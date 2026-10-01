@@ -976,12 +976,72 @@ namespace nkentseu {
 			const nkgui::NkGuiInput &in = ctx.input;
 			auto &dl = ctx.dl;
 			dl.AddRectFilled(zone, c.pal.panneau);
+			const float32 titreH = 26.f;
+			// Le CHEVRON du tiroir : « replier » (vers la gauche) deplie, « deplier »
+			// (vers la droite) replie.
+			auto Chevron = [&](const NkRect &r, bool versGauche) {
+				const bool sur = NkEditeurDans(r, in.mousePos);
+				if (sur) {
+					dl.AddRectFilled(r, c.pal.boutonSurvol, 3.f);
+				}
+				const NkColor col = sur ? c.pal.texte : c.pal.attenue;
+				const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+				for (int32 k = 0; k < 2; ++k) {
+					const float32 x = cx + (versGauche ? 2.f : -2.f) + static_cast<float32>(k) * (versGauche ? -5.f : 5.f);
+					const float32 d = versGauche ? -3.5f : 3.5f;
+					dl.AddLine(NkVec2{x - d * 0.5f, cy - 4.f}, NkVec2{x + d * 0.5f, cy}, col, 1.6f);
+					dl.AddLine(NkVec2{x + d * 0.5f, cy}, NkVec2{x - d * 0.5f, cy + 4.f}, col, 1.6f);
+				}
+				return sur && in.mouseClicked[0];
+			};
+
+			// ── REPLIE (2026-10-01, R33 point 5) : la seule colonne d'onglets ──
+			if (ui.placerReplie) {
+				dl.AddRectFilled(NkRect{zone.x, zone.y, zone.w, titreH}, c.pal.entete);
+				dl.AddRectFilled(NkRect{zone.x, zone.y + titreH - 1.f, zone.w, 1.f}, c.pal.bord);
+				ui.placerChevron = NkRect{zone.x + (zone.w - 24.f) * 0.5f, zone.y + 3.f, 24.f, titreH - 6.f};
+				if (Chevron(ui.placerChevron, false)) {
+					ui.placerReplie = false;
+				}
+				const int32 nb = static_cast<int32>(NkOngletPlacer::NK_COUNT);
+				const NkRect col{zone.x, zone.y + titreH, zone.w, zone.h - titreH};
+				dl.AddRectFilled(col, c.pal.fond);
+				float32 oh = (col.h - 8.f) / static_cast<float32>(nb);
+				oh = oh > ONGLET_H ? ONGLET_H : (oh < 22.f ? 22.f : oh);
+				const bool libelles = oh >= 40.f;
+				for (int32 o = 0; o < nb; ++o) {
+					const NkRect r{col.x + 3.f, col.y + 4.f + static_cast<float32>(o) * oh, col.w - 6.f, oh - 4.f};
+					ui.placerOngletsRects[o] = r;
+					const bool actif = ui.placerOnglet == o;
+					const bool survol = NkEditeurDans(r, in.mousePos);
+					if (survol) {
+						dl.AddRectFilled(r, c.pal.boutonSurvol, 4.f);
+					}
+					const NkColor cc = actif ? c.pal.accent : c.pal.texte;
+					IconeOnglet(dl, static_cast<NkOngletPlacer>(o), r.x + r.w * 0.5f, libelles ? r.y + 16.f : r.y + r.h * 0.5f, cc);
+					if (libelles) {
+						renderer::NkTexteCentre(dl, c.petite, r.x + r.w * 0.5f, r.y + 30.f, NkNomOngletPlacer(static_cast<NkOngletPlacer>(o)), cc);
+					}
+					if (survol && in.mouseClicked[0]) {
+						// Un onglet clique : le tiroir s'ouvre, sur lui.
+						ui.placerOnglet = o;
+						ui.placerDefil = 0.f;
+						ui.placerReplie = false;
+					}
+				}
+				ui.placerAppui = -1;
+				ui.placerGlisse = false;
+				return;
+			}
 
 			// ── L'onglet du panneau (« Place Actors » d'UE5) ────────────────
 			static const char *kTitre[1] = {"Placer des acteurs"};
 			int32 seul = 0;
-			const float32 titreH = 26.f;
 			NkEditeurOnglets(c, NkRect{zone.x, zone.y, zone.w, titreH}, kTitre, 1, seul);
+			ui.placerChevron = NkRect{zone.x + zone.w - 28.f, zone.y + 3.f, 24.f, titreH - 6.f};
+			if (Chevron(ui.placerChevron, true)) {
+				ui.placerReplie = true;
+			}
 
 			// ── La recherche ────────────────────────────────────────────────
 			const NkRect recherche{zone.x + 6.f, zone.y + titreH + 5.f, zone.w - 12.f, 22.f};

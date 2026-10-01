@@ -101,6 +101,9 @@ namespace nkentseu {
 			NK_COMPOSANT_MOU ///< sous-menu « Corps mou » de « Ajouter un composant » : la matiere
 		};
 
+		/// La largeur de « Placer des acteurs » REPLIE : sa colonne d'onglets.
+		static constexpr float32 NK_PLACER_REPLIE_L = 58.f;
+
 		struct NkOngletAsset; // NkEditeurAssets.h
 		struct NkModePrefab;  // NkEditeurAssets.h
 
@@ -706,6 +709,12 @@ namespace nkentseu {
 				nkgui::NkRect placer{0.f, 0.f, 0.f, 0.f};
 				float32 largeurPlacer = 236.f;
 				bool voirPlacer = true;
+				/// (2026-10-01, R33 point 5) REPLIE comme un tiroir : il ne garde que sa
+				/// colonne d'onglets verticaux (NK_PLACER_REPLIE_L), la vue prend le
+				/// reste. Le chevron de son en-tete le replie / deplie ; un onglet
+				/// clique, replie, le deplie sur cet onglet. Sa largeur est gardee.
+				bool placerReplie = false;
+				nkgui::NkRect placerChevron{0.f, 0.f, 0.f, 0.f};
 				int32 placerOnglet = 2; ///< NkOngletPlacer : Base, comme UE5 a l'ouverture
 				char placerFiltre[32] = {};
 				bool placerFiltreFocus = false;

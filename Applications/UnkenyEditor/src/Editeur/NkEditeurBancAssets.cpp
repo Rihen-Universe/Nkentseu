@@ -37,6 +37,11 @@
 //         glisse du Content Browser dans l'OUTLINER nait au centre de la vue ;
 //         glisse dans la VUE, au point lache ; les deux sont des instances du
 //         prefab, visibles dans l'Outliner ; la Ctrl+Z retire la derniere
+//   (m5)  « PLACER DES ACTEURS » SE REPLIE : le chevron de son en-tete ne lui
+//         laisse que sa colonne d'onglets (NK_PLACER_REPLIE_L), la vue gagne la
+//         difference, la liste n'est plus peinte, sa largeur est gardee ; un
+//         onglet clique (Formes) le deplie SUR cet onglet ; le chevron replie
+//         puis deplie de nouveau
 //
 //   Les captures hors ecran : `--captures-assets=DOSSIER` (rasterisees, sans
 //   fenetre ni GPU, comme --captures-formes).
@@ -545,6 +550,50 @@ namespace nkentseu {
 				NkDirectory::Delete("banc_m4", true);
 			}
 
+			// (m5) LE PANNEAU « PLACER DES ACTEURS » SE REPLIE (retour 5 de Rihen).
+			{
+				NkEditeurNouvelleScene(m);
+				NkEditeurBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				t.Trame();
+				t.Trame();
+				const float32 large = ui.placer.w, vue0 = ui.vue.w, garde = ui.largeurPlacer;
+				auto Liste = [&]() {
+					uint32 n = 0u;
+					for (uint32 k = 0; k < ui.placerRects.Size(); ++k) {
+						n += ui.placerRects[k].w > 0.f ? 1u : 0u;
+					}
+					return n;
+				};
+				const uint32 lignes0 = Liste();
+				nkgui::NkVec2 p = Milieu(ui.placerChevron);
+				t.Clic(0, p.x, p.y);
+				t.Trame();
+				const bool replie = ui.placerReplie && math::NkAbs(ui.placer.w - NK_PLACER_REPLIE_L) < 0.5f &&
+									ui.vue.w > vue0 + (large - NK_PLACER_REPLIE_L) - 1.f && ui.largeurPlacer == garde && ui.placerOngletsRects[4].w > 0.f;
+				// Un onglet clique, replie : il deplie, sur lui (Formes = 4).
+				p = Milieu(ui.placerOngletsRects[static_cast<int32>(NkOngletPlacer::NK_FORMES)]);
+				t.Clic(0, p.x, p.y);
+				t.Trame();
+				const bool surOnglet = !ui.placerReplie && ui.placerOnglet == static_cast<int32>(NkOngletPlacer::NK_FORMES) &&
+									   math::NkAbs(ui.placer.w - large) < 0.5f && Liste() > 0u;
+				// Le chevron : replie, puis deplie.
+				p = Milieu(ui.placerChevron);
+				t.Clic(0, p.x, p.y);
+				t.Trame();
+				const bool deux = ui.placerReplie;
+				p = Milieu(ui.placerChevron);
+				t.Clic(0, p.x, p.y);
+				t.Trame();
+				const bool rouvre = !ui.placerReplie && math::NkAbs(ui.vue.w - vue0) < 0.5f;
+				const bool ok = lignes0 > 0u && replie && surOnglet && deux && rouvre;
+				if (!ok) {
+					std::printf("        lignes0 %u replie %d (placer %.1f vue %.1f -> %.1f) surOnglet %d deux %d rouvre %d%c", lignes0, replie,
+								static_cast<double>(ui.placer.w), static_cast<double>(vue0), static_cast<double>(ui.vue.w), surOnglet, deux, rouvre, 10);
+				}
+				Temoin(ok, "(m5) Placer des acteurs : replie en colonne d'onglets, deplie sur un onglet", static_cast<float32>(large - NK_PLACER_REPLIE_L));
+			}
+
 			m.chemin = cheminAvant;
 			m.projet = NkString();
 			memory::NkGetDefaultAllocator().Delete(pm);
@@ -603,6 +652,31 @@ namespace nkentseu {
 				Pastille(T, 5);
 				T.Fermer();
 				erreurs += EcrirePng(T, NkString::Format("%s/02c_animation_et_animateur.png", dossier).CStr()) ? 0 : 1;
+				memory::NkGetDefaultAllocator().Delete(pt);
+			}
+			// 05 : « Placer des acteurs » replie (la vue prend la place), puis deplie.
+			{
+				NkEditeurNouvelleScene(m);
+				NkEditeurBancTrame *pt = memory::NkGetDefaultAllocator().New<NkEditeurBancTrame>(m);
+				NkEditeurBancTrame &T = *pt;
+				T.W = 1600.f;
+				T.H = 900.f;
+				T.pctx->Init(1600, 900);
+				T.Ui().hauteurTiroir = 150.f;
+				for (int32 k = 0; k < 3; ++k) {
+					T.Trame();
+				}
+				T.Ui().placerReplie = true;
+				T.Trame();
+				T.Fermer();
+				erreurs += EcrirePng(T, NkString::Format("%s/05a_placer_replie.png", dossier).CStr()) ? 0 : 1;
+				const nkgui::NkVec2 p = Milieu(T.Ui().placerOngletsRects[static_cast<int32>(NkOngletPlacer::NK_LUMIERES)]);
+				T.pctx->input.mousePos = p;
+				T.Trame();
+				erreurs += EcrirePng(T, NkString::Format("%s/05b_placer_replie_survol.png", dossier).CStr()) ? 0 : 1;
+				T.Clic(0, p.x, p.y);
+				T.Fermer();
+				erreurs += EcrirePng(T, NkString::Format("%s/05c_placer_deplie_lumieres.png", dossier).CStr()) ? 0 : 1;
 				memory::NkGetDefaultAllocator().Delete(pt);
 			}
 			// 03 : chaque asset s'ouvre -- sur une COPIE du projet de demonstration

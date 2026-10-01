@@ -888,7 +888,8 @@ namespace nkentseu {
 
 			// (2026-10-01) « Placer des acteurs » A GAUCHE DE TOUT, comme UE5
 			// (NkEditeurPlacer.h) ; l'Outliner glisse d'autant.
-			const float32 P = ui.voirPlacer ? Borne(ui.largeurPlacer, 170.f, W * 0.25f) : 0.f;
+			// Replie (2026-10-01, R33 point 5), il ne garde que sa colonne d'onglets.
+			const float32 P = !ui.voirPlacer ? 0.f : (ui.placerReplie ? NK_PLACER_REPLIE_L : Borne(ui.largeurPlacer, 170.f, W * 0.25f));
 			const float32 x0 = P + (P > 0.f ? EPAISSEUR_CLOISON : 0.f);
 			ui.placer = NkRect{0.f, corpsHaut, P, colonnesH};
 			const float32 L = ui.voirOutliner ? Borne(ui.largeurOutliner, 150.f, W * 0.35f) : 0.f;
