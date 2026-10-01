@@ -229,7 +229,10 @@ namespace nkentseu {
 									   true);
 				mem.BeginFrame();
 				mem.SubmitDrawList(ctx.dl, (uint32)W, (uint32)H);
-				mem.SubmitDrawList(ctx.dlOverlay, (uint32)W, (uint32)H);
+				// ⚠️ LA LISTE DE SURCOUCHE N'EST PAS SOUMISE, ET C'EST VOULU : le lanceur
+				//    et son champ de recherche peignent dans la liste courante, la
+				//    surcouche reste vide ici ; et la regle du kit (banc 11g) veut
+				//    qu'un fichier qui y touche passe par NkSurfaceFlottante.
 				if (k == 1)
 					(void)mem.CaptureNext(d.chemin);
 				mem.EndFrame();
