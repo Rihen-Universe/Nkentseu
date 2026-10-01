@@ -69,10 +69,10 @@ fragment float4 nk2d_fs(Nk2DOut i [[stage_in]], texture2d<float> tex [[texture(0
 				NkVector<NkMetal2DTexture> entrees; // index = id - 1
 		} gMtl2D;
 
-		static NkMetal2DTexture *Mtl2DEntree(uint32 id) {
-			if (id == 0 || id > gMtl2D.entrees.Size())
+		static NkMetal2DTexture *Mtl2DEntree(uint32 ident) {
+			if (ident == 0 || ident > gMtl2D.entrees.Size())
 				return nullptr;
-			NkMetal2DTexture *e = &gMtl2D.entrees[id - 1];
+			NkMetal2DTexture *e = &gMtl2D.entrees[ident - 1];
 			return e->vivante ? e : nullptr;
 		}
 
@@ -136,8 +136,8 @@ fragment float4 nk2d_fs(Nk2DOut i [[stage_in]], texture2d<float> tex [[texture(0
 			return (uint32)gMtl2D.entrees.Size();
 		}
 
-		static void Mtl2DMettreAJour(uint32 id, uint32 x, uint32 y, uint32 w, uint32 h, const uint8 *rgba) {
-			NkMetal2DTexture *e = Mtl2DEntree(id);
+		static void Mtl2DMettreAJour(uint32 ident, uint32 x, uint32 y, uint32 w, uint32 h, const uint8 *rgba) {
+			NkMetal2DTexture *e = Mtl2DEntree(ident);
 			if (!e || !e->tex)
 				return;
 			// La police de NKGui passe par Create PUIS Update : sans Update, l'atlas
@@ -145,8 +145,8 @@ fragment float4 nk2d_fs(Nk2DOut i [[stage_in]], texture2d<float> tex [[texture(0
 			Mtl2DEcrire((__bridge id<MTLTexture>)e->tex, x, y, w, h, rgba);
 		}
 
-		static void Mtl2DDetruire(uint32 id) {
-			NkMetal2DTexture *e = Mtl2DEntree(id);
+		static void Mtl2DDetruire(uint32 ident) {
+			NkMetal2DTexture *e = Mtl2DEntree(ident);
 			if (!e)
 				return;
 			if (e->sampler)
@@ -156,15 +156,15 @@ fragment float4 nk2d_fs(Nk2DOut i [[stage_in]], texture2d<float> tex [[texture(0
 			*e = NkMetal2DTexture{};
 		}
 
-		static void Mtl2DFiltre(uint32 id, NkTextureFilter f) {
-			if (NkMetal2DTexture *e = Mtl2DEntree(id)) {
+		static void Mtl2DFiltre(uint32 ident, NkTextureFilter f) {
+			if (NkMetal2DTexture *e = Mtl2DEntree(ident)) {
 				e->filter = f;
 				Mtl2DRefaireSampler(e);
 			}
 		}
 
-		static void Mtl2DRepetition(uint32 id, NkTextureWrap w) {
-			if (NkMetal2DTexture *e = Mtl2DEntree(id)) {
+		static void Mtl2DRepetition(uint32 ident, NkTextureWrap w) {
+			if (NkMetal2DTexture *e = Mtl2DEntree(ident)) {
 				e->wrap = w;
 				Mtl2DRefaireSampler(e);
 			}
