@@ -327,6 +327,10 @@ namespace nkentseu {
 				nk_uint64 track = 0; ///< 0 = une ligne d'en-tete d'objet
 				NkString object;
 				float32 y = 0.f, h = 0.f;
+				/// Les zones de la colonne (lignes de piste) : « ◆ » (une cle au curseur)
+				/// et la case de chaque canal (frotter = une cle au curseur).
+				NkPaintRect keyButton;
+				NkPaintRect channel[4];
 		};
 
 		// ── LE RESULTAT ─────────────────────────────────────────────────────────

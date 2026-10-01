@@ -1258,6 +1258,16 @@ namespace nkentseu {
 			// Les lignes ont pu changer (un objet replie, une piste retiree).
 			r.rows.Clear();
 			Lignes(c);
+			for (uint32 k = 0; k < (uint32)r.rows.Size(); ++k) {
+				NkTimelineRow &l = r.rows[k];
+				if (const NkTimelineTrack *tr = m.Track(l.track)) {
+					const ZonesLigne z = Zones(c, l, *tr);
+					l.keyButton = z.cle;
+					for (uint32 ch = 0; ch < 4; ++ch) {
+						l.channel[ch] = z.canal[ch];
+					}
+				}
+			}
 			if (m.curveMode) {
 				AjusterValeurs(c);
 			}

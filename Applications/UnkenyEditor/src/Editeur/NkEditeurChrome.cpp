@@ -263,6 +263,10 @@ namespace nkentseu {
 						out.PushBack(Entree("Entrées du jeu", NK_A_ENTREES, "", c.ui.panneauEntrees));
 						out.PushBack(Entree("Réglages du projet : collision", NK_A_REGLAGES_COLLISION, "", c.ui.reglagesCollision));
 						out.PushBack(Separateur());
+						// (2026-10-01) Les pages, en onglets de document (NkEditeurPagesAnim.h).
+						out.PushBack(Entree("Animation (frise)", NK_A_ANIM_ANIMATION));
+						out.PushBack(Entree("Animateur (graphe d'états)", NK_A_ANIM_ANIMATEUR));
+						out.PushBack(Separateur());
 						out.PushBack(Entree("Disposition par défaut", NK_A_DISPOSITION));
 						break;
 					case NkMenuEditeur::NK_AIDE:
@@ -1086,6 +1090,10 @@ namespace nkentseu {
 			if (NkEditeurActionPlacer(c, action)) {
 				return;
 			}
+			// 2026-10-01 : les pages Animation et Animateur (2400-2449, NkEditeurPagesAnim.h).
+			if (NkEditeurActionAnim(c, action)) {
+				return;
+			}
 			// Les plages d'abord : leur indice est ajoute a la base.
 			// 2026-09-30 : lumieres et emetteurs (NkEditeurLumiere.h).
 			if (action >= NK_A_LUMIERE && action < NK_A_LUMIERE + 3) {
@@ -1668,8 +1676,13 @@ namespace nkentseu {
 			// A DROITE du logo, qui tient le coin sur les deux lignes.
 			const NkRect onglet{b.x + c.ui.logo.w + 4.f, b.y + 3.f, w, b.h - 3.f};
 			c.ui.ongletScene = onglet;
-			dl.AddRectFilled(onglet, c.pal.panneau, 2.f);
-			dl.AddRectFilled(NkRect{onglet.x, onglet.y, onglet.w, 2.f}, c.pal.accent);
+			// (2026-10-01) Une page Animation / Animateur au premier plan : la scene
+			// devient un onglet comme les autres (NkEditeurPagesAnim.h).
+			const bool scenePremierPlan = !NkEditeurPageAnimOuverte(c.ui);
+			dl.AddRectFilled(onglet, scenePremierPlan ? c.pal.panneau : c.pal.fond, 2.f);
+			if (scenePremierPlan) {
+				dl.AddRectFilled(NkRect{onglet.x, onglet.y, onglet.w, 2.f}, c.pal.accent);
+			}
 			const float32 ty = onglet.y + (onglet.h - renderer::NkTexteHauteurLigne(c.police, 16.f)) * 0.5f;
 			if (c.ui.modifiee) {
 				dl.AddCircleFilled(nkgui::NkVec2{onglet.x + 12.f + 4.f, onglet.y + onglet.h * 0.5f}, 3.5f, c.pal.selection);
@@ -1692,6 +1705,7 @@ namespace nkentseu {
 			if (survolX && in.mouseClicked[0]) {
 				NkEditeurExecuter(c, NK_A_FERMER_SCENE);
 			}
+			NkEditeurDessinerOngletsAnim(c); // les documents d'animation, a sa droite
 		}
 
 		// =====================================================================
