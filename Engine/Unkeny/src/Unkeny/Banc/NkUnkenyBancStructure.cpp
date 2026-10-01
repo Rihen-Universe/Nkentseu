@@ -46,6 +46,14 @@
 //          sous "corps", sans identite) : attaches et controleurs relus
 //     (x1) NkAssetType::Scene <-> .nkscene et SaveGame <-> .nksave, dans les deux
 //          sens ; les types d'avant ne bougent pas
+//     (o1) (2026-09-30) un parent ETEINT (NkUnkenyActif.h) : son enfant rigide
+//          sort du solveur et ne tombe pas, sa gelee est figee, son animation
+//          ne court pas, rien n'est dessine ; rallume, tout repart ; un enfant
+//          rattache a un parent eteint s'eteint au pas suivant
+//     (o2) l'activite traverse Photographier/Restaurer et le fichier ; un
+//          fichier qui ne la porte pas se relit tout actif (corps au solveur)
+//     (o3) un prefab d'une entite eteinte pose des instances eteintes, apres
+//          un aller-retour par .nkprefab aussi ; l'instance se rallume seule
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -61,6 +69,7 @@
 #include "NKSerialization/NkArchive.h"
 #include "Unkeny/Scene/NkUnkenyControles.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
+#include "Unkeny/Rendu/NkUnkenyRendu.h"
 #include "Unkeny/Rendu/NkUnkenyTextures.h"
 #include "Unkeny/Scene/NkUnkenyPrefab.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
@@ -947,6 +956,163 @@ namespace nkentseu {
 				pf3.Instances(s3, id4, inst3);
 				Temoin(lu3 && id4 == 2u && inst3.Size() == 2u, "(p3) instances d'un .nkscene relie a leur prefab PAR NOM",
 					   static_cast<float32>(inst3.Size()));
+			}
+
+			// (o1) (2026-09-30) L'ACTIVITE (NkUnkenyActif.h) : un parent eteint eteint
+			//      sa descendance -- ni dessinee, ni simulee (corps rigide sorti du
+			//      solveur, matiere gelee), ni animee ; rallume, tout repart.
+			{
+				NkScene s;
+				NkSceneConfig cfg;
+				cfg.physique = true;
+				cfg.particules = true;
+				s.Init(cfg);
+				s.Particules()->reglages.limites.actif = false;
+				s.Camera().PoserViseur(nkgui::NkRect{0.f, 0.f, 400.f, 400.f});
+				s.Camera().PoserCentre(NkVec2f(0.f, 3.f));
+				s.Camera().PoserZoom(40.f);
+				const ecs::NkEntityId pere = s.Creer("PereA", NkVec2f(0.f, 0.f));
+				const ecs::NkEntityId caisse = s.Creer("CaisseA", NkVec2f(0.f, 5.f));
+				NkSprite2D sp;
+				s.Monde().Add<NkSprite2D>(caisse, sp);
+				NkCollisionneur2D col;
+				col.demiTaille = NkVec2f(0.3f, 0.3f);
+				s.Monde().Add<NkCollisionneur2D>(caisse, col);
+				NkCorps2D k;
+				s.AjouterCorps(caisse, k);
+				s.Rattacher(caisse, pere, true);
+				const int32 ci = physics::NkCreerBlobP2D(*s.Particules(), NkVec2f(3.f, 5.f), 0.3f, physics::NkPresetP2D::NK_BLOB);
+				const ecs::NkEntityId gelee = s.CreerCorpsMou("GeleeA", ci, 0x7CE64CFFu);
+				s.Rattacher(gelee, pere, true);
+				NkAnimSprite2D anim;
+				anim.nbClips = 1;
+				anim.clips[0].nombre = 4;
+				anim.clips[0].imagesParSeconde = 10.f;
+				s.Monde().Add<NkAnimSprite2D>(caisse, anim);
+				auto yGelee = [&]() {
+					const int32 i = s.Particules()->IndexCorps(s.Monde().Get<NkCorpsMou2D>(gelee)->corpsId);
+					return i >= 0 ? s.Particules()->CentreCorps(static_cast<uint32>(i)).y : -1000.f;
+				};
+				nkgui::NkGuiDrawList dlA;
+				const int32 vuesAvant = NkDessinerScene(dlA, s).entitesVues;
+				s.Activer(pere, false);
+				const bool eteints = !s.EstActive(caisse) && s.EstActiveSoi(caisse) && !s.EstActiveSoi(pere) &&
+									 CorpsDe(s, caisse)->corpsId == physics::NK_INVALID_BODY && s.MondePhysique()->Bodies().Size() == 0u;
+				const float32 yG0 = yGelee();
+				for (int32 i = 0; i < 60; ++i) {
+					s.Pas(1.f / 60.f);
+				}
+				nkgui::NkGuiDrawList dlB;
+				const int32 vuesEteint = NkDessinerScene(dlB, s).entitesVues;
+				const bool figes = Pres(s.Monde().Get<NkTransform2D>(caisse)->position.y, 5.f) && Pres(yGelee(), yG0, 1.0e-4f) &&
+								   s.Monde().Get<NkAnimSprite2D>(caisse)->temps == 0.f && vuesAvant == 1 && vuesEteint == 0;
+				s.Activer(pere, true);
+				const bool rallume = s.EstActive(caisse) && CorpsDe(s, caisse)->corpsId != physics::NK_INVALID_BODY &&
+									 s.MondePhysique()->Bodies().Size() == 1u;
+				for (int32 i = 0; i < 60; ++i) {
+					s.Pas(1.f / 60.f);
+				}
+				const bool repart = s.Monde().Get<NkTransform2D>(caisse)->position.y < 4.f && yGelee() < yG0 - 0.5f &&
+									s.Monde().Get<NkAnimSprite2D>(caisse)->temps > 0.5f;
+				// Rattacher a un parent ETEINT eteint l'enfant au pas suivant.
+				const ecs::NkEntityId autre = s.Creer("AutreA", NkVec2f(5.f, 5.f));
+				s.Monde().Add<NkCollisionneur2D>(autre, col);
+				s.AjouterCorps(autre, k);
+				s.Activer(pere, false);
+				s.Rattacher(autre, pere, true);
+				s.Pas(1.f / 60.f);
+				const bool herite = CorpsDe(s, autre)->corpsId == physics::NK_INVALID_BODY && !s.EstActive(autre);
+				Temoin(eteints && figes && rallume && repart && herite,
+					   "(o1) parent eteint : enfants ni dessines, ni simules, ni animes ; rallume : ils repartent",
+					   s.Monde().Get<NkTransform2D>(caisse)->position.y);
+			}
+
+			// (o2) l'activite traverse Photographier / Restaurer et le fichier ; un
+			//      fichier qui ne la porte pas (celui d'avant) se relit TOUT ACTIF.
+			{
+				NkScene s;
+				NkSceneConfig cfg;
+				cfg.physique = true;
+				s.Init(cfg);
+				const ecs::NkEntityId a = s.Creer("EteinteA2", NkVec2f(0.f, 5.f));
+				NkCollisionneur2D col;
+				s.Monde().Add<NkCollisionneur2D>(a, col);
+				NkCorps2D k;
+				s.AjouterCorps(a, k);
+				const ecs::NkEntityId b = s.Creer("AllumeeA2", NkVec2f(3.f, 5.f));
+				s.Activer(a, false);
+				NkScene::NkPhoto photo;
+				s.Photographier(photo);
+				s.Activer(a, true);
+				s.Restaurer(photo);
+				const ecs::NkEntityId a1 = ParNom(s, "EteinteA2");
+				const bool photoOk = !s.EstActive(a1) && CorpsDe(s, a1)->corpsId == physics::NK_INVALID_BODY &&
+									 s.EstActive(ParNom(s, "AllumeeA2")) && s.MondePhysique()->Bodies().Size() == 0u;
+				NkRessourcesScene r;
+				NkString texte;
+				const bool ecrit = NkSauverSceneJSON(s, texte, r);
+				const bool cle = std::strstr(texte.CStr(), "NkActif2D") != nullptr;
+				NkScene s2;
+				s2.Init(cfg);
+				NkString err;
+				const bool lu = ecrit && NkChargerSceneJSON(s2, texte.View(), r, &err);
+				const ecs::NkEntityId a2 = ParNom(s2, "EteinteA2");
+				const bool fichierOk = lu && !s2.EstActive(a2) && CorpsDe(s2, a2)->corpsId == physics::NK_INVALID_BODY &&
+									   s2.EstActive(ParNom(s2, "AllumeeA2")) && s2.MondePhysique()->Bodies().Size() == 0u;
+				// Le fichier d'AVANT : la meme scene sans la cle -- tout est actif.
+				NkScene s3;
+				s3.Init(cfg);
+				const ecs::NkEntityId c = s3.Creer("AncienneA2", NkVec2f(0.f, 5.f));
+				s3.Monde().Add<NkCollisionneur2D>(c, col);
+				s3.AjouterCorps(c, k);
+				NkString ancien;
+				NkSauverSceneJSON(s3, ancien, r);
+				NkScene s4;
+				s4.Init(cfg);
+				const bool luAncien = std::strstr(ancien.CStr(), "NkActif2D") == nullptr && NkChargerSceneJSON(s4, ancien.View(), r, &err);
+				const ecs::NkEntityId c4 = ParNom(s4, "AncienneA2");
+				const bool ancienOk = luAncien && s4.EstActive(c4) && !s4.Monde().Has<NkActif2D>(c4) &&
+									  CorpsDe(s4, c4)->corpsId != physics::NK_INVALID_BODY;
+				(void)b;
+				Temoin(photoOk && cle && fichierOk && ancienOk, "(o2) activite : photo, fichier ; un fichier sans elle se relit actif",
+					   static_cast<float32>(photoOk + cle + fichierOk + ancienOk));
+			}
+
+			// (o3) un prefab fait d'une entite ETEINTE pose des instances eteintes ;
+			//      l'instance se rallume seule, le prefab reste eteint.
+			{
+				NkScene s;
+				NkSceneConfig cfg;
+				cfg.physique = true;
+				s.Init(cfg);
+				NkPrefabs2D pf;
+				const ecs::NkEntityId modele = s.Creer("ModeleA3", NkVec2f(0.f, 0.f));
+				NkCollisionneur2D col;
+				s.Monde().Add<NkCollisionneur2D>(modele, col);
+				NkCorps2D k;
+				s.AjouterCorps(modele, k);
+				s.Activer(modele, false);
+				const uint32 id = pf.Creer(s, modele, "Prefabs/Eteint.nkprefab");
+				const ecs::NkEntityId i1 = pf.Instancier(s, id, NkVec2f(4.f, 0.f));
+				const bool instanceEteinte = s.Monde().IsAlive(i1) && !s.EstActive(i1) && CorpsDe(s, i1)->corpsId == physics::NK_INVALID_BODY;
+				NkRessourcesScene r;
+				r.prefabs = &pf;
+				NkString texte;
+				const bool ecrit = pf.EnregistrerJSON(s, id, texte, r);
+				NkScene s2;
+				s2.Init(cfg);
+				NkPrefabs2D pf2;
+				NkRessourcesScene r2;
+				r2.prefabs = &pf2;
+				uint32 id2 = 0;
+				NkString err;
+				const bool lu = ecrit && pf2.ChargerJSON(s2, "Prefabs/Eteint.nkprefab", texte.View(), r2, id2, &err);
+				const ecs::NkEntityId i2 = lu ? pf2.Instancier(s2, id2, NkVec2f(1.f, 1.f)) : ecs::NkEntityId::Invalid();
+				const bool relu = lu && s2.Monde().IsAlive(i2) && !s2.EstActive(i2);
+				s2.Activer(i2, true);
+				const bool rallumee = s2.EstActive(i2) && CorpsDe(s2, i2)->corpsId != physics::NK_INVALID_BODY;
+				Temoin(instanceEteinte && relu && rallumee, "(o3) prefab d'une entite eteinte : instances eteintes, fichier compris",
+					   static_cast<float32>(instanceEteinte + relu + rallumee));
 			}
 
 			// (x1) les deux types d'asset ajoutes, dans les deux sens de la table

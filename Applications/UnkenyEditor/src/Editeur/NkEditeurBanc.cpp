@@ -80,6 +80,29 @@
 //         collisionneur eteint = couche et masque a 0, rallume = rendus ; corps
 //         eteint = cinematique sans gravite, rallume = dynamique ; et l'etat
 //         eteint traverse Jouer / Arreter
+//   (e48) (lot 1) le clic DROIT dans la VRAIE trame (NkEditeurDessinerTrame :
+//         tous les panneaux, l'entree passee par NkEditeurSouris) : une ligne
+//         de l'Outliner ouvre SON menu au point du clic et reste choisie ; le
+//         vide et la racine, le menu de la scene ; le viseur, le sien ; son
+//         menu ouvert, un clic droit sur une ligne OUVRE celui de la ligne (un
+//         clic gauche ferme sans traverser) ; le navigateur : une carte, un
+//         dossier, le fond, chacun son menu, jamais celui du viseur, et ses
+//         actions agissent (poser au centre, ouvrir le dossier)
+//   (e49) (lot 1) le CONTENU DU PROJET, sur de vrais fichiers (banc_e49/,
+//         efface a la fin) : importer une image, un son, une police et un
+//         format inconnu = trois copies dans « Contenu », un refus, la nature
+//         de chacun, le navigateur montre le Contenu avec les trois choisis ;
+//         un nom deja pris n'est JAMAIS ecrase (« caisse_2.png ») ; le rail a
+//         « Contenu » et ses sous-dossiers ; un DEPOT de l'OS sur la carte d'un
+//         dossier y importe, ailleurs dans le dossier courant ; Ctrl+clic
+//         choisit deux assets, « Exporter » les copie (un second export ne
+//         remplace rien) ; les boutons de la barre et le clic droit d'un asset
+//         DEMANDENT le dialogue (ouvert par l'application, pas le banc)
+//   (e50) (2026-10-01) la case « active » de l'en-tete des Details, dans la
+//         vraie trame : la, des qu'une entite est choisie ; un clic l'eteint
+//         (corps hors du solveur, plus prise dans la vue), l'oeil intact ;
+//         Ctrl+Z la rallume (selection suivie), Ctrl+Y la reeteint ; cacher a
+//         l'oeil n'eteint pas
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -88,7 +111,9 @@
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurSouris.h"
+#include "Editeur/NkEditeurTrame.h"
 
+#include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKGui/Core/NkGuiFont.h"
 
@@ -201,6 +226,113 @@ namespace nkentseu {
 				uint32 n = 0;
 				s.Monde().Query<NkDrapeauxEditeur>().ForEach([&](ecs::NkEntityId, NkDrapeauxEditeur &) { ++n; });
 				return n;
+			}
+
+			/// LA VRAIE TRAME, sans fenetre (e48, e49) : un NkGuiContext, une police,
+			/// l'interface, les entrees du jeu et la fenetre « Construire », et la
+			/// souris passee par NkEditeurSouris comme depuis l'OS. Sur le tas : tout
+			/// cela est gros.
+			struct NkBancTrame {
+					memory::NkAllocator &alloc = memory::NkGetDefaultAllocator();
+					NkEditeurModele &m;
+					NkEditeurInterface *pui;
+					nkgui::NkGuiContext *pctx;
+					nkgui::NkGuiFont *police;
+					NkEditeurEntrees *pent;
+					NkEditeurConstruction *pcons;
+					/// LE selecteur de fichiers de l'editeur (NkEditeurSelecteur.h), comme l'application.
+					NkEditeurSelecteurEtat *psel;
+					editorkit::NkTheme theme = editorkit::NkTheme::Dark();
+					NkPaletteEditeur pal;
+					NkEditeurSouris souris;
+					float32 W = 1280.f, H = 760.f;
+
+					explicit NkBancTrame(NkEditeurModele &modele) : m(modele) {
+						pui = alloc.New<NkEditeurInterface>();
+						pctx = alloc.New<nkgui::NkGuiContext>();
+						police = alloc.New<nkgui::NkGuiFont>();
+						pent = alloc.New<NkEditeurEntrees>();
+						pcons = alloc.New<NkEditeurConstruction>();
+						psel = alloc.New<NkEditeurSelecteurEtat>();
+						NkEditeurEntreesParDefaut(*pent);
+						const bool policeOk = police->LoadEmbedded(NkEmbeddedFontId::DroidSans, 13.f, false);
+						pctx->Init(static_cast<int32>(W), static_cast<int32>(H));
+						pctx->font = policeOk ? police : nullptr;
+						pal = NkEditeurPalette(theme);
+						pctx->input.mousePos = nkgui::NkVec2{-100.f, -100.f};
+					}
+					~NkBancTrame() {
+						alloc.Delete(psel);
+						alloc.Delete(pcons);
+						alloc.Delete(pent);
+						alloc.Delete(police);
+						alloc.Delete(pctx);
+						alloc.Delete(pui);
+					}
+					NkEditeurInterface &Ui() {
+						return *pui;
+					}
+					nkgui::NkGuiContext &Ctx() {
+						return *pctx;
+					}
+					NkEditeurCadre Cadre() {
+						return NkEditeurCadre{*pctx, m, *pui, theme, pal, police, police};
+					}
+					void Trame() {
+						pui->dt = 1.f / 60.f;
+						NkEditeurPlanifier(*pui, W, H);
+						pctx->BeginFrame(1.f / 60.f);
+						pctx->BeginLayout(nkgui::NkRect{0.f, 0.f, W, H});
+						NkEditeurCadre c = Cadre();
+						NkEditeurDessinerTrame(c, *pent, *pcons, psel);
+						pctx->EndFrame();
+						souris.FinDeTrame(pctx->input);
+					}
+					/// Un clic comme l'OS le livre : appui, une trame, relachement, une trame.
+					void Clic(int32 b, float32 x, float32 y) {
+						pctx->input.mousePos = nkgui::NkVec2{x, y};
+						souris.Appui(pctx->input, b);
+						Trame();
+						souris.Relache(pctx->input, b);
+						Trame();
+					}
+					void Fermer() {
+						pui->menu = NkMenuEditeur::NK_AUCUN;
+						pui->sousMenu = NkMenuEditeur::NK_AUCUN;
+						pctx->input.mousePos = nkgui::NkVec2{-100.f, -100.f};
+						Trame();
+					}
+					/// Le centre du bouton de CONFIRMATION du selecteur ouvert : la
+					/// geometrie du kit, celle que son dessin appelle aussi.
+					nkgui::NkVec2 Confirmer() const {
+						const float32 lt = police->MeasureWidth(psel->PickerConfirmLabel());
+						const editorkit::NkGeomSelecteur g = editorkit::NkGeometrieSelecteur(
+							W, H, pctx->S(1.f), false, true, psel->pickerWinOffX, psel->pickerWinOffY,
+							!psel->messageCreation.Empty(), lt);
+						return nkgui::NkVec2{g.confirmer.x + g.confirmer.w * 0.5f, g.confirmer.y + g.confirmer.h * 0.5f};
+					}
+					/// L'indice de l'entree `nom` dans le volet du selecteur, -1 sinon.
+					int32 EntreeSelecteur(const char *nom) const {
+						for (uint32 k = 0; k < psel->vue.entries.Size(); ++k) {
+							if (psel->vue.entries[k].name == NkString(nom)) {
+								return static_cast<int32>(k);
+							}
+						}
+						return -1;
+					}
+					bool AncreEn(float32 x, float32 y) const {
+						return math::NkAbs(pui->menuAncre.x - x) < 0.5f && math::NkAbs(pui->menuAncre.y - y) < 0.5f;
+					}
+			};
+
+			/// L'indice de la carte dont le chemin est `chemin` (a l'ecran), -1 sinon.
+			int32 CarteDe(NkEditeurInterface &ui, const char *chemin) {
+				for (uint32 k = 0; k < ui.contenu.entries.Size() && k < ui.contenuCartes.Size(); ++k) {
+					if (ui.contenu.entries[k].path == NkString(chemin) && ui.contenuCartes[k].w > 0.f) {
+						return static_cast<int32>(k);
+					}
+				}
+				return -1;
 			}
 		} // namespace
 
@@ -1006,6 +1138,319 @@ namespace nkentseu {
 										  m.scene.Monde().Get<NkCorps2D>(c2)->echelleGravite == 1.f && !m.scene.Monde().Has<NkEteintsEditeur>(c2);
 				Temoin(double2 && gizmo && rendu && colEteint && colRallume && corpsEteint && traverse && corpsRallume,
 					   "(e47) echelle cuite et relue ; cases : collisionneur, corps, Jouer/Arreter", e2.x);
+			}
+
+			// (e48) le clic DROIT dans la VRAIE trame (NkEditeurDessinerTrame) :
+			// tous les panneaux, dans l'ordre de l'ecran, l'entree passee par
+			// NkEditeurSouris comme depuis l'OS.
+			{
+				NkEditeurNouvelleScene(m);
+				NkBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				NkEditeurCadre c = t.Cadre();
+				t.Trame();
+				t.Trame();
+				const ecs::NkEntityId caisse = Par(m.scene, "Caisse");
+				float32 yCaisse = -100.f;
+				for (uint32 k = 0; k < ui.arbreEntites.Size(); ++k) {
+					if (ui.arbreEntites[k] == caisse) {
+						yCaisse = ui.outliner.y + 74.f + static_cast<float32>(k) * 22.f + 11.f;
+					}
+				}
+				const float32 xArbre = ui.outliner.x + ui.outliner.w * 0.6f;
+				const float32 xVue = ui.viseur.x + 40.f, yVue = ui.viseur.y + 40.f;
+
+				// (a) une ligne de l'Outliner : elle est choisie, SON menu s'ouvre au
+				// point du clic, et il tient apres le relachement.
+				m.aSelection = false;
+				t.Clic(1, xArbre, yCaisse);
+				const bool arbreMenu = ui.menu == NkMenuEditeur::NK_CTX_ENTITE && m.aSelection && m.selection == caisse &&
+									   t.AncreEn(xArbre, yCaisse);
+				t.Trame();
+				const bool arbreTient = ui.menu == NkMenuEditeur::NK_CTX_ENTITE;
+				t.Fermer();
+				// ... le vide sous les lignes et la racine « Scene » : le menu de la scene.
+				t.Clic(1, xArbre, ui.outliner.y + ui.outliner.h - 40.f);
+				const bool arbreVide = ui.menu == NkMenuEditeur::NK_CTX_ARBRE;
+				t.Fermer();
+				t.Clic(1, xArbre, ui.outliner.y + 74.f + 11.f);
+				const bool arbreRacine = ui.menu == NkMenuEditeur::NK_CTX_ARBRE;
+				t.Fermer();
+				// (b) le viseur : son menu, toujours.
+				m.aSelection = false;
+				t.Clic(1, xVue, yVue);
+				const bool vueMenu = (ui.menu == NkMenuEditeur::NK_CTX_VIDE || ui.menu == NkMenuEditeur::NK_CTX_ENTITE) && t.AncreEn(xVue, yVue);
+				// ... et, ce menu OUVERT, un clic droit sur une ligne de l'Outliner
+				// ouvre le SIEN la (il ne fait plus que fermer celui du viseur).
+				t.Clic(1, xArbre, yCaisse);
+				const bool rouvre = ui.menu == NkMenuEditeur::NK_CTX_ENTITE && t.AncreEn(xArbre, yCaisse) && m.selection == caisse;
+				t.Fermer();
+				// ... un clic GAUCHE hors du menu, lui, ferme sans traverser.
+				t.Clic(1, xVue, yVue);
+				m.aSelection = false;
+				t.Clic(0, xArbre, yCaisse);
+				const bool gaucheFerme = ui.menu == NkMenuEditeur::NK_AUCUN && !m.aSelection;
+				t.Fermer();
+				Temoin(arbreMenu && arbreTient && arbreVide && arbreRacine && vueMenu && rouvre && gaucheFerme,
+					   "(e48a) clic droit Outliner (ligne, vide, racine), viseur, et menu rouvert",
+					   static_cast<float32>(arbreMenu + arbreTient + arbreVide + arbreRacine + vueMenu + rouvre + gaucheFerme));
+
+				// (c) le navigateur : une carte, son menu (avec son chemin) ; le fond,
+				// le sien ; jamais celui du viseur a la place.
+				ui.ongletTiroir = 0;
+				ui.categorie = -1;
+				t.Trame();
+				int32 kDossier = -1;
+				for (uint32 k = 0; k < ui.contenuCartes.Size() && k < ui.contenu.entries.Size(); ++k) {
+					if (ui.contenuCartes[k].w > 0.f && ui.contenu.entries[k].isFolder && kDossier < 0) {
+						kDossier = static_cast<int32>(k);
+					}
+				}
+				const int32 kSimple = CarteDe(ui, "simple");
+				bool carteMenu = false, carteDossier = false, fondMenu = false, pasLeViseur = true, ouvre = false, pose = false;
+				if (kDossier >= 0 && kSimple >= 0) {
+					const nkgui::NkRect rs = ui.contenuCartes[static_cast<uint32>(kSimple)];
+					const NkVec2f contexte0 = ui.pointContexte;
+					t.Clic(1, rs.x + rs.w * 0.5f, rs.y + rs.h * 0.5f);
+					carteMenu = ui.menu == NkMenuEditeur::NK_CTX_CONTENU && ui.contenuMenuChemin == NkString("simple") &&
+								!ui.contenuMenuDossier && t.AncreEn(rs.x + rs.w * 0.5f, rs.y + rs.h * 0.5f);
+					pasLeViseur = ui.pointContexte.x == contexte0.x && ui.pointContexte.y == contexte0.y;
+					// « Poser au centre de la vue » : une entite de plus, l'outil intact.
+					const uint32 avant = NbEntites(m.scene);
+					const NkOutil outilAvant = m.outil;
+					NkEditeurExecuter(c, NK_A_CONTENU_POSER);
+					pose = NbEntites(m.scene) == avant + 1u && m.outil == outilAvant;
+					t.Fermer();
+					const nkgui::NkRect rd = ui.contenuCartes[static_cast<uint32>(kDossier)];
+					const NkString cheminDossier = ui.contenu.entries[static_cast<uint32>(kDossier)].path;
+					t.Clic(1, rd.x + rd.w * 0.5f, rd.y + rd.h * 0.5f);
+					carteDossier = ui.menu == NkMenuEditeur::NK_CTX_CONTENU && ui.contenuMenuDossier && ui.contenuMenuChemin == cheminDossier;
+					NkEditeurExecuter(c, NK_A_CONTENU_OUVRIR);
+					ouvre = ui.categorie >= 0;
+					t.Fermer();
+					ui.categorie = -1;
+					t.Trame();
+					// Le fond : a droite de la derniere carte de la rangee.
+					t.Clic(1, ui.tiroir.x + ui.tiroir.w - 60.f, rs.y + rs.h * 0.5f);
+					fondMenu = ui.menu == NkMenuEditeur::NK_CTX_CONTENU_VIDE && ui.contenuMenuChemin.Empty();
+					pasLeViseur = pasLeViseur && ui.pointContexte.x == contexte0.x && ui.pointContexte.y == contexte0.y;
+					t.Fermer();
+				}
+				Temoin(carteMenu && carteDossier && fondMenu && pasLeViseur && ouvre && pose,
+					   "(e48b) clic droit navigateur : carte, dossier, fond ; ni le viseur ; ses actions",
+					   static_cast<float32>(carteMenu + carteDossier + fondMenu + pasLeViseur + ouvre + pose));
+			}
+
+			// (e49) le CONTENU DU PROJET : importer, deposer, choisir, exporter -- de
+			// vrais fichiers, dans un dossier du banc qu'il efface a la fin.
+			{
+				const NkString cheminAvant = m.chemin;
+				NkDirectory::CreateRecursive("banc_e49/projet");
+				NkDirectory::CreateRecursive("banc_e49/sources");
+				NkDirectory::CreateRecursive("banc_e49/export");
+				m.chemin = NkString("banc_e49/projet/scene.nkscene");
+				NkFile::WriteAllText("banc_e49/sources/caisse.png", "image");
+				NkFile::WriteAllText("banc_e49/sources/bruit.wav", "son");
+				NkFile::WriteAllText("banc_e49/sources/titre.ttf", "police");
+				NkFile::WriteAllText("banc_e49/sources/notes.xyz", "inconnu");
+				NkBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				NkEditeurCadre c = t.Cadre();
+				t.Trame();
+
+				// (a) importer trois fichiers connus et un inconnu : trois copies, un
+				// refus ; le navigateur MONTRE le Contenu, les trois choisis.
+				NkVector<NkString> sources;
+				sources.PushBack(NkString("banc_e49/sources/caisse.png"));
+				sources.PushBack(NkString("banc_e49/sources/bruit.wav"));
+				sources.PushBack(NkString("banc_e49/sources/titre.ttf"));
+				sources.PushBack(NkString("banc_e49/sources/notes.xyz"));
+				const NkRapportImport r1 = NkEditeurImporterIci(m, ui, sources);
+				const bool copies = r1.importes == 3u && r1.refuses == 1u && NkFile::Exists("banc_e49/projet/Contenu/caisse.png") &&
+									NkFile::Exists("banc_e49/projet/Contenu/bruit.wav") && NkFile::Exists("banc_e49/projet/Contenu/titre.ttf") &&
+									!NkFile::Exists("banc_e49/projet/Contenu/notes.xyz");
+				const bool montre = ui.contenuProjet && ui.contenuDossier.Empty() && ui.contenuChoisis.Size() == 3u && ui.ongletTiroir == 0;
+				const bool natures = NkEditeurNatureFichier("a/caisse.png").type == NkAssetType::Texture2D &&
+									 NkEditeurNatureFichier("bruit.WAV").type == NkAssetType::Sound &&
+									 NkEditeurNatureFichier("titre.ttf").type == NkAssetType::Font &&
+									 NkEditeurNatureFichier("s.nkscene").type == NkAssetType::Scene &&
+									 NkEditeurNatureFichier("p.nkprefab").type == NkAssetType::Prefab &&
+									 NkEditeurNatureFichier("dessin.svg").importable && !NkEditeurNatureFichier("notes.xyz").importable;
+				// (b) un nom deja pris n'est JAMAIS ecrase : « caisse_2.png », l'original intact.
+				NkFile::WriteAllText("banc_e49/sources/caisse.png", "autre image");
+				NkVector<NkString> encore;
+				encore.PushBack(NkString("banc_e49/sources/caisse.png"));
+				const NkRapportImport r2 = NkEditeurImporterIci(m, ui, encore);
+				const bool sansEcraser = r2.importes == 1u && NkFile::Exists("banc_e49/projet/Contenu/caisse_2.png") &&
+										 NkFile::ReadAllText("banc_e49/projet/Contenu/caisse.png") == NkString("image") &&
+										 r2.crees.Size() == 1u && r2.crees[0] == NkString("Contenu/caisse_2.png");
+				Temoin(copies && montre && natures && sansEcraser, "(e49a) importer : copie, nature, refus de l'inconnu, jamais d'ecrasement",
+					   static_cast<float32>(r1.importes));
+
+				// (c) le rail : « Contenu » et son sous-dossier ; le DEPOT de l'OS sur la
+				// carte du dossier y importe, ailleurs dans le dossier courant.
+				NkDirectory::CreateRecursive("banc_e49/projet/Contenu/Textures");
+				ui.contenuPerime = true;
+				t.Trame();
+				t.Trame();
+				bool railContenu = false, railSous = false;
+				for (uint32 k = 0; k < ui.contenu.folders.nodes.Size(); ++k) {
+					railContenu = railContenu || (ui.contenu.folders.nodes[k].path == NkString("Contenu") && ui.contenu.folders.nodes[k].parent == -1);
+					railSous = railSous || ui.contenu.folders.nodes[k].path == NkString("Contenu/Textures");
+				}
+				const int32 kTex = CarteDe(ui, "Contenu/Textures");
+				bool deposeDossier = false;
+				if (kTex >= 0) {
+					const nkgui::NkRect rt = ui.contenuCartes[static_cast<uint32>(kTex)];
+					NkVector<NkString> depot;
+					depot.PushBack(NkString("banc_e49/sources/caisse.png"));
+					const NkRapportImport r3 = NkEditeurDeposerFichiers(m, ui, depot, rt.x + rt.w * 0.5f, rt.y + rt.h * 0.5f);
+					deposeDossier = r3.importes == 1u && NkFile::Exists("banc_e49/projet/Contenu/Textures/caisse.png") &&
+									ui.contenuDossier == NkString("Textures");
+				}
+				NkVector<NkString> ailleurs;
+				ailleurs.PushBack(NkString("banc_e49/sources/bruit.wav"));
+				const NkRapportImport r4 = NkEditeurDeposerFichiers(m, ui, ailleurs, ui.viseur.x + 50.f, ui.viseur.y + 50.f);
+				const bool deposeCourant = r4.importes == 1u && NkFile::Exists("banc_e49/projet/Contenu/Textures/bruit.wav");
+				Temoin(railContenu && railSous && deposeDossier && deposeCourant, "(e49b) rail du Contenu ; depot de l'OS : sur le dossier vise, sinon le courant",
+					   static_cast<float32>(railContenu + railSous + deposeDossier + deposeCourant));
+
+				// (d) choisir a plusieurs (Ctrl+clic) a la racine, puis EXPORTER ; un
+				// second export ne remplace rien.
+				ui.contenuProjet = true;
+				ui.contenuDossier = NkString();
+				ui.contenuChoisis.Clear();
+				ui.contenuPerime = true;
+				t.Trame();
+				t.Trame();
+				const int32 kPng = CarteDe(ui, "Contenu/caisse.png");
+				const int32 kWav = CarteDe(ui, "Contenu/bruit.wav");
+				bool deux = false;
+				if (kPng >= 0 && kWav >= 0) {
+					const nkgui::NkRect a = ui.contenuCartes[static_cast<uint32>(kPng)];
+					const nkgui::NkRect b = ui.contenuCartes[static_cast<uint32>(kWav)];
+					t.Clic(0, a.x + a.w * 0.5f, a.y + a.h * 0.3f);
+					t.Ctx().input.ctrlDown = true;
+					t.Clic(0, b.x + b.w * 0.5f, b.y + b.h * 0.3f);
+					t.Ctx().input.ctrlDown = false;
+					t.Trame();
+					deux = ui.contenuChoisis.Size() == 2u;
+				}
+				const NkRapportExport x1 = NkEditeurExporterChoisis(m, ui, "banc_e49/export");
+				const NkRapportExport x2 = NkEditeurExporterChoisis(m, ui, "banc_e49/export");
+				const bool exporte = deux && x1.exportes == 2u && NkFile::Exists("banc_e49/export/caisse.png") &&
+									 NkFile::Exists("banc_e49/export/bruit.wav") && x2.exportes == 2u &&
+									 NkFile::Exists("banc_e49/export/caisse_2.png");
+				// (e) les boutons de la barre ouvrent LE selecteur de NKEditorKit
+				// (NkEditeurSelecteur.h) -- plusieurs fichiers pour importer, un dossier
+				// pour exporter -- et sa confirmation importe / exporte ; le clic droit
+				// sur un asset l'exporte seul.
+				NkEditeurSelecteurEtat &sel = *t.psel;
+				t.Clic(0, ui.boutonImporter.x + ui.boutonImporter.w * 0.5f, ui.boutonImporter.y + ui.boutonImporter.h * 0.5f);
+				const bool ouvreImport = sel.pickerOpen && sel.usage == NkUsageSelecteur::NK_IMPORTER && sel.selectionMultiple &&
+										 sel.pickerFor == editorkit::NkSelecteurOuvrirFichier;
+				// Modal : un clic sur une carte du tiroir, dessous, ne choisit rien.
+				const uint32 choisisAvant = ui.contenuChoisis.Size();
+				t.Clic(0, ui.tiroir.x + 40.f, ui.tiroir.y + 120.f);
+				const bool modal = ui.contenuChoisis.Size() == choisisAvant && sel.pickerOpen;
+				sel.AllerA("banc_e49/sources");
+				t.Trame();
+				t.Trame();
+				bool importeParLeSelecteur = false;
+				{
+					const int32 kp = t.EntreeSelecteur("caisse.png");
+					const int32 kw = t.EntreeSelecteur("bruit.wav");
+					if (kp >= 0 && kw >= 0) {
+						sel.vue.chosen.Clear();
+						sel.vue.chosen.PushBack(kp);
+						sel.vue.chosen.PushBack(kw);
+						sel.vue.active = kp;
+						const nkgui::NkVec2 ok = t.Confirmer();
+						t.Clic(0, ok.x, ok.y);
+						importeParLeSelecteur = !sel.pickerOpen && NkFile::Exists("banc_e49/projet/Contenu/caisse_3.png") &&
+												NkFile::Exists("banc_e49/projet/Contenu/bruit_2.wav") && ui.contenuChoisis.Size() == 2u;
+					}
+				}
+				const bool demandeImport = ouvreImport && modal && importeParLeSelecteur;
+				NkDirectory::CreateRecursive("banc_e49/export2");
+				t.Clic(0, ui.boutonExporter.x + ui.boutonExporter.w * 0.5f, ui.boutonExporter.y + ui.boutonExporter.h * 0.5f);
+				const bool ouvreExport = sel.pickerOpen && sel.usage == NkUsageSelecteur::NK_EXPORTER &&
+										 sel.pickerFor == editorkit::NkSelecteurOuvrirDossier;
+				sel.AllerA("banc_e49/export2");
+				t.Trame();
+				{
+					const nkgui::NkVec2 ok = t.Confirmer();
+					t.Clic(0, ok.x, ok.y);
+				}
+				const bool demandeExport = ouvreExport && !sel.pickerOpen && NkFile::Exists("banc_e49/export2/caisse_3.png") &&
+										   NkFile::Exists("banc_e49/export2/bruit_2.wav");
+				bool menuAsset = false;
+				const int32 kTtf = CarteDe(ui, "Contenu/titre.ttf");
+				if (kTtf >= 0) {
+					const nkgui::NkRect rf = ui.contenuCartes[static_cast<uint32>(kTtf)];
+					t.Clic(1, rf.x + rf.w * 0.5f, rf.y + rf.h * 0.5f);
+					const bool ouvert = ui.menu == NkMenuEditeur::NK_CTX_CONTENU && ui.contenuMenuChemin == NkString("Contenu/titre.ttf");
+					NkEditeurExecuter(c, NK_A_CONTENU_EXPORTER);
+					menuAsset = ouvert && ui.exportDemande && ui.contenuChoisis.Size() == 1u &&
+								ui.contenuChoisis[0] == NkString("Contenu/titre.ttf");
+					t.Fermer();
+					// La demande a ouvert le selecteur ; Annuler (Echap) le referme sans rien faire.
+					const bool ouvertParMenu = sel.pickerOpen && sel.usage == NkUsageSelecteur::NK_EXPORTER;
+					sel.PickerCancel();
+					t.Trame();
+					menuAsset = menuAsset && ouvertParMenu && !sel.pickerOpen && sel.usage == NkUsageSelecteur::NK_AUCUN;
+				}
+				Temoin(exporte && demandeImport && demandeExport && menuAsset, "(e49c) Ctrl+clic, exporter ; boutons et menu : le selecteur du kit",
+					   static_cast<float32>(exporte + demandeImport + demandeExport + menuAsset));
+
+				NkDirectory::Delete("banc_e49", true);
+				m.chemin = cheminAvant;
+			}
+
+			// (e50) (2026-10-01) la case « active » de l'EN-TETE des Details, dans la
+			// vraie trame : visible des qu'une entite est choisie ; decochee, l'entite
+			// sort du jeu (corps hors du solveur, plus prise dans la vue) sans toucher
+			// a l'oeil ; Ctrl+Z la rallume, Ctrl+Y la reeteint.
+			{
+				NkEditeurNouvelleScene(m);
+				NkBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				const ecs::NkEntityId caisse0 = Par(m.scene, "Caisse");
+				const NkVec2f pos = m.scene.Monde().Get<NkTransform2D>(caisse0)->position;
+				m.selection = caisse0;
+				m.aSelection = true;
+				t.Trame();
+				const bool visible = ui.caseActif.w > 0.f && NkEditeurDans(ui.details, nkgui::NkVec2{ui.caseActif.x, ui.caseActif.y});
+				t.Clic(0, ui.caseActif.x + ui.caseActif.w * 0.5f, ui.caseActif.y + ui.caseActif.h * 0.5f);
+				auto corpsDe = [&](ecs::NkEntityId e) {
+					const NkCorps2D *k = m.scene.Monde().IsAlive(e) ? m.scene.Monde().Get<NkCorps2D>(e) : nullptr;
+					return k != nullptr ? k->corpsId : 0xFFFFFFFFu;
+				};
+				ecs::NkEntityId pris;
+				const bool eteinte = !m.scene.EstActive(caisse0) && corpsDe(caisse0) == physics::NK_INVALID_BODY &&
+									 !NkEditeurEstCache(m, caisse0) && !(NkEditeurPrendreSous(m, pos, pris) && pris == caisse0) &&
+									 m.historique.annuler.Size() == 1u;
+				auto ctrl = [&](nkgui::NkGuiKey k) {
+					t.Ctx().input.ctrlDown = true;
+					t.Ctx().input.SetKey(k, true);
+					t.Trame();
+					t.Ctx().input.SetKey(k, false);
+					t.Ctx().input.ctrlDown = false;
+					t.Trame();
+				};
+				ctrl(nkgui::NkGuiKey::Z);
+				const ecs::NkEntityId caisse1 = m.selection;
+				const bool annulee = m.aSelection && Par(m.scene, "Caisse") == caisse1 && m.scene.EstActive(caisse1) &&
+									 corpsDe(caisse1) != physics::NK_INVALID_BODY && corpsDe(caisse1) != 0xFFFFFFFFu;
+				ctrl(nkgui::NkGuiKey::Y);
+				const bool retablie = m.aSelection && !m.scene.EstActive(m.selection) && corpsDe(m.selection) == physics::NK_INVALID_BODY;
+				// L'oeil, lui, ne touche pas au jeu : cacher n'eteint pas.
+				NkEditeurCacher(m, Par(m.scene, "Sol"), true);
+				const bool oeilDistinct = m.scene.EstActive(Par(m.scene, "Sol"));
+				NkEditeurCacher(m, Par(m.scene, "Sol"), false);
+				Temoin(visible && eteinte && annulee && retablie && oeilDistinct,
+					   "(e50) case active des Details : eteint le jeu, pas l'oeil ; Ctrl+Z / Ctrl+Y",
+					   static_cast<float32>(visible + eteinte + annulee + retablie + oeilDistinct));
 			}
 
 			memory::NkGetDefaultAllocator().Delete(pm);

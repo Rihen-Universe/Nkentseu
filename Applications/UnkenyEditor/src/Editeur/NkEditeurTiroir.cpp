@@ -23,7 +23,16 @@
 //   - ⚠️ LA RECHERCHE NE MARCHAIT PAS : le kit reserve la boite et en rapporte
 //     le rectangle, mais c'est a l'HOTE d'y ecrire (NkComponentInput n'a pas de
 //     clavier). Personne n'y ecrivait : la boite prenait le focus, et la frappe
-//     partait dans le vide. Le champ du kit (NkOverlayTextField) y est pose.
+///     partait dans le vide. Le champ du kit (NkOverlayTextField) y est pose.
+//   - LE CONTENU DU PROJET (2026-09-30, lot 1, NkEditeurContenu.h) : un second
+//     dossier racine du rail, « Contenu », a cote du catalogue -- les fichiers
+//     du dossier « Contenu » voisin de la scene. « Importer… » et « Exporter… »
+//     sont a droite des onglets (UE5), le depot de fichiers de l'OS importe
+//     comme eux (sur une carte de dossier : dans ce dossier) ; Ctrl+clic choisit
+//     plusieurs assets. L'onglet s'appelle « Contenu » (il disait « Acteurs »).
+//   - LE CLIC DROIT (2026-09-30, lot 1) : une carte d'acteur (poser au centre,
+//     armer), un dossier (ouvrir), le fond (revenir a la racine). Le kit le
+//     rapportait (NkContentBrowserResult::menuIndex) ; l'hote ne le lisait pas.
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -110,11 +119,27 @@ namespace nkentseu {
 				return -1;
 			}
 
+			/// Le navigateur va dans le dossier `relatif` du Contenu du projet.
+			void AllerContenu(NkEditeurInterface &ui, const NkString &relatif) {
+				ui.contenuProjet = true;
+				ui.categorie = -1;
+				if (!(ui.contenuDossier == relatif)) {
+					ui.contenuChoisis.Clear();
+				}
+				ui.contenuDossier = relatif;
+				ui.contenuPerime = true;
+				ui.contenu.scroll = 0.f;
+			}
+
 			/// Double-clic sur un DOSSIER de la grille : on y entre (UE5).
 			void SurDoubleClic(void *user, int32 index, const char *chemin) {
 				NkEditeurCadre &c = *static_cast<NkEditeurCadre *>(user);
 				if (index < 0 || index >= static_cast<int32>(c.ui.contenu.entries.Size()) ||
 					!c.ui.contenu.entries[static_cast<uint32>(index)].isFolder) {
+					return;
+				}
+				if (NkEditeurCheminEstContenu(chemin)) {
+					AllerContenu(c.ui, NkEditeurRelatifContenu(chemin));
 					return;
 				}
 				c.ui.categorie = CategorieDuChemin(chemin);
@@ -123,6 +148,14 @@ namespace nkentseu {
 
 			void SurNavigation(void *user, const char *chemin) {
 				NkEditeurCadre &c = *static_cast<NkEditeurCadre *>(user);
+				// Le rail rend le CHEMIN complet (« Contenu/Textures ») ; le fil
+				// d'Ariane, le seul LIBELLE de la miette -- recale apres le dessin
+				// (NkContentBrowserResult::navigatedCrumb, voir OngletActeurs).
+				if (NkEditeurCheminEstContenu(chemin)) {
+					AllerContenu(c.ui, NkEditeurRelatifContenu(chemin));
+					return;
+				}
+				c.ui.contenuProjet = false;
 				c.ui.categorie = -1;
 				for (int32 k = 0; k < NB_CATEGORIES && chemin != nullptr; ++k) {
 					if (std::strcmp(chemin, NkCategorieActeurNom(static_cast<NkCategorieActeur>(k))) == 0) {
@@ -137,9 +170,15 @@ namespace nkentseu {
 			void SurCarte(void *user, editorkit::NkComponentPaint &p, int32 index, float32 x, float32 y, float32 w,
 						  float32 h) {
 				NkEditeurCadre &c = *static_cast<NkEditeurCadre *>(user);
+				// Le rectangle de la carte, dossier compris : le composant est le seul
+				// a connaitre sa grille (NkEditeurInterface::contenuCartes).
+				if (index >= 0 && index < static_cast<int32>(c.ui.contenuCartes.Size())) {
+					c.ui.contenuCartes[static_cast<uint32>(index)] = NkRect{x, y, w, h};
+				}
 				if (index < 0 || index >= static_cast<int32>(c.ui.contenu.entries.Size()) ||
-					c.ui.contenu.entries[static_cast<uint32>(index)].isFolder) {
-					return; // un dossier a sa silhouette, pas de pastille
+					c.ui.contenu.entries[static_cast<uint32>(index)].isFolder ||
+					NkEditeurCheminEstContenu(c.ui.contenu.entries[static_cast<uint32>(index)].path.CStr())) {
+					return; // un dossier, un fichier du projet : leur silhouette, pas de pastille
 				}
 				const int32 a = ActeurDuChemin(c.ui.contenu.entries[static_cast<uint32>(index)].path.CStr());
 				uint32 couleur = 0xB0B0B0FFu;
@@ -184,6 +223,151 @@ namespace nkentseu {
 					kind.role = static_cast<uint16>(RoleCategorie(k));
 					ui.contenu.kinds.PushBack(kind);
 				}
+				// Les puces du CONTENU (2026-09-30) : ses natures, par le role que
+				// NkEditeurNatureFichier leur donne. Echangees avec celles du
+				// catalogue quand la section change (OngletActeurs).
+				struct NkPuce {
+						const char *nom;
+						NkRole role;
+				};
+				static const NkPuce kPuces[] = {{"Textures", NkRole::TypeTex},
+												{"Sons", NkRole::TypeAnim},
+												{"Polices", NkRole::TypeMat},
+												{"Scènes et prefabs", NkRole::TypeMesh}};
+				ui.pucesAutres.Clear();
+				for (const NkPuce &p : kPuces) {
+					editorkit::NkBrowserKind kind;
+					kind.label = NkString(p.nom);
+					kind.role = static_cast<uint16>(p.role);
+					ui.pucesAutres.PushBack(kind);
+				}
+				ui.pucesContenu = false;
+			}
+
+			// ── LE CONTENU DU PROJET (2026-09-30, lot 1) ─────────────────────────
+			/// Les identifiants de noeud du rail pour le Contenu : sa racine, puis un
+			/// par sous-dossier (le catalogue garde 1 et 2..6).
+			constexpr nk_uint64 ID_CONTENU = 1000u;
+
+			bool Contient(const NkVector<NkString> &v, const NkString &s) noexcept {
+				for (uint32 i = 0; i < v.Size(); ++i) {
+					if (v[i] == s) {
+						return true;
+					}
+				}
+				return false;
+			}
+
+			NkString CheminNavigateur(const NkString &relatif) {
+				NkString chemin(NK_CONTENU_RACINE);
+				if (!relatif.Empty()) {
+					chemin.Append('/');
+					chemin.Append(relatif);
+				}
+				return chemin;
+			}
+
+			/// Relit le dossier courant et le rail : au plus une fois par seconde (un
+			/// fichier ajoute hors de l'editeur finit par paraitre), et AUSSITOT apres
+			/// un import ou un changement de dossier.
+			void RelireContenu(NkEditeurCadre &c) {
+				NkEditeurInterface &ui = c.ui;
+				ui.contenuListeAge += ui.dt;
+				if (!ui.contenuPerime && ui.contenuListeAge < 1.f && ui.contenuListeDe == ui.contenuDossier) {
+					return;
+				}
+				NkEditeurDossiersContenu(c.m, ui.contenuSousDossiers);
+				// Un dossier supprime hors de l'editeur : on remonte a la racine.
+				if (!ui.contenuDossier.Empty() && !Contient(ui.contenuSousDossiers, ui.contenuDossier)) {
+					ui.contenuDossier = NkString();
+				}
+				NkEditeurListerContenu(c.m, ui.contenuDossier.CStr(), ui.contenuListe);
+				ui.contenuListeDe = ui.contenuDossier;
+				ui.contenuListeAge = 0.f;
+				ui.contenuPerime = false;
+			}
+
+			/// Le noeud du rail d'un dossier du Contenu (sa racine a defaut).
+			nk_uint64 IdDossierContenu(const NkEditeurInterface &ui, const NkString &relatif) {
+				for (uint32 k = 0; k < ui.contenuSousDossiers.Size(); ++k) {
+					if (ui.contenuSousDossiers[k] == relatif) {
+						return ID_CONTENU + 1u + k;
+					}
+				}
+				return ID_CONTENU;
+			}
+
+			/// La racine « Contenu » et ses sous-dossiers, dans le rail, apres le
+			/// catalogue. Le rail veut l'ordre PREFIXE : NkEditeurDossiersContenu
+			/// le rend ainsi.
+			void DossiersContenu(NkEditeurCadre &c) {
+				NkEditeurInterface &ui = c.ui;
+				editorkit::NkTreeViewModel &f = ui.contenu.folders;
+				editorkit::NkTreeNode r;
+				r.id = ID_CONTENU;
+				r.parent = -1;
+				r.label = NkString(NK_CONTENU_RACINE);
+				r.path = NkString(NK_CONTENU_RACINE);
+				r.kindRole = static_cast<uint16>(NkRole::TypeFolder);
+				r.silhouette = static_cast<uint8>(editorkit::NkAssetIcone::Dossier);
+				const int32 iRacine = static_cast<int32>(f.nodes.Size());
+				f.nodes.PushBack(r);
+				for (uint32 k = 0; k < ui.contenuSousDossiers.Size(); ++k) {
+					const NkString &rel = ui.contenuSousDossiers[k];
+					usize coupe = 0;
+					bool aParent = false;
+					for (usize i = 0; i < static_cast<usize>(rel.Length()); ++i) {
+						if (rel.CStr()[i] == '/') {
+							coupe = i;
+							aParent = true;
+						}
+					}
+					int32 parent = iRacine;
+					if (aParent) {
+						const NkString cheminParent = CheminNavigateur(NkString(rel.CStr(), coupe));
+						for (int32 j = static_cast<int32>(f.nodes.Size()) - 1; j > iRacine; --j) {
+							if (f.nodes[static_cast<uint32>(j)].path == cheminParent) {
+								parent = j;
+								break;
+							}
+						}
+					}
+					editorkit::NkTreeNode n;
+					n.id = ID_CONTENU + 1u + k;
+					n.parent = parent;
+					n.label = NkString(aParent ? rel.CStr() + coupe + 1u : rel.CStr());
+					n.path = CheminNavigateur(rel);
+					n.kindRole = static_cast<uint16>(NkRole::TypeFolder);
+					n.silhouette = static_cast<uint8>(editorkit::NkAssetIcone::Dossier);
+					f.nodes.PushBack(n);
+				}
+			}
+
+			/// Les cartes du dossier courant du Contenu ; les CHOISIES sont celles de
+			/// NkEditeurInterface::contenuChoisis (des chemins, gardes d'une trame a
+			/// l'autre).
+			void EntreesContenu(NkEditeurCadre &c) {
+				NkEditeurInterface &ui = c.ui;
+				editorkit::NkContentBrowserModel &m = ui.contenu;
+				m.chosen.Clear();
+				m.active = -1;
+				for (uint32 i = 0; i < ui.contenuListe.Size(); ++i) {
+					const NkElementContenu &e = ui.contenuListe[i];
+					editorkit::NkAssetEntry a;
+					a.name = e.nom;
+					a.path = CheminNavigateur(e.relatif);
+					a.isFolder = e.dossier;
+					// ⚠️ Chaines STATIQUES : l'entree ne garde qu'un pointeur.
+					a.kindLabel = e.dossier ? "Dossier" : e.nature.libelle;
+					a.kindRole = e.dossier ? static_cast<uint16>(NkRole::TypeFolder) : e.nature.role;
+					a.icone = e.dossier ? static_cast<uint8>(editorkit::NkAssetIcone::Dossier) : e.nature.icone;
+					a.taille = e.taille;
+					if (Contient(ui.contenuChoisis, a.path)) {
+						m.chosen.PushBack(static_cast<int32>(m.entries.Size()));
+						m.active = static_cast<int32>(m.entries.Size());
+					}
+					m.entries.PushBack(a);
+				}
 			}
 
 			void Reconstruire(NkEditeurCadre &c) {
@@ -209,14 +393,32 @@ namespace nkentseu {
 					n.silhouette = static_cast<uint8>(editorkit::NkAssetIcone::Dossier);
 					m.folders.nodes.PushBack(n);
 				}
+				// ── (2026-09-30, lot 1) LE CONTENU DU PROJET : un second dossier racine ─
+				RelireContenu(c);
+				DossiersContenu(c);
 				m.folders.active = ui.categorie >= 0 ? static_cast<nk_uint64>(ui.categorie) + 2u : 1u;
+				m.breadcrumb.Clear();
+				if (ui.contenuProjet) {
+					m.folders.active = IdDossierContenu(ui, ui.contenuDossier);
+					m.breadcrumb.PushBack(NkString(NK_CONTENU_RACINE));
+					// Une miette par segment : « Contenu > Textures > Decor ».
+					const char *d = ui.contenuDossier.CStr();
+					while (*d != 0) {
+						const char *f = d;
+						while (*f != 0 && *f != '/') {
+							++f;
+						}
+						m.breadcrumb.PushBack(NkString(d, static_cast<usize>(f - d)));
+						d = *f == '/' ? f + 1 : f;
+					}
+				} else {
+					m.breadcrumb.PushBack(NkString(CHEMIN_RACINE));
+					if (ui.categorie >= 0) {
+						m.breadcrumb.PushBack(NkString(NkCategorieActeurNom(static_cast<NkCategorieActeur>(ui.categorie))));
+					}
+				}
 				m.folders.chosen.Clear();
 				m.folders.chosen.PushBack(m.folders.active);
-				m.breadcrumb.Clear();
-				m.breadcrumb.PushBack(NkString(CHEMIN_RACINE));
-				if (ui.categorie >= 0) {
-					m.breadcrumb.PushBack(NkString(NkCategorieActeurNom(static_cast<NkCategorieActeur>(ui.categorie))));
-				}
 
 				// ── Les cartes ──────────────────────────────────────────────
 				// A la RACINE : les dossiers en vignettes, puis l'entite simple
@@ -224,64 +426,84 @@ namespace nkentseu {
 				// Une RECHERCHE en cours : tous les acteurs, de tous les dossiers --
 				// chercher « eau » depuis la racine doit trouver l'eau.
 				m.entries.Clear();
-				int32 arme = -1;
-				const bool cherche = m.filter[0] != '\0';
-				if (ui.categorie < 0 && !cherche) {
-					for (int32 k = 0; k < NB_CATEGORIES; ++k) {
-						editorkit::NkAssetEntry d;
-						d.name = NkString(NkCategorieActeurNom(static_cast<NkCategorieActeur>(k)));
-						d.path = d.name;
-						d.isFolder = true;
-						d.kindLabel = "Dossier";
-						d.kindRole = static_cast<uint16>(RoleCategorie(k));
-						m.entries.PushBack(d);
+				if (ui.contenuProjet) {
+					EntreesContenu(c);
+				} else {
+					int32 arme = -1;
+					const bool cherche = m.filter[0] != '\0';
+					if (ui.categorie < 0 && !cherche) {
+						for (int32 k = 0; k < NB_CATEGORIES; ++k) {
+							editorkit::NkAssetEntry d;
+							d.name = NkString(NkCategorieActeurNom(static_cast<NkCategorieActeur>(k)));
+							d.path = d.name;
+							d.isFolder = true;
+							d.kindLabel = "Dossier";
+							d.kindRole = static_cast<uint16>(RoleCategorie(k));
+							m.entries.PushBack(d);
+						}
 					}
-				}
-				if (ui.categorie < 0) {
-					editorkit::NkAssetEntry e;
-					e.name = NkString("Entité simple");
-					e.path = NkString(CHEMIN_SIMPLE);
-					e.kindLabel = "Entité";
-					e.kindRole = static_cast<uint16>(NkRole::TextMuted);
-					if (c.m.outil == NkOutil::NK_POSER && c.m.acteurSimple) {
-						arme = static_cast<int32>(m.entries.Size());
+					if (ui.categorie < 0) {
+						editorkit::NkAssetEntry e;
+						e.name = NkString("Entité simple");
+						e.path = NkString(CHEMIN_SIMPLE);
+						e.kindLabel = "Entité";
+						e.kindRole = static_cast<uint16>(NkRole::TextMuted);
+						if (c.m.outil == NkOutil::NK_POSER && c.m.acteurSimple) {
+							arme = static_cast<int32>(m.entries.Size());
+						}
+						m.entries.PushBack(e);
 					}
-					m.entries.PushBack(e);
-				}
-				for (int32 i = 0; i < static_cast<int32>(NkActeurSim::NK_COUNT); ++i) {
-					const NkInfoActeurSim &info = NkActeurSimInfo(static_cast<NkActeurSim>(i));
-					const int32 k = static_cast<int32>(info.categorie);
-					// La racine sans recherche ne montre que ses dossiers ;
-					// un dossier, que les siens.
-					if ((ui.categorie < 0 && !cherche) || (ui.categorie >= 0 && !cherche && k != ui.categorie)) {
-						continue;
+					for (int32 i = 0; i < static_cast<int32>(NkActeurSim::NK_COUNT); ++i) {
+						const NkInfoActeurSim &info = NkActeurSimInfo(static_cast<NkActeurSim>(i));
+						const int32 k = static_cast<int32>(info.categorie);
+						// La racine sans recherche ne montre que ses dossiers ;
+						// un dossier, que les siens.
+						if ((ui.categorie < 0 && !cherche) || (ui.categorie >= 0 && !cherche && k != ui.categorie)) {
+							continue;
+						}
+						editorkit::NkAssetEntry e;
+						e.name = NkString(info.nom);
+						char chemin[24];
+						std::snprintf(chemin, sizeof(chemin), "acteur:%d", i);
+						e.path = NkString(chemin);
+						e.kindLabel = NkCategorieActeurNom(info.categorie);
+						e.kindRole = static_cast<uint16>(RoleCategorie(k));
+						e.userTag = static_cast<uint32>(i);
+						if (c.m.outil == NkOutil::NK_POSER && !c.m.acteurSimple && c.m.acteur == static_cast<NkActeurSim>(i)) {
+							arme = static_cast<int32>(m.entries.Size());
+						}
+						m.entries.PushBack(e);
 					}
-					editorkit::NkAssetEntry e;
-					e.name = NkString(info.nom);
-					char chemin[24];
-					std::snprintf(chemin, sizeof(chemin), "acteur:%d", i);
-					e.path = NkString(chemin);
-					e.kindLabel = NkCategorieActeurNom(info.categorie);
-					e.kindRole = static_cast<uint16>(RoleCategorie(k));
-					e.userTag = static_cast<uint32>(i);
-					if (c.m.outil == NkOutil::NK_POSER && !c.m.acteurSimple && c.m.acteur == static_cast<NkActeurSim>(i)) {
-						arme = static_cast<int32>(m.entries.Size());
+					// La carte ACTIVE est l'acteur ARME : ce que le prochain clic posera.
+					m.active = arme;
+					m.chosen.Clear();
+					if (arme >= 0) {
+						m.chosen.PushBack(arme);
 					}
-					m.entries.PushBack(e);
-				}
-				// La carte ACTIVE est l'acteur ARME : ce que le prochain clic posera.
-				m.active = arme;
-				m.chosen.Clear();
-				if (arme >= 0) {
-					m.chosen.PushBack(arme);
 				}
 				m.statusRight = NkString::Format("%u élément(s)", static_cast<uint32>(m.entries.Size()));
+				// Les rectangles des cartes : remis a zero, le dessin les releve.
+				ui.contenuCartes.Clear();
+				ui.contenuCartes.Resize(m.entries.Size());
+				for (uint32 i = 0; i < ui.contenuCartes.Size(); ++i) {
+					ui.contenuCartes[i] = NkRect{0.f, 0.f, 0.f, 0.f};
+				}
 			}
 
 			void OngletActeurs(NkEditeurCadre &c, const NkRect &zone) {
 				NkEditeurInterface &ui = c.ui;
 				PreparerReglages(ui);
+				// Le Contenu se choisit A PLUSIEURS (Ctrl+clic : ce qu'exporte
+				// « Exporter… ») ; le catalogue arme UN acteur.
+				ui.contenuReglages.SetParam("multi_select", ui.contenuProjet ? 1.f : 0.f);
+				if (ui.pucesContenu != ui.contenuProjet) {
+					const NkVector<editorkit::NkBrowserKind> t = ui.contenu.kinds;
+					ui.contenu.kinds = ui.pucesAutres;
+					ui.pucesAutres = t;
+					ui.pucesContenu = ui.contenuProjet;
+				}
 				Reconstruire(c);
+				const bool etaitContenu = ui.contenuProjet;
 
 				editorkit::NkContentBrowserStyle s;
 				s.values = &ui.contenuReglages;
@@ -315,6 +537,55 @@ namespace nkentseu {
 					editorkit::NkVScrollbar(c.ctx, c.ctx.dl, NkRect{res.defilX, res.defilY, res.defilW, res.defilH},
 											ui.contenu.scroll, res.defilContenu, res.defilVue, c.ctx.GetId("tiroir.defil"),
 											res.defilPas);
+				}
+
+				// ── Le Contenu : le fil d'Ariane et les choisis ──────────────────
+				// Une miette rend son seul LIBELLE (SurNavigation a donc cru a un
+				// dossier du catalogue) : le chemin se refait avec son INDICE.
+				if (etaitContenu && res.navigatedCrumb >= 0) {
+					NkString rel;
+					for (int32 i = 1; i <= res.navigatedCrumb && i < static_cast<int32>(ui.contenu.breadcrumb.Size()); ++i) {
+						if (!rel.Empty()) {
+							rel.Append('/');
+						}
+						rel.Append(ui.contenu.breadcrumb[static_cast<uint32>(i)]);
+					}
+					AllerContenu(ui, rel);
+				}
+				// Les CHOISIS, relus du composant apres un clic : des chemins de
+				// fichiers (un dossier ne s'exporte pas).
+				if (etaitContenu && ui.contenuProjet && res.selectionChanged) {
+					ui.contenuChoisis.Clear();
+					for (uint32 i = 0; i < ui.contenu.chosen.Size(); ++i) {
+						const int32 k = ui.contenu.chosen[i];
+						if (k >= 0 && k < static_cast<int32>(ui.contenu.entries.Size()) && !ui.contenu.entries[static_cast<uint32>(k)].isFolder) {
+							ui.contenuChoisis.PushBack(ui.contenu.entries[static_cast<uint32>(k)].path);
+						}
+					}
+				}
+
+				// ── Le clic DROIT (2026-09-30, lot 1) ────────────────────────────
+				// ⚠️ LE KIT LE RAPPORTAIT, PERSONNE NE L'ECOUTAIT : ni `onContextMenu`
+				//    ni `menuIndex` n'etaient lus, et le clic droit du navigateur « ne
+				//    faisait rien ». On lit le RESULTAT plutot que le crochet : il
+				//    couvre aussi le rail des dossiers (`menuCheminRail`), que le
+				//    crochet ne voit pas. -2 = aucun clic droit a cette trame.
+				if (res.menuIndex != -2) {
+					ui.contenuMenuChemin = NkString();
+					ui.contenuMenuNom = NkString();
+					ui.contenuMenuDossier = false;
+					if (!res.menuCheminRail.Empty()) {
+						ui.contenuMenuChemin = res.menuCheminRail;
+						ui.contenuMenuNom = res.menuCheminRail;
+						ui.contenuMenuDossier = true;
+					} else if (res.menuIndex >= 0 && res.menuIndex < static_cast<int32>(ui.contenu.entries.Size())) {
+						const editorkit::NkAssetEntry &e = ui.contenu.entries[static_cast<uint32>(res.menuIndex)];
+						ui.contenuMenuChemin = e.path;
+						ui.contenuMenuNom = e.name;
+						ui.contenuMenuDossier = e.isFolder;
+					}
+					NkEditeurOuvrirMenu(c, ui.contenuMenuChemin.Empty() ? NkMenuEditeur::NK_CTX_CONTENU_VIDE : NkMenuEditeur::NK_CTX_CONTENU,
+										NkRect{res.menuX, res.menuY, 0.f, 0.f});
 				}
 
 				const nkgui::NkGuiInput &in = c.ctx.input;
@@ -422,15 +693,147 @@ namespace nkentseu {
 
 		} // namespace
 
+		void NkEditeurActionContenu(NkEditeurCadre &c, int32 action) {
+			NkEditeurModele &m = c.m;
+			NkEditeurInterface &ui = c.ui;
+			const char *chemin = ui.contenuMenuChemin.CStr();
+			switch (action) {
+				case NK_A_CONTENU_POSER: {
+					// Pose SANS armer : l'outil arme reste celui d'avant (la meme
+					// regle que « + Ajouter », qui pose au centre de la vue).
+					const int32 a = ActeurDuChemin(chemin);
+					if (a == -1) {
+						return;
+					}
+					const NkActeurSim acteurArme = m.acteur;
+					const bool simpleArme = m.acteurSimple;
+					m.acteurSimple = a == -2;
+					if (a >= 0) {
+						m.acteur = static_cast<NkActeurSim>(a);
+					}
+					NkEditeurPoser(m, m.scene.Camera().Centre());
+					m.acteur = acteurArme;
+					m.acteurSimple = simpleArme;
+					break;
+				}
+				case NK_A_CONTENU_ARMER:
+					Armer(m, ActeurDuChemin(chemin));
+					break;
+				case NK_A_CONTENU_OUVRIR:
+					// Un dossier du Contenu, ou du catalogue (sa racine « Acteurs »
+					// est un dossier comme un autre).
+					if (NkEditeurCheminEstContenu(chemin)) {
+						AllerContenu(ui, NkEditeurRelatifContenu(chemin));
+					} else {
+						ui.contenuProjet = false;
+						ui.categorie = CategorieDuChemin(chemin);
+						ui.contenu.scroll = 0.f;
+					}
+					break;
+				case NK_A_CONTENU_RACINE:
+					if (ui.contenuProjet) {
+						AllerContenu(ui, NkString());
+					} else {
+						ui.categorie = -1;
+						ui.contenu.scroll = 0.f;
+					}
+					break;
+				case NK_A_CONTENU_IMPORTER:
+					// Le dossier vise par le clic droit (« Importer ici »), sinon le
+					// courant. Le DIALOGUE s'ouvre a la trame suivante (NkEditeurApp).
+					ui.importCible = NkString();
+					if (ui.contenuMenuDossier && NkEditeurCheminEstContenu(chemin)) {
+						ui.importCible = ui.contenuMenuChemin; // « Contenu » ou « Contenu/... »
+					}
+					ui.importDemande = true;
+					break;
+				case NK_A_CONTENU_EXPORTER:
+					// Le fichier du clic droit s'ajoute aux choisis s'il n'en est pas.
+					if (!ui.contenuMenuDossier && NkEditeurCheminEstContenu(chemin) && !Contient(ui.contenuChoisis, ui.contenuMenuChemin)) {
+						ui.contenuChoisis.Clear();
+						ui.contenuChoisis.PushBack(ui.contenuMenuChemin);
+					}
+					if (ui.contenuChoisis.Empty()) {
+						NkEditeurAnnoncer(m, "Export : choisissez d'abord des assets du Contenu (Ctrl+clic pour plusieurs)");
+					} else {
+						ui.exportDemande = true;
+					}
+					break;
+				default:
+					break;
+			}
+		}
+
+		NkRapportImport NkEditeurImporterIci(NkEditeurModele &m, NkEditeurInterface &ui, const NkVector<NkString> &sources,
+											 const char *relatif) {
+			// Le dossier COURANT du navigateur quand il montre le Contenu ; sa
+			// racine quand il montre le catalogue (CONVENTIONS_FICHIERS.md : une
+			// destination par defaut, jamais imposee).
+			const NkString cible = relatif != nullptr ? NkString(relatif) : (ui.contenuProjet ? ui.contenuDossier : NkString());
+			const NkRapportImport r = NkEditeurImporter(m, cible.CStr(), sources);
+			// Le resultat se VOIT : le tiroir s'ouvre sur ce dossier, les fichiers
+			// crees choisis -- « Exporter » les renverrait tels quels.
+			ui.voirTiroir = true;
+			ui.ongletTiroir = 0;
+			AllerContenu(ui, cible);
+			ui.contenuChoisis = r.crees;
+			return r;
+		}
+
+		NkRapportImport NkEditeurDeposerFichiers(NkEditeurModele &m, NkEditeurInterface &ui, const NkVector<NkString> &sources,
+												 float32 x, float32 y) {
+			// Sur une carte de DOSSIER du Contenu : dans ce dossier (le geste
+			// d'UE5). Les rectangles sont ceux de la derniere trame.
+			if (ui.voirTiroir && ui.ongletTiroir == 0 && ui.contenuProjet && NkEditeurDans(ui.tiroir, nkgui::NkVec2{x, y})) {
+				for (uint32 k = 0; k < ui.contenuCartes.Size() && k < ui.contenu.entries.Size(); ++k) {
+					const editorkit::NkAssetEntry &e = ui.contenu.entries[k];
+					if (e.isFolder && NkEditeurCheminEstContenu(e.path.CStr()) && NkEditeurDans(ui.contenuCartes[k], nkgui::NkVec2{x, y})) {
+						const NkString rel = NkEditeurRelatifContenu(e.path.CStr());
+						return NkEditeurImporterIci(m, ui, sources, rel.CStr());
+					}
+				}
+			}
+			// Ailleurs : exactement « Importer… ».
+			return NkEditeurImporterIci(m, ui, sources, nullptr);
+		}
+
+		NkRapportExport NkEditeurExporterChoisis(NkEditeurModele &m, NkEditeurInterface &ui, const char *destination) {
+			return NkEditeurExporter(m, ui.contenuChoisis, destination);
+		}
+
 		void NkEditeurDessinerTiroir(NkEditeurCadre &c) {
 			NkEditeurInterface &ui = c.ui;
 			const NkRect zone = ui.tiroir;
+			ui.boutonImporter = NkRect{0.f, 0.f, 0.f, 0.f};
+			ui.boutonExporter = NkRect{0.f, 0.f, 0.f, 0.f};
 			if (!ui.voirTiroir || zone.w < 8.f || zone.h < 40.f) {
 				return;
 			}
-			static const char *kOnglets[2] = {"Acteurs", "Journal"};
+			// (2026-09-30) « Contenu » : le catalogue d'acteurs ET le contenu du
+			// projet. L'onglet s'appelait « Acteurs » quand il n'y avait qu'eux.
+			static const char *kOnglets[2] = {"Contenu", "Journal"};
 			const float32 ongletsH = 26.f;
 			NkEditeurOnglets(c, NkRect{zone.x, zone.y, zone.w, ongletsH}, kOnglets, 2, ui.ongletTiroir);
+			// ── Importer… / Exporter… : la barre du navigateur, a droite (UE5) ──
+			if (ui.ongletTiroir == 0) {
+				const float32 wE = renderer::NkTexteLargeur(c.petite, "Exporter…") + 16.f;
+				const float32 wI = renderer::NkTexteLargeur(c.petite, "Importer…") + 16.f;
+				ui.boutonExporter = NkRect{zone.x + zone.w - wE - 4.f, zone.y + 3.f, wE, ongletsH - 6.f};
+				ui.boutonImporter = NkRect{ui.boutonExporter.x - wI - 4.f, zone.y + 3.f, wI, ongletsH - 6.f};
+				const bool exportable = !ui.contenuChoisis.Empty();
+				if (NkEditeurBouton(c, ui.boutonImporter, "", false)) {
+					NkEditeurExecuter(c, NK_A_CONTENU_IMPORTER);
+				}
+				renderer::NkTexteDansBoite(c.ctx.dl, c.petite, ui.boutonImporter, "Importer…", c.pal.texte);
+				// Exporter reste CLIQUABLE sans selection : l'annonce dit quoi faire,
+				// un bouton mort ne dit rien.
+				if (NkEditeurBouton(c, ui.boutonExporter, "", false)) {
+					ui.contenuMenuChemin = NkString();
+					ui.contenuMenuDossier = false;
+					NkEditeurExecuter(c, NK_A_CONTENU_EXPORTER);
+				}
+				renderer::NkTexteDansBoite(c.ctx.dl, c.petite, ui.boutonExporter, "Exporter…", exportable ? c.pal.texte : c.pal.attenue);
+			}
 			const NkRect contenu{zone.x, zone.y + ongletsH, zone.w, zone.h - ongletsH};
 			if (ui.ongletTiroir == 0) {
 				OngletActeurs(c, contenu);

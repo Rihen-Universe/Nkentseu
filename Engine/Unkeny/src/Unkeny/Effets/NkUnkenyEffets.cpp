@@ -199,7 +199,8 @@ namespace nkentseu {
 				[&](ecs::NkEntityId id, NkTransform2D &t, NkEmetteur2D &e) {
 					NkEtatEmetteur2D &etat = EtatDe(id.Pack(), e.graine);
 					etat.vu = true;
-					if (!e.actif) {
+					// Une entite ETEINTE (NkUnkenyActif.h) n'emet plus ; son etat reste.
+					if (!e.actif || !scene.EstActive(id)) {
 						return;
 					}
 					if (!etat.rafaleFaite) {

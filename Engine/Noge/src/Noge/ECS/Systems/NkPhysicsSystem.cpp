@@ -72,7 +72,68 @@ namespace nkentseu {
 		def.layer = (col.layer < 32u) ? (1u << col.layer) : 0x1u;
 		def.mask = col.layerMask;
 
+		// Rotation gelee sur les TROIS axes -> le drapeau du socle (inertie
+		// inverse nulle, NkComputeMassProps). Un gel partiel n'est pas tenu.
+		if (rb.freezeRotX && rb.freezeRotY && rb.freezeRotZ) {
+			def.flags |= NK_BODY_FIXED_ROT;
+		}
+
+		++mBodiesCreated;
 		return mWorld.CreateBody(def, MakeShape(col, tf));
+	}
+
+	// -------------------------------------------------------------------------
+	// Ce que le JEU a ecrit dans le composant depuis le dernier pas.
+	//
+	// Le pont recopie `body.linearVelocity` dans `rb.velocity` apres chaque pas :
+	// tant que personne n'y touche, les deux sont egaux au bit pres. S'ils
+	// different, c'est le jeu (AddImpulse, SetVelocity, Stop, ou une ecriture
+	// directe) : sa valeur passe au corps. Meme regle pour l'angulaire. Les
+	// forces et couples accumules passent et sont remis a zero (l'integrateur
+	// vide ceux du corps a chaque pas).
+	// -------------------------------------------------------------------------
+	void NkPhysicsSystem::PushGameplayToBody(NkRigidbody3D &rb, NkRigidBody &body) noexcept {
+		bool touche = false;
+		const NkVec3f dv = rb.velocity - body.linearVelocity;
+		if (dv.x * dv.x + dv.y * dv.y + dv.z * dv.z > 1e-12f) {
+			body.linearVelocity = rb.velocity;
+			touche = true;
+		}
+		const NkVec3f dw = rb.angularVelocity - body.angularVelocity;
+		if (dw.x * dw.x + dw.y * dw.y + dw.z * dw.z > 1e-12f) {
+			body.angularVelocity = rb.angularVelocity;
+			touche = true;
+		}
+		if (rb.force.x != 0.f || rb.force.y != 0.f || rb.force.z != 0.f) {
+			body.ApplyForce(rb.force);
+			rb.force = {};
+			touche = true;
+		}
+		if (rb.torque.x != 0.f || rb.torque.y != 0.f || rb.torque.z != 0.f) {
+			body.torque = body.torque + rb.torque;
+			rb.torque = {};
+			touche = true;
+		}
+		// Un corps endormi est hors du solveur : le jeu qui le pousse le reveille.
+		if (touche) {
+			body.flags &= ~static_cast<uint32>(NK_BODY_SLEEPING);
+			body.sleepTimer = 0.f;
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// ReleaseBodies — rend les corps d'une scene avant qu'on la detruise.
+	// -------------------------------------------------------------------------
+	uint32 NkPhysicsSystem::ReleaseBodies(ecs::NkWorld &world) noexcept {
+		uint32 n = 0;
+		world.Query<NkCollider3D>().ForEach([&](NkEntityId, NkCollider3D &col) {
+			if (col.physicsBodyId != 0) {
+				mWorld.DestroyBody(static_cast<NkBodyId>(col.physicsBodyId));
+				col.physicsBodyId = 0;
+				++n;
+			}
+		});
+		return n;
 	}
 
 	// -------------------------------------------------------------------------
@@ -95,6 +156,11 @@ namespace nkentseu {
 					if (NkRigidBody *body = mWorld.GetBody(static_cast<NkBodyId>(col.physicsBodyId))) {
 						body->position = tf.localPosition;
 						body->orientation = tf.localRotation;
+					}
+				} else if (rb.bodyType == ecs::NkBodyType::Dynamic) {
+					// Corps dynamique : ce que le jeu a ecrit dans le composant.
+					if (NkRigidBody *body = mWorld.GetBody(static_cast<NkBodyId>(col.physicsBodyId))) {
+						PushGameplayToBody(rb, *body);
 					}
 				}
 			});
