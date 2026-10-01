@@ -383,7 +383,8 @@ namespace nkentseu {
 							}
 							cible = Plus(Plus(ui.gizmoCentre0, ax, u), ay, v);
 						}
-						NkEditeurDeplacer(m, cible);
+						// (2026-10-01) L'AIMANT apres la grille : un accroche l'emporte.
+						NkEditeurDeplacer(m, NkEditeurAimanterDeplacement(c, cible));
 						break;
 					}
 					case NkOutil::NK_TOURNER: {
@@ -578,7 +579,8 @@ namespace nkentseu {
 						}
 					}
 					if (m.deplace && m.aSelection) {
-						NkEditeurDeplacer(m, monde + m.decalageSaisie);
+						// (2026-10-01) L'AIMANT : sommets, aretes, faces des autres objets.
+						NkEditeurDeplacer(m, NkEditeurAimanterDeplacement(c, monde + m.decalageSaisie));
 					}
 					ui.precMonde = monde;
 					return;
@@ -668,7 +670,7 @@ namespace nkentseu {
 			// lisible et cliquable. Avant, un seul bouton « Accrochage 0.25 m · 15° »
 			// dans la barre de vue allumait tout ou rien, et le pas ne se changeait
 			// nulle part.
-			enum class NkIconeBarre : uint8 { SELECTION, DEPLACER, TOURNER, ECHELLE, MONDE, LOCAL, GRILLE, ANGLE, PAS_ECHELLE };
+			enum class NkIconeBarre : uint8 { SELECTION, DEPLACER, TOURNER, ECHELLE, MONDE, LOCAL, GRILLE, ANGLE, PAS_ECHELLE, AIMANT };
 
 			/// Une icone TRACEE (la police embarquee n'a pas ces glyphes).
 			void IconeBarre(nkgui::NkGuiDrawList &dl, NkIconeBarre ic, const NkRect &r, const NkColor &col) {
@@ -738,6 +740,18 @@ namespace nkentseu {
 						Fleche(o.x + uy * 10.f, o.y - ux * 10.f, uy, -ux);
 						break;
 					}
+					case NkIconeBarre::AIMANT: {
+						// (2026-10-01) Un aimant en fer a cheval, ses deux poles.
+						NkVec2 arc[9];
+						for (int32 k = 0; k < 9; ++k) {
+							const float32 a = 3.14159265f * static_cast<float32>(k) / 8.f;
+							arc[k] = P(cx - 5.f * std::cos(a), cy + 1.f - 5.f * std::sin(a));
+						}
+						dl.AddPolyline(arc, 9, col, 2.6f, false);
+						dl.AddLine(P(cx - 5.f, cy + 1.f), P(cx - 5.f, cy + 6.f), col, 2.6f);
+						dl.AddLine(P(cx + 5.f, cy + 1.f), P(cx + 5.f, cy + 6.f), col, 2.6f);
+						break;
+					}
 					case NkIconeBarre::GRILLE:
 						for (int32 k = 0; k < 4; ++k) {
 							const float32 t = -6.f + 4.f * static_cast<float32>(k);
@@ -792,7 +806,7 @@ namespace nkentseu {
 				auto Outil = [&](NkIconeBarre ic, NkOutil outil, const char *bulle) {
 					return NkElement{ic, NkString(), NK_A_OUTIL + static_cast<int32>(outil), NkMenuEditeur::NK_AUCUN, o == outil, false, false, NkString(bulle)};
 				};
-				const NkElement elements[11] = {
+				const NkElement elements[12] = {
 					Outil(NkIconeBarre::SELECTION, NkOutil::NK_SELECTION, "Sélection (Q)"),
 					Outil(NkIconeBarre::DEPLACER, NkOutil::NK_DEPLACER, "Déplacer (W)"),
 					Outil(NkIconeBarre::TOURNER, NkOutil::NK_TOURNER, "Tourner (E)"),
@@ -804,6 +818,9 @@ namespace nkentseu {
 					 NkString("Accrochage des déplacements (Ctrl l'inverse)")},
 					{NkIconeBarre::GRILLE, NkString::Format("%g m", static_cast<double>(ui.pasGrille)), NK_A_AUCUNE, NkMenuEditeur::NK_PAS_GRILLE,
 					 ui.menu == NkMenuEditeur::NK_PAS_GRILLE, !ui.accrocheGrille, false, NkString("Pas de la grille")},
+					// (2026-10-01) L'AIMANT, a cote de la grille (NkEditeurAimant.cpp).
+					{NkIconeBarre::AIMANT, NkString(), NK_A_AIMANT, NkMenuEditeur::NK_AUCUN, ui.aimant, false, false,
+					 NkString("Aimant : sommets, arêtes, faces des autres objets (V maintenue l'allume)")},
 					{NkIconeBarre::ANGLE, NkString(), NK_A_ACCROCHE_ANGLE, NkMenuEditeur::NK_AUCUN, ui.accrocheAngle, false, false,
 					 NkString("Accrochage des rotations (Ctrl l'inverse)")},
 					{NkIconeBarre::ANGLE, NkString::Format("%g°", static_cast<double>(ui.pasAngle)), NK_A_AUCUNE, NkMenuEditeur::NK_PAS_ANGLE,
@@ -814,9 +831,9 @@ namespace nkentseu {
 					 ui.menu == NkMenuEditeur::NK_PAS_ECHELLE, !ui.accrocheEchelle, false, NkString("Pas de l'échelle")},
 				};
 				// La largeur d'abord : la barre est calee sur le bord DROIT du viseur.
-				float32 largeurs[11];
+				float32 largeurs[12];
 				float32 total = 4.f;
-				for (int32 i = 0; i < 11; ++i) {
+				for (int32 i = 0; i < 12; ++i) {
 					largeurs[i] = elements[i].texte.Empty() ? B : renderer::NkTexteLargeur(c.petite, elements[i].texte.CStr()) + 20.f;
 					total += (elements[i].separateur ? SEP : (i > 0 ? ECART : 0.f)) + largeurs[i];
 				}
@@ -837,7 +854,7 @@ namespace nkentseu {
 				float32 x = barre.x + 4.f;
 				int32 bulle = -1;
 				NkRect rBulle{0.f, 0.f, 0.f, 0.f};
-				for (int32 i = 0; i < 11; ++i) {
+				for (int32 i = 0; i < 12; ++i) {
 					const NkElement &e = elements[i];
 					if (e.separateur) {
 						dl.AddRectFilled(NkRect{x + SEP * 0.5f - 0.5f, barre.y + 6.f, 1.f, H - 12.f}, c.pal.bord);

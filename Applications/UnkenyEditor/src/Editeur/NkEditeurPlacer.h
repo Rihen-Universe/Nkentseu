@@ -124,6 +124,9 @@ namespace nkentseu {
 		void NkEditeurBlocCollision(NkEditeurCadre &c, ecs::NkEntityId id);
 		/// L'onglet Monde : les calques de collision (noms et matrice).
 		void NkEditeurSectionCalques(NkEditeurCadre &c);
+		/// La fenetre « Reglages du projet : calques de collision » (Fenetre >),
+		/// flottante au-dessus du corps, la meme section en plus grand.
+		void NkEditeurDessinerReglagesCollision(NkEditeurCadre &c);
 
 		/// Les poignees du collisionneur de la selection dans la vue (si
 		/// `ui.editionCollision`) : le dessin, puis la souris. Rend vrai si la
@@ -131,8 +134,52 @@ namespace nkentseu {
 		void NkEditeurDessinerPoigneesCollision(NkEditeurCadre &c, nkgui::NkGuiDrawList &dl);
 		bool NkEditeurPoigneesCollisionSouris(NkEditeurCadre &c, const nkgui::NkRect &aire);
 
+		// --- L'AIMANT (Rihen, 01/10 ; NkEditeurAimant.cpp) -------------------
+		/// Ce a quoi l'aimant colle, par PRIORITE : un sommet, sinon une arete,
+		/// sinon la face (un point entre dans un objet est ramene a sa surface).
+		enum class NkGenreAimant : uint8 { NK_SOMMET = 0, NK_ARETE, NK_FACE };
+
+		struct NkAccrocheAimant {
+				bool trouve = false;
+				NkGenreAimant genre = NkGenreAimant::NK_SOMMET;
+				NkVec2f point{0.f, 0.f}; ///< le point de l'AUTRE objet ou l'on colle
+				NkVec2f delta{0.f, 0.f}; ///< ce qu'il faut ajouter a la cible
+				ecs::NkEntityId cible;	 ///< l'objet colle
+		};
+
+		/// L'aimant joue-t-il ? (le bouton de la barre flottante, ou V maintenue)
+		bool NkEditeurAimantActif(const NkEditeurCadre &c);
+		/// Un POINT (une poignee, un sommet) : le meilleur accroche dans `rayon` (m),
+		/// hors de l'entite `exclue`. Faux s'il n'y a rien.
+		bool NkEditeurAimanterPoint(NkEditeurModele &m, const NkVec2f &p, float32 rayon, ecs::NkEntityId exclue,
+									NkAccrocheAimant &sortie);
+		/// Un BLOC (sprite, forme, collisionneur) amene en `cible` (son centre) : ses
+		/// coins et son centre cherchent un accroche ; `sortie.delta` corrige la cible.
+		bool NkEditeurAimanterBloc(NkEditeurModele &m, ecs::NkEntityId bloc, const NkVec2f &cible, float32 rayon,
+								   NkAccrocheAimant &sortie);
+		/// La porte de la vue pour un DEPLACEMENT : la cible corrigee (et
+		/// l'indicateur pose) si l'aimant joue, telle quelle sinon.
+		NkVec2f NkEditeurAimanterDeplacement(NkEditeurCadre &c, const NkVec2f &cible);
+		/// La meme pour un POINT (poignee) : le point colle, ou tel quel.
+		NkVec2f NkEditeurAimanterPoignee(NkEditeurCadre &c, const NkVec2f &p, ecs::NkEntityId exclue);
+		/// L'indicateur du point d'accroche (peint dans la vue, puis oublie).
+		void NkEditeurDessinerAimant(NkEditeurCadre &c, nkgui::NkGuiDrawList &dl);
+
+		/// `--exemple=formes` : une scene qui montre TOUTES les formes (decor, avec
+		/// contour) et, au-dessus, des formes DYNAMIQUES qui tombent en Jouer.
+		void NkEditeurSceneFormes(NkEditeurModele &m);
+		/// Les options de demarrage de ce chantier (--placer=, --exemple=formes,
+		/// --selection-forme=, --collision=editer). Rend vrai si `arg` en est une.
+		bool NkEditeurOptionPlacer(NkEditeurInterface &ui, const NkString &arg);
+		/// Applique, une fois la scene de depart prete, les demandes ci-dessus.
+		void NkEditeurDemarrerPlacer(NkEditeurModele &m, NkEditeurInterface &ui);
+
 		/// `--selftest` : le banc de l'editeur pour ce chantier (« FORMES EDITEUR »).
 		int32 NkEditeurLancerBancFormes();
+		/// `--captures-formes=DOSSIER` : des captures HORS ECRAN (trame rasterisee,
+		/// sans fenetre ni GPU) des gestes qu'une capture de fenetre ne montre
+		/// pas (l'aimant pendant un glisser). Rend 0 si tout est ecrit.
+		int32 NkEditeurCapturesFormes(const char *dossier);
 
 	} // namespace editeur
 } // namespace nkentseu

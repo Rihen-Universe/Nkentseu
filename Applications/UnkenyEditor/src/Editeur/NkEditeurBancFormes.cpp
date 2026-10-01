@@ -36,6 +36,15 @@
 //         des calques reviennent
 //   (p13) Jouer : une etoile DYNAMIQUE tombe sur un rectangle et s'y pose ;
 //         Arreter la rend a sa place
+//   L'AIMANT (demande de Rihen du 01/10, NkEditeurAimant.cpp) :
+//   (a1)  eteint par defaut : la cible passe telle quelle
+//   (a2)  sommet : un coin de B a 8 cm d'un coin de A1 s'y pose EXACTEMENT
+//   (a3)  arete : loin des coins, B se pose sur le dessus de A1, x garde
+//   (a4)  face : B enfonce dans A2 au-dela du rayon ressort sur sa surface
+//   (a5)  priorite sommet > arete : l'arete plus proche ne gagne pas
+//   (a6)  une poignee tiree pres d'un coin s'y pose
+//   (a7)  V maintenue l'allume ; (a8) le bouton de la barre flottante aussi
+//   (a9)  dans la vraie trame, B glisse a la souris et colle coin contre coin
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -48,7 +57,9 @@
 
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKGui/Core/NkGuiDrawListRaster.h"
 #include "NKGui/Core/NkGuiFont.h"
+#include "NKImage/Core/NkImage.h"
 
 #include <cstdio>
 #include <cstring>
@@ -496,11 +507,167 @@ namespace nkentseu {
 				Temoin(pose && math::NkAbs(y3 - 3.f) < 1.0e-4f, "(p13) Jouer : l'etoile tombe et se pose ; Arreter la rend (y pose m)", y);
 			}
 
+			// ── L'AIMANT (Rihen, 01/10 ; NkEditeurAimant.cpp) ────────────────
+			// Loin du decor de la scene neuve : A1 carre 1 x 1 en (20, 20), A2
+			// rectangle 3 x 3 en (40, 20), B carre 1 x 1 deplace. 100 px/m : le
+			// rayon de 12 px vaut 0,12 m.
+			{
+				NkEditeurNouvelleScene(m);
+				NkVue2D &cam = m.scene.Camera();
+				ui.cadrageAnime = false;
+				ui.cadrageEnAttente = false;
+				cam.PoserCentre(NkVec2f(20.8f, 20.8f));
+				cam.PoserZoom(100.f);
+				const ecs::NkEntityId a1 = NkEditeurPoserForme(m, NkGenreForme2D::NK_RECTANGLE, NkVec2f(20.f, 20.f), true);
+				const ecs::NkEntityId a2 = NkEditeurPoserForme(m, NkGenreForme2D::NK_RECTANGLE, NkVec2f(40.f, 20.f), true);
+				m.scene.Monde().Get<NkRenduForme2D>(a2)->taille = NkVec2f(3.f, 3.f);
+				NkEditeurFormeChangee(m, a2);
+				const ecs::NkEntityId b = NkEditeurPoserForme(m, NkGenreForme2D::NK_RECTANGLE, NkVec2f(21.6f, 21.6f), true);
+				m.selection = b;
+				m.aSelection = true;
+				NkEditeurCadre c = T.Cadre();
+				auto Pres = [](const NkVec2f &u, float32 x, float32 y) {
+					return math::NkAbs(u.x - x) < 1.0e-3f && math::NkAbs(u.y - y) < 1.0e-3f;
+				};
+				// (a1) eteint par defaut : la cible passe telle quelle.
+				ui.aimant = false;
+				const NkVec2f libre = NkEditeurAimanterDeplacement(c, NkVec2f(21.06f, 21.05f));
+				Temoin(Pres(libre, 21.06f, 21.05f) && !NkEditeurAimantActif(c), "(a1) aimant eteint par defaut : rien ne colle", 0.f);
+				ui.aimant = true;
+				// (a2) SOMMET : le coin bas-gauche de B a 8 cm du coin haut-droit de A1.
+				const NkVec2f s = NkEditeurAimanterDeplacement(c, NkVec2f(21.06f, 21.05f));
+				Temoin(Pres(s, 21.f, 21.f) && ui.aimantGenre == static_cast<int32>(NkGenreAimant::NK_SOMMET),
+					   "(a2) sommet : coin contre coin, exactement (B en 21 ; 21)", s.x);
+				// (a3) ARETE : loin des coins, a 5 cm du dessus de A1.
+				const NkVec2f a = NkEditeurAimanterDeplacement(c, NkVec2f(20.3f, 21.05f));
+				Temoin(Pres(a, 20.3f, 21.f) && ui.aimantGenre == static_cast<int32>(NkGenreAimant::NK_ARETE),
+					   "(a3) arete : le bas de B pose sur le dessus de A1, x garde", a.y);
+				// (a4) FACE : B enfonce de 0,7 m dans A2 (au-dela du rayon) : ramene a sa surface.
+				const NkVec2f f = NkEditeurAimanterDeplacement(c, NkVec2f(40.f, 21.3f));
+				Temoin(Pres(f, 40.f, 22.f) && ui.aimantGenre == static_cast<int32>(NkGenreAimant::NK_FACE),
+					   "(a4) face : B enfonce dans A2 ressort sur sa surface (y 22)", f.y);
+				// (a5) PRIORITE : un coin a 3 cm d'une arete et 8,5 cm d'un sommet : le sommet.
+				const NkVec2f pr = NkEditeurAimanterDeplacement(c, NkVec2f(20.92f, 21.03f));
+				Temoin(Pres(pr, 21.f, 21.f) && ui.aimantGenre == static_cast<int32>(NkGenreAimant::NK_SOMMET),
+					   "(a5) priorite sommet > arete : le coin, pas l'arete plus proche", pr.x);
+				// (a6) une POIGNEE (sommet d'un collisionneur) tiree pres du coin de A1.
+				const NkVec2f pg = NkEditeurAimanterPoignee(c, NkVec2f(20.55f, 20.54f), b);
+				Temoin(Pres(pg, 20.5f, 20.5f), "(a6) poignee tiree pres d'un coin : posee dessus", pg.x);
+				// (a7) V maintenue l'allume le temps du geste ; (a8) le bouton de la barre.
+				ui.aimant = false;
+				T.pctx->input.keyDown[static_cast<int32>(nkgui::NkGuiKey::V)] = true;
+				const NkVec2f v = NkEditeurAimanterDeplacement(c, NkVec2f(21.06f, 21.05f));
+				T.pctx->input.keyDown[static_cast<int32>(nkgui::NkGuiKey::V)] = false;
+				NkEditeurExecuter(c, NK_A_AIMANT);
+				const bool bouton = ui.aimant;
+				Temoin(Pres(v, 21.f, 21.f) && bouton, "(a7) V maintenue l'allume ; (a8) le bouton de la barre aussi", 0.f);
+				// (a9) dans la VRAIE trame : B glisse a la souris vers le coin de A1.
+				T.Trame();
+				const NkVec2f depart = cam.MondeVersEcran(NkVec2f(21.6f, 21.6f));
+				const NkVec2f arrivee = cam.MondeVersEcran(NkVec2f(21.06f, 21.05f));
+				T.Aller(depart.x, depart.y);
+				T.Appui(depart.x, depart.y);
+				for (int32 k = 1; k <= 6; ++k) {
+					const float32 t = static_cast<float32>(k) / 6.f;
+					T.Aller(depart.x + (arrivee.x - depart.x) * t, depart.y + (arrivee.y - depart.y) * t);
+				}
+				const NkVec2f pendant = m.scene.Monde().Get<NkTransform2D>(b)->position;
+				const bool vu = ui.aimantVu;
+				T.Relache(arrivee.x, arrivee.y);
+				const NkVec2f apres = m.scene.Monde().Get<NkTransform2D>(b)->position;
+				Temoin(Pres(pendant, 21.f, 21.f) && vu && Pres(apres, 21.f, 21.f) && m.selection == b,
+					   "(a9) vraie trame : B glisse et colle coin contre coin (x m)", apres.x);
+				ui.aimant = false;
+				(void)a1;
+			}
+
 			memory::NkGetDefaultAllocator().Delete(pt);
 			memory::NkGetDefaultAllocator().Delete(pm);
 			std::printf("\n%s : %d reussis, %d echec%s\n", gE == 0 ? "BANC FORMES EDITEUR REUSSI" : "BANC FORMES EDITEUR EN ECHEC", gR, gE,
 						gE > 1 ? "s" : "");
 			return gE == 0 ? 0 : 1;
+		}
+
+		// =====================================================================
+		// LES CAPTURES HORS ECRAN (--captures-formes=DOSSIER)
+		// =====================================================================
+		namespace {
+			/// La trame courante, RASTERISEE sans fenetre ni GPU (NkGuiDrawListRaster,
+			/// la sonde de NkAnimaEditor), puis ecrite en PNG (NKImage).
+			bool EcrirePng(NkTrame &T, const char *chemin) {
+				memory::NkAllocator &tas = memory::NkGetDefaultAllocator();
+				nkgui::NkGuiDrawListRaster *ras = tas.New<nkgui::NkGuiDrawListRaster>();
+				const int32 w = static_cast<int32>(T.W), h = static_cast<int32>(T.H);
+				ras->Init(w, h);
+				ras->Effacer(0x141414FFu);
+				ras->PoserTexture(T.police->TexId(), T.police->pixels, T.police->atlasW, T.police->atlasH, 1);
+				for (uint32 k = 0; k < T.m.textures.Nombre(); ++k) {
+					const uint32 id = NkTextures2D::kPremierId + k;
+					int32 tw = 0, th = 0;
+					if (T.m.textures.Taille(id, tw, th) && T.m.textures.Pixels(id) != nullptr) {
+						ras->PoserTexture(id, T.m.textures.Pixels(id), tw, th, 4);
+					}
+				}
+				ras->Rasteriser(T.pctx->dl);
+				ras->Rasteriser(T.pctx->dlOverlay);
+				NkImage img = NkImage::Wrap(const_cast<uint8 *>(ras->Pixels()), w, h, NkImagePixelFormat::NK_RGBA32);
+				const bool ok = img.SavePNG(chemin);
+				std::printf("  capture %s : %s\n", chemin, ok ? "ok" : "ECHEC");
+				tas.Delete(ras);
+				return ok;
+			}
+		} // namespace
+
+		int32 NkEditeurCapturesFormes(const char *dossier) {
+			NkEditeurModele *pm = memory::NkGetDefaultAllocator().New<NkEditeurModele>();
+			NkEditeurModele &m = *pm;
+			NkCreerRessourcesSim(m.ressources, &m.textures, nullptr);
+			NkEditeurSceneFormes(m);
+			NkTrame *pt = memory::NkGetDefaultAllocator().New<NkTrame>(m);
+			NkTrame &T = *pt;
+			T.W = 1600.f;
+			T.H = 900.f;
+			T.pctx->Init(1600, 900);
+			NkEditeurInterface &ui = T.Ui();
+			ui.hauteurTiroir = 150.f;
+			ui.placerOnglet = static_cast<int32>(NkOngletPlacer::NK_FORMES);
+			for (int32 k = 0; k < 4; ++k) {
+				T.Trame();
+			}
+			// L'AIMANT : le Carre glisse vers le coin du Rectangle et s'y colle.
+			ecs::NkEntityId carre;
+			m.scene.Monde().Query<NkEtiquette>().ForEach([&](ecs::NkEntityId id, NkEtiquette &e) {
+				if (std::strcmp(e.nom, "Carré") == 0) {
+					carre = id;
+				}
+			});
+			NkVue2D &cam = m.scene.Camera();
+			ui.cadrageAnime = false;
+			cam.PoserCentre(NkVec2f(-8.4f, -1.8f));
+			cam.PoserZoom(110.f);
+			ui.aimant = true;
+			int32 erreurs = 0;
+			if (carre.IsValid()) {
+				m.selection = carre;
+				m.aSelection = true;
+				T.Trame();
+				const NkVec2f depart = cam.MondeVersEcran(m.scene.Monde().Get<NkTransform2D>(carre)->position);
+				const NkVec2f arrivee = cam.MondeVersEcran(NkVec2f(-8.21f, -1.12f));
+				T.Aller(depart.x, depart.y);
+				T.Appui(depart.x, depart.y);
+				for (int32 k = 1; k <= 8; ++k) {
+					const float32 t = static_cast<float32>(k) / 8.f;
+					T.Aller(depart.x + (arrivee.x - depart.x) * t, depart.y + (arrivee.y - depart.y) * t);
+				}
+				T.Aller(arrivee.x, arrivee.y); // l'indicateur se peint a la trame suivante
+				erreurs += EcrirePng(T, NkString::Format("%s/06_aimant_sommet.png", dossier).CStr()) ? 0 : 1;
+				T.Relache(arrivee.x, arrivee.y);
+			} else {
+				++erreurs;
+			}
+			memory::NkGetDefaultAllocator().Delete(pt);
+			memory::NkGetDefaultAllocator().Delete(pm);
+			return erreurs == 0 ? 0 : 1;
 		}
 
 	} // namespace editeur

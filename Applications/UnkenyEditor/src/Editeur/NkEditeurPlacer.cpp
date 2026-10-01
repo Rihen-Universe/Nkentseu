@@ -773,6 +773,11 @@ namespace nkentseu {
 				PoserVolume(m, NkCollisionEditeur::NK_BOITE, ui.pointContexte, true);
 			} else if (action == NK_A_VOIR_PLACER) {
 				ui.voirPlacer = !ui.voirPlacer;
+			} else if (action == NK_A_AIMANT) {
+				ui.aimant = !ui.aimant;
+				NkEditeurAnnoncer(m, ui.aimant ? "Aimant allumé : sommets, arêtes, faces (V maintenue l'allume aussi)" : "Aimant éteint");
+			} else if (action == NK_A_REGLAGES_COLLISION) {
+				ui.reglagesCollision = !ui.reglagesCollision;
 			} else if (action == NK_A_EDITER_COLLISION) {
 				ui.editionCollision = !ui.editionCollision;
 				ui.poigneeTenue = -1;
@@ -786,10 +791,181 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
+		// LA SCENE D'EXEMPLE ET LES OPTIONS DE DEMARRAGE
+		// =====================================================================
+		void NkEditeurSceneFormes(NkEditeurModele &m) {
+			// La scene neuve (ses declarations : drapeaux de l'editeur...), videe.
+			NkEditeurNouvelleScene(m);
+			NkVector<ecs::NkEntityId> ids;
+			m.scene.Entites(ids);
+			for (uint32 i = 0; i < ids.Size(); ++i) {
+				m.scene.Detruire(ids[i]);
+			}
+			m.aSelection = false;
+			NkScene &s = m.scene;
+			const int32 statique = static_cast<int32>(NkTypeCorps::NK_STATIQUE);
+			const int32 dynamique = static_cast<int32>(NkTypeCorps::NK_DYNAMIQUE);
+			// Le sol et deux murs : des RECTANGLES (des formes, comme le reste).
+			NkRenduForme2D sol = NkFormeParDefaut(NkGenreForme2D::NK_RECTANGLE);
+			sol.taille = NkVec2f(23.f, 1.f);
+			sol.remplissage = 0x3E4756FFu;
+			sol.couleurContour = 0x5A6578FFu;
+			sol.epaisseurContour = 0.06f;
+			sol.couche = -10;
+			NkPoserForme2D(s, sol, NkVec2f(0.f, -4.5f), "Sol", true, statique);
+			NkRenduForme2D mur = sol;
+			mur.taille = NkVec2f(1.f, 10.f);
+			NkPoserForme2D(s, mur, NkVec2f(-11.5f, 0.f), "Mur gauche", true, statique);
+			NkPoserForme2D(s, mur, NkVec2f(11.5f, 0.f), "Mur droit", true, statique);
+			// LE DECOR : un exemplaire de chaque genre, contour compris.
+			struct NkExemple {
+					NkGenreForme2D g;
+					const char *nom;
+					uint32 couleur;
+			};
+			const NkExemple kDecor[] = {
+				{NkGenreForme2D::NK_RECTANGLE, "Rectangle", 0x4C9BE8FFu},
+				{NkGenreForme2D::NK_RECTANGLE, "Carré", 0x2F7FD0FFu},
+				{NkGenreForme2D::NK_CERCLE, "Cercle", 0xE8784CFFu},
+				{NkGenreForme2D::NK_ELLIPSE, "Ellipse", 0xB06CE0FFu},
+				{NkGenreForme2D::NK_TRIANGLE, "Triangle", 0x5CC46BFFu},
+				{NkGenreForme2D::NK_ETOILE, "Étoile", 0xF2C53DFFu},
+				{NkGenreForme2D::NK_POLYGONE_REGULIER, "Hexagone", 0x3DC2C2FFu},
+				{NkGenreForme2D::NK_CAPSULE, "Capsule", 0xE85C8AFFu},
+				{NkGenreForme2D::NK_LIGNE, "Ligne", 0xDDE3EEFFu},
+				{NkGenreForme2D::NK_POLYGONE_LIBRE, "Flèche", 0x8FA4C2FFu},
+			};
+			for (int32 k = 0; k < 10; ++k) {
+				NkRenduForme2D f = NkFormeParDefaut(kDecor[k].g);
+				f.remplissage = kDecor[k].couleur;
+				f.epaisseurContour = 0.06f;
+				f.couleurContour = 0x111820FFu;
+				if (k == 0) {
+					f.arrondi = 0.25f; // un rectangle aux coins arrondis
+				}
+				if (k == 1) {
+					f.taille = NkVec2f(1.1f, 1.1f);
+					f.opacite = 0.75f;
+				}
+				if (kDecor[k].g == NkGenreForme2D::NK_LIGNE) {
+					f.epaisseur = 0.16f;
+				}
+				const float32 x = -9.6f + static_cast<float32>(k) * 2.13f;
+				NkPoserForme2D(s, f, NkVec2f(x, -2.2f), kDecor[k].nom, true, statique);
+			}
+			// AU-DESSUS : des formes DYNAMIQUES, qui tombent en Jouer et se heurtent.
+			const NkExemple kChute[] = {
+				{NkGenreForme2D::NK_TRIANGLE, "Triangle qui tombe", 0x9BE07AFFu},
+				{NkGenreForme2D::NK_ETOILE, "Étoile qui tombe", 0xFFD966FFu},
+				{NkGenreForme2D::NK_POLYGONE_REGULIER, "Hexagone qui tombe", 0x7FE3E3FFu},
+				{NkGenreForme2D::NK_CERCLE, "Cercle qui tombe", 0xFF9C6EFFu},
+				{NkGenreForme2D::NK_CAPSULE, "Capsule qui tombe", 0xFF85AEFFu},
+				{NkGenreForme2D::NK_RECTANGLE, "Caisse qui tombe", 0x8CC0FFFFu},
+			};
+			for (int32 k = 0; k < 6; ++k) {
+				NkRenduForme2D f = NkFormeParDefaut(kChute[k].g);
+				f.remplissage = kChute[k].couleur;
+				f.epaisseurContour = 0.05f;
+				f.couleurContour = 0x111820FFu;
+				f.taille = NkVec2f(f.taille.x * 0.8f, f.taille.y * 0.8f);
+				f.couche = 2;
+				const float32 x = -7.3f + static_cast<float32>(k) * 2.9f;
+				NkPoserForme2D(s, f, NkVec2f(x, 2.5f + 0.6f * static_cast<float32>(k % 2)), kChute[k].nom, true, dynamique);
+			}
+			// Des CALQUES d'exemple : les balles du joueur ne touchent ni le joueur ni
+			// elles-memes, les ennemis se traversent (Fenetre > Reglages du projet).
+			NkCalquesCollision2D &kc = s.Calques();
+			const char *kNoms[5] = {"", "Joueur", "Ennemis", "Balles du joueur", "Décor"};
+			for (uint32 i = 1; i < 5u; ++i) {
+				std::snprintf(kc.noms[i], sizeof(kc.noms[i]), "%s", kNoms[i]);
+			}
+			kc.Poser(1u, 3u, false);
+			kc.Poser(3u, 3u, false);
+			kc.Poser(2u, 2u, false);
+			NkEditeurAnnoncer(m, "Exemple : les formes 2D (décor) et des formes qui tombent (Jouer)");
+		}
+
+		bool NkEditeurOptionPlacer(NkEditeurInterface &ui, const NkString &arg) {
+			if (arg.StartsWith("--placer=")) {
+				const NkString nom(arg.SubStr(9));
+				static const char *kNoms[8] = {"favoris", "recents", "base", "lumieres", "formes", "effets", "volumes", "tout"};
+				for (int32 o = 0; o < 8; ++o) {
+					if (nom == NkString(kNoms[o])) {
+						ui.placerOnglet = o;
+						ui.voirPlacer = true;
+					}
+				}
+				return true;
+			}
+			if (arg == "--exemple=formes") {
+				ui.demExempleFormes = true;
+				return true;
+			}
+			if (arg.StartsWith("--selection-forme=")) {
+				const NkString nom(arg.SubStr(18));
+				static const char *kGenres[9] = {"rectangle", "cercle", "ellipse", "triangle", "etoile", "polygone", "capsule", "ligne", "libre"};
+				for (int32 g = 0; g < 9; ++g) {
+					if (nom == NkString(kGenres[g])) {
+						ui.demSelectionForme = g;
+					}
+				}
+				return true;
+			}
+			if (arg == "--collision=editer") {
+				ui.editionCollision = true;
+				return true;
+			}
+			if (arg == "--cadrer=selection") {
+				ui.demCadrerSelection = true;
+				return true;
+			}
+			if (arg == "--reglages=collision") {
+				ui.reglagesCollision = true;
+				return true;
+			}
+			if (arg == "--collisionneurs=off") {
+				ui.demSansCollisionneurs = true;
+				return true;
+			}
+			// --details=forme : les cartes repliees, pour que les blocs Forme 2D et
+			// Collision (en fin de liste) se voient sans defiler.
+			if (arg == "--details=forme") {
+				ui.cartesRepliees = 0xFFFFFFFFu;
+				return true;
+			}
+			return false;
+		}
+
+		void NkEditeurDemarrerPlacer(NkEditeurModele &m, NkEditeurInterface &ui) {
+			if (ui.demSansCollisionneurs) {
+				m.voirCollisionneurs = false;
+			}
+			if (ui.demSelectionForme < 0) {
+				return;
+			}
+			// La premiere forme VISIBLE de ce genre posee en DECOR (statique).
+			m.scene.Monde().Query<NkRenduForme2D>().ForEach([&](ecs::NkEntityId id, NkRenduForme2D &f) {
+				const NkCorps2D *b = m.scene.Monde().Get<NkCorps2D>(id);
+				if (!m.aSelection && f.visible && static_cast<int32>(f.genre) == ui.demSelectionForme && b != nullptr &&
+					b->type == NkTypeCorps::NK_STATIQUE) {
+					m.selection = id;
+					m.aSelection = true;
+				}
+			});
+			ui.demSelectionForme = -1;
+		}
+
+		// =====================================================================
 		// LE PANNEAU
 		// =====================================================================
 		void NkEditeurDessinerPlacer(NkEditeurCadre &c) {
 			NkEditeurInterface &ui = c.ui;
+			// --cadrer=selection : une fois la scene cadree au depart, la vue va sur
+			// la selection (pour une capture des poignees, sans souris).
+			if (ui.demCadrerSelection && !ui.cadrageEnAttente && c.m.aSelection) {
+				ui.demCadrerSelection = false;
+				NkEditeurDemanderCadrage(c, false);
+			}
 			const NkRect zone = ui.placer;
 			if (!ui.voirPlacer || zone.w < 40.f || zone.h < 80.f) {
 				ui.placerAppui = -1;

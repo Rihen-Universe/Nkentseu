@@ -160,6 +160,8 @@ namespace nkentseu {
 				{NkKey::NK_T, NkGuiKey::T},				  {NkKey::NK_U, NkGuiKey::U},
 				{NkKey::NK_W, NkGuiKey::W},				  {NkKey::NK_Y, NkGuiKey::Y},
 				{NkKey::NK_Z, NkGuiKey::Z},
+				// (2026-10-01) V maintenue : l'AIMANT le temps du geste (NkEditeurAimant.cpp).
+				{NkKey::NK_V, NkGuiKey::V},
 			};
 
 		} // namespace
@@ -311,6 +313,12 @@ namespace nkentseu {
 					mExempleNuit = true;
 					continue;
 				}
+				// (2026-10-01) --placer=formes, --exemple=formes, --selection-forme=,
+				// --collision=editer : Placer des acteurs et les formes, capturables
+				// sans souris (NkEditeurPlacer.h).
+				if (NkEditeurOptionPlacer(*mUi, args[i])) {
+					continue;
+				}
 				// --eclairage=off : la meme scene, eclairage de scene ETEINT -- la
 				// capture « avant » d'une paire avant / apres, sans souris.
 				if (args[i] == "--eclairage=off") {
@@ -350,6 +358,10 @@ namespace nkentseu {
 						mUi->hauteurTiroir = static_cast<float32>(h);
 					}
 					continue;
+				}
+				// (2026-10-01) Des captures HORS ECRAN, sans fenetre (NkEditeurPlacer.h).
+				if (args[i].StartsWith("--captures-formes=")) {
+					return NkOptional<int>(NkEditeurCapturesFormes(NkString(args[i].SubStr(18)).CStr()));
 				}
 				if (args[i] == "--selftest") {
 					// Le moteur d'abord (textures, sauvegarde, son, systemes), puis
@@ -480,6 +492,9 @@ namespace nkentseu {
 			if (mExempleHud) {
 				NkEditeurExempleHud(m);
 			}
+			if (mUi->demExempleFormes) {
+				NkEditeurSceneFormes(m);
+			}
 			m.carte.Creer(40, 24, 1.f);
 			m.carte.AjouterCouche(0, 1.f);
 			m.carte.PoserNature(1, NkNatureTuile::NK_SOLIDE);
@@ -543,6 +558,7 @@ namespace nkentseu {
 			if (mEclairageEteint) {
 				m.scene.Eclairage().actif = false;
 			}
+			NkEditeurDemarrerPlacer(m, *mUi);
 			if (m.simuler) {
 				NkEditeurJouer(m);
 			}
@@ -912,7 +928,8 @@ namespace nkentseu {
 			} else if (menuDebut != NkMenuEditeur::NK_AUCUN) {
 				const bool surSous = ui.sousMenu != NkMenuEditeur::NK_AUCUN && NkEditeurDans(ui.sousMenuRect, vrais.position);
 				Neutraliser(c.ctx.input, NkEditeurDans(ui.menuRect, vrais.position) || surSous);
-			} else if (ui.panneauEntrees && NkEditeurDans(entrees.panneauRect, vrais.position)) {
+			} else if ((ui.panneauEntrees && NkEditeurDans(entrees.panneauRect, vrais.position)) ||
+					   (ui.reglagesCollision && NkEditeurDans(ui.reglagesCollisionRect, vrais.position))) {
 				// Le panneau Entrees flotte au-dessus du corps : un clic sur lui
 				// ne doit pas choisir l'entite qui est dessous.
 				Neutraliser(c.ctx.input, true);
@@ -938,6 +955,7 @@ namespace nkentseu {
 			// Le panneau Entrees, SOUS les menus deroulants (il ne prend aucun clic
 			// tant qu'un menu est ouvert).
 			NkEditeurDessinerPanneauEntrees(c, entrees);
+			NkEditeurDessinerReglagesCollision(c); // 2026-10-01 : les calques de collision
 			NkEditeurDessinerBarreMenus(c);
 			NkEditeurDessinerMenuOuvert(c, menuDebut);
 

@@ -221,6 +221,8 @@ namespace nkentseu {
 			NK_A_DECLENCHEUR_ICI = 1541,  ///< une zone declencheur au clic droit
 			NK_A_VOIR_PLACER = 1542,	  ///< Fenetre > Placer des acteurs
 			NK_A_EDITER_COLLISION = 1543, ///< les poignees du collisionneur dans la vue, allumees / eteintes
+			NK_A_REGLAGES_COLLISION = 1544, ///< Fenetre > Reglages du projet : calques de collision
+			NK_A_AIMANT = 1545,			  ///< l'AIMANT (sommets, aretes, faces), allume / eteint
 			NK_A_PLACER = 1550			  ///< + indice du catalogue du panneau : au centre de la vue
 		};
 
@@ -575,6 +577,27 @@ namespace nkentseu {
 				int32 poigneeSurvol = -1;
 				NkVec2f poigneeLocal0{0.f, 0.f}; ///< le point saisi, repere du collisionneur
 				bool calquesTous = false; ///< l'onglet Monde montre les 16 calques (8 sinon)
+				/// Les demandes de DEMARRAGE pour une capture sans souris :
+				/// --exemple=formes, --selection-forme=GENRE (NkEditeurPlacer.h).
+				bool demExempleFormes = false;
+				int32 demSelectionForme = -1; ///< NkGenreForme2D a choisir au depart
+				bool demSansCollisionneurs = false; ///< --collisionneurs=off : la surcouche eteinte
+				bool demCadrerSelection = false;	///< --cadrer=selection : la vue sur la selection
+				/// La fenetre « Reglages du projet : calques de collision » (flottante,
+				/// comme le panneau Entrees) et son rectangle a la derniere trame.
+				bool reglagesCollision = false;
+				nkgui::NkRect reglagesCollisionRect{0.f, 0.f, 0.f, 0.f};
+				// --- L'AIMANT (2026-10-01, NkEditeurAimant.cpp) -----------------------
+				/// Coller aux sommets, aretes et faces des AUTRES objets, en deplacant
+				/// un bloc ou une poignee. Eteint par defaut ; la touche V maintenue
+				/// l'allume le temps du geste (l'accrochage aux sommets d'UE5).
+				bool aimant = false;
+				float32 aimantRayonPx = 12.f; ///< le rayon de capture, en pixels d'ecran
+				/// Le dernier point d'accroche, pour l'indicateur (pose par la souris de
+				/// la vue, peint a la trame suivante, puis oublie).
+				bool aimantVu = false;
+				NkVec2f aimantPoint{0.f, 0.f};
+				int32 aimantGenre = 0; ///< NkGenreAimant
 		};
 
 		/// Ce qu'une fonction de dessin recoit. Rien ne s'y recalcule.

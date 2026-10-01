@@ -259,6 +259,7 @@ namespace nkentseu {
 						out.PushBack(Entree("Détails", NK_A_VOIR_DETAILS, "", c.ui.voirDetails));
 						out.PushBack(Entree("Tiroir de contenu", NK_A_VOIR_TIROIR, "", c.ui.voirTiroir));
 						out.PushBack(Entree("Entrées du jeu", NK_A_ENTREES, "", c.ui.panneauEntrees));
+						out.PushBack(Entree("Réglages du projet : collision", NK_A_REGLAGES_COLLISION, "", c.ui.reglagesCollision));
 						out.PushBack(Separateur());
 						out.PushBack(Entree("Disposition par défaut", NK_A_DISPOSITION));
 						break;
