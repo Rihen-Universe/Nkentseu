@@ -124,6 +124,8 @@
 #include "NKEditorKit/NkEditorSurface.h"
 #include "NKEditorKit/Terminal/NkTerminalProbe.h" // (01/10) famille 30 : le terminal partage
 #include "NKEditorKit/Components/NkAnimationProbe.h" // (01/10) famille 31 : la frise et le graphe d'etats
+#include "NKEditorKit/Famille/NkFamilleDetails.h" // (02/10) famille 32 : les Details de la famille
+#include "NKGui/Core/NkGuiFont.h"
 
 #include <stdio.h>
 
@@ -1826,6 +1828,100 @@ int main(int argc, char **argv) {
 		printf("  famille 31 : %u/%u\n", b31.ok, b31.total);
 		gPassed += b31.ok;
 		gFailed += (b31.total - b31.ok);
+	}
+
+	// Famille 32 - (02/10) LES DETAILS DE LA FAMILLE (la face partagee de Nogee et
+	// de NkAnimaEditor, Famille/NkFamilleDetails.h) : l'EN-TETE -- nom, arbre de
+	// l'instance, recherche, pastilles -- reste FIXE, SEULES les cartes defilent.
+	// Rihen : « la ou on a l'instance, rechercher et filtre peuvent rester
+	// statiques, et les autres ont leur scroll ». Le vrai dessin, sans fenetre :
+	// six cartes de six rangees dans un panneau de 420 px, la molette sur les
+	// cartes puis sur l'en-tete.
+	{
+		printf("\n--- Famille 32 : les Details de la famille, en-tete fixe ---\n");
+		nkentseu::memory::NkAllocator &al = nkentseu::memory::NkGetDefaultAllocator();
+		nkgui::NkGuiContext *pctx = al.New<nkgui::NkGuiContext>();
+		nkgui::NkGuiFont *police = al.New<nkgui::NkGuiFont>();
+		nkgui::NkGuiContext &ctx = *pctx;
+		const float32 W = 900.f, H = 520.f;
+		ctx.Init(static_cast<int32>(W), static_cast<int32>(H));
+		ctx.font = police->LoadEmbedded(NkEmbeddedFontId::DroidSans, 13.f, false) ? police : nullptr;
+		const NkTheme theme = NkTheme::Dark();
+		const NkFamillePalette pal = NkFamillePaletteDe(theme);
+		NkFamilleCtx fc{ctx, theme, pal, police, police};
+		NkFamilleDetailsEtat etat;
+		const nkgui::NkRect zone{600.f, 40.f, 300.f, 420.f};
+		float32 valeurs[6][6] = {};
+		NkFamilleComposant comps[6];
+		static const char *kNoms[6] = {"Transform", "Maillage", "Materiau", "Corps", "Lumiere", "Son"};
+		static const NkFamilleIconeCarte kIcones[6] = {NkFamilleIconeCarte::Transform, NkFamilleIconeCarte::Maillage,
+													   NkFamilleIconeCarte::Materiau,  NkFamilleIconeCarte::Corps,
+													   NkFamilleIconeCarte::Lumiere,   NkFamilleIconeCarte::Son};
+		for (int32 k = 0; k < 6; ++k) {
+			comps[k].id = k;
+			comps[k].nom = kNoms[k];
+			comps[k].icone = kIcones[k];
+		}
+		auto Trame = [&]() {
+			ctx.BeginFrame(1.f / 60.f);
+			ctx.BeginLayout(nkgui::NkRect{0.f, 0.f, W, H});
+			NkFamilleInspecteur I(fc, etat, zone);
+			I.Entete(42u, "Cube", nullptr, "type : maillage", false, nullptr);
+			if (I.Debut("e42", "Cube", comps, 6)) {
+				for (int32 k = 0; k < 6; ++k) {
+					if (I.Carte(k, kNoms[k], kIcones[k], NkFamilleCategorie::General)) {
+						for (int32 j = 0; j < 6; ++j) {
+							char lib[16];
+							snprintf(lib, sizeof(lib), "Valeur %d", static_cast<int>(j));
+							I.Nombre(lib, valeurs[k][j], 0.1f);
+						}
+						I.FinCarte();
+					}
+				}
+				I.Fin("Ajouter un composant", false);
+			}
+			ctx.EndFrame();
+		};
+		auto Pareil = [](const nkgui::NkRect &a, const nkgui::NkRect &b) {
+			const float32 e = 0.01f;
+			return a.w > 0.f && a.x > b.x - e && a.x < b.x + e && a.y > b.y - e && a.y < b.y + e && a.w > b.w - e && a.w < b.w + e &&
+				   a.h > b.h - e && a.h < b.h + e;
+		};
+		ctx.input.mousePos = nkgui::NkVec2{-100.f, -100.f};
+		Trame();
+		Trame();
+		const nkgui::NkRect entete = etat.entete, cartes = etat.cartes, recherche = etat.rechercheRect, arbre = etat.arbre,
+							pastille = etat.pastilles[3];
+		const float32 y0 = etat.premiereCarteY;
+		// La molette sur l'EN-TETE (la recherche) : rien ne defile.
+		ctx.input.mousePos = nkgui::NkVec2{recherche.x + 10.f, recherche.y + recherche.h * 0.5f};
+		ctx.input.AddWheelDeferred(-3.f);
+		Trame();
+		Trame();
+		const float32 yEntete = etat.premiereCarteY;
+		// La molette sur les CARTES : elles defilent.
+		for (int32 k = 0; k < 3; ++k) {
+			ctx.input.mousePos = nkgui::NkVec2{cartes.x + cartes.w * 0.5f, cartes.y + cartes.h * 0.5f};
+			ctx.input.AddWheelDeferred(-3.f);
+			Trame();
+		}
+		ctx.input.mousePos = nkgui::NkVec2{-100.f, -100.f};
+		Trame();
+		const float32 y1 = etat.premiereCarteY;
+		printf("         en-tete %.0f..%.0f, cartes %.0f..%.0f, premiere carte %.0f -> %.0f\n", (double)entete.y,
+			   (double)(entete.y + entete.h), (double)cartes.y, (double)(cartes.y + cartes.h), (double)y0, (double)y1);
+		Check("32a",
+			  entete.w > 0.f && cartes.h > 40.f && cartes.y >= entete.y + entete.h - 0.5f && cartes.y + cartes.h <= zone.y + zone.h + 0.5f &&
+				  recherche.y + recherche.h <= cartes.y && pastille.y + pastille.h <= cartes.y && arbre.y + arbre.h <= cartes.y,
+			  "les cartes sont SOUS l'en-tete fixe (arbre, recherche, pastilles), dans le panneau");
+		Check("32b", y1 < y0 - 20.f, "la molette sur les cartes les fait defiler");
+		Check("32c",
+			  Pareil(etat.entete, entete) && Pareil(etat.rechercheRect, recherche) && Pareil(etat.arbre, arbre) &&
+				  Pareil(etat.pastilles[3], pastille) && Pareil(etat.cartes, cartes),
+			  "l'en-tete (nom, arbre, recherche, pastilles) ne bouge pas d'un pixel");
+		Check("32d", yEntete > y0 - 0.01f && yEntete < y0 + 0.01f, "la molette sur l'en-tete ne fait rien defiler");
+		al.Delete(police);
+		al.Delete(pctx);
 	}
 
 	printf("\n---------------------------------------------\n");

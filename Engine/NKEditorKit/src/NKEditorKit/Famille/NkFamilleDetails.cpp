@@ -268,17 +268,47 @@ namespace nkentseu {
 				mE.cartesTrouvees = 0u;
 				mE.rechercheVue = recherche;
 			}
-			mCorps = NkRect{mZone.x, mHaut, mZone.w, mZone.y + mZone.h - mHaut};
-			if (mCorps.h < 30.f || !nkgui::BeginChild(ctx, "famille.details", mCorps, false)) {
-				return false;
+			// ── L'EN-TETE FIXE ET LES CARTES QUI DEFILENT (2026-10-02, Rihen : « la
+			//    ou on a l'instance, rechercher et filtre peuvent rester statiques, et
+			//    les autres ont leur scroll : les composants ont leur scroll a
+			//    part »). L'arbre, la recherche et les pastilles sont POSES sous le
+			//    nom ; SEULES les cartes defilent, dans leur zone, avec leur barre.
+			//    Meme regle qu'UnkenyEditor (NkEditeurDetails.cpp, OngletDetails).
+			//    ⚠️ RIEN NE DEBORDE : l'arbre perd des lignes (jusqu'a une) avant que
+			//       les cartes n'aient moins de CARTES_MIN px.
+			constexpr float32 CARTES_MIN = 96.f;
+			const nkgui::NkGuiInput &in = ctx.input;
+			auto &dc = ctx.dl;
+			const float32 pad = ctx.layout.padding;
+			const float32 fx = mZone.x + pad;
+			const float32 fw = mZone.w - 2.f * pad;
+			const float32 bas = mZone.y + mZone.h;
+			static const int32 kOrdre[7] = {1, 2, 3, 4, 5, 6, 0};
+			const float32 ph = 20.f;
+			int32 lignes = 1;
+			{
+				float32 x = fx + 4.f;
+				for (int32 k = 0; k < 7; ++k) {
+					const float32 w =
+						NkFamilleLargeur(mC.petite, NkFamilleNomCategorie(static_cast<NkFamilleCategorie>(kOrdre[k]))) + 18.f;
+					if (x + w > fx + fw - 4.f && x > fx + 4.f) {
+						x = fx + 4.f;
+						++lignes;
+					}
+					x += w + 4.f;
+				}
 			}
-			mOuvert = true;
-			ctx.PushId(cle != nullptr ? cle : "details");
-			// Les rangees d'une carte se TOUCHENT : l'espacement vertical de NKGui
-			// y ouvrirait des fentes (et casserait le bord des cartes).
-			mEspacement = ctx.layout.itemSpacingY;
-			ctx.layout.itemSpacingY = 0.f;
-			auto &dc = ctx.DL();
+			const float32 hFiltres = 24.f + 6.f + static_cast<float32>(lignes) * (ph + 4.f) + 6.f;
+			const uint32 total = static_cast<uint32>(n) + 1u;
+			// QUATRE lignes d'arbre au plus (Unreal le garde court) ; moins si le
+			// panneau est bas : les cartes gardent leur place.
+			uint32 vus = total < 4u ? total : 4u;
+			while (vus > 1u && mHaut + LIGNE_ARBRE * static_cast<float32>(vus) + 14.f + hFiltres + CARTES_MIN > bas) {
+				--vus;
+			}
+			const NkRect fixe{mZone.x, mHaut, mZone.w, LIGNE_ARBRE * static_cast<float32>(vus) + 14.f + hFiltres};
+			const bool surFixe = NkFamilleDans(fixe, in.mousePos) && NkFamilleDans(mZone, in.mousePos);
+			mE.entete = NkRect{mZone.x, mZone.y, mZone.w, fixe.y + fixe.h - mZone.y};
 
 			// ── L'ARBRE DES COMPOSANTS (Unreal : « Floor (Instance) » puis ses
 			//    composants) : un clic n'affiche que ce composant ─────────────────
@@ -290,16 +320,14 @@ namespace nkentseu {
 				if (!present) {
 					mE.composant = -1;
 				}
-				const uint32 total = static_cast<uint32>(n) + 1u;
-				// QUATRE lignes visibles au plus (Unreal garde l'arbre court).
-				const uint32 vus = total < 4u ? total : 4u;
 				const int32 maxDefil = static_cast<int32>(total - vus);
 				mE.arbreDefil = mE.arbreDefil > maxDefil ? maxDefil : (mE.arbreDefil < 0 ? 0 : mE.arbreDefil);
-				const NkRect r0 = ctx.NextItemRect(0.f, LIGNE_ARBRE * static_cast<float32>(vus) + 6.f + 8.f);
-				const NkRect boite{r0.x + 4.f, r0.y, r0.w - 8.f, LIGNE_ARBRE * static_cast<float32>(vus) + 6.f};
+				const NkRect boite{fx + 4.f, mHaut, fw - 8.f, LIGNE_ARBRE * static_cast<float32>(vus) + 6.f};
+				mE.arbre = boite;
 				dc.AddRectFilled(boite, NkFamilleMelange(mC.pal.panneau, mC.pal.fond, 0.55f), 3.f);
 				dc.AddRect(boite, mC.pal.bord, 1.f, 3.f);
-				if (maxDefil > 0 && NkFamilleDans(boite, ctx.input.mousePos) && ctx.input.wheel != 0.f) {
+				// La molette sur l'arbre fait defiler L'ARBRE (pas les cartes).
+				if (maxDefil > 0 && NkFamilleDans(boite, in.mousePos) && ctx.input.wheel != 0.f) {
 					mE.arbreDefil -= ctx.input.wheel > 0.f ? 1 : -1;
 					mE.arbreDefil = mE.arbreDefil > maxDefil ? maxDefil : (mE.arbreDefil < 0 ? 0 : mE.arbreDefil);
 				}
@@ -309,7 +337,7 @@ namespace nkentseu {
 					const NkRect ligne{boite.x + 3.f, boite.y + 3.f + static_cast<float32>(v) * LIGNE_ARBRE, boite.w - 6.f, LIGNE_ARBRE};
 					const int32 id = k == 0 ? -1 : composants[k - 1].id;
 					const bool choisie = id == mE.composant;
-					const bool survol = Survol(ligne);
+					const bool survol = NkFamilleDans(ligne, in.mousePos) && surFixe;
 					if (choisie) {
 						dc.AddRectFilled(ligne, NkFamilleMelange(mC.pal.accent, mC.pal.panneau, 0.2f), 2.f);
 					} else if (survol) {
@@ -330,7 +358,7 @@ namespace nkentseu {
 					NkFamilleTexte(dc, mC.police, ic.x + ic.w + 7.f, ligne.y + (LIGNE_ARBRE - lhP) * 0.5f, libelle.CStr(),
 								   choisie ? mC.pal.surAccent : mC.pal.texte);
 					dc.PopClipRect();
-					if (survol && ctx.input.mouseClicked[0]) {
+					if (survol && in.mouseClicked[0]) {
 						mE.composant = id;
 					}
 				}
@@ -345,74 +373,73 @@ namespace nkentseu {
 			// ── LA RECHERCHE dans les proprietes, puis les PASTILLES de
 			//    categorie (Unreal : Général, Acteur, ... et « Tout » en dernier) ──
 			{
-				static const int32 kOrdre[7] = {1, 2, 3, 4, 5, 6, 0};
-				const float32 ph = 20.f;
-				const NkRect rz = ctx.NextItemRect(0.f, 1.f); // la largeur de la zone
-				int32 lignes = 1;
-				{
-					float32 x = rz.x + 4.f;
-					for (int32 k = 0; k < 7; ++k) {
-						const float32 w =
-							NkFamilleLargeur(mC.petite, NkFamilleNomCategorie(static_cast<NkFamilleCategorie>(kOrdre[k]))) + 18.f;
-						if (x + w > rz.x + rz.w - 4.f && x > rz.x + 4.f) {
-							x = rz.x + 4.f;
-							++lignes;
-						}
-						x += w + 4.f;
-					}
+				float32 y = mHaut + LIGNE_ARBRE * static_cast<float32>(vus) + 14.f;
+				const NkRect rr{fx + 4.f, y, fw - 8.f, 24.f};
+				mE.rechercheRect = rr;
+				if (in.mouseClicked[0]) {
+					mE.rechercheFocus = NkFamilleDans(rr, in.mousePos) && surFixe;
 				}
-				const NkRect rb = ctx.NextItemRect(0.f, 24.f + 6.f + static_cast<float32>(lignes) * (ph + 4.f) + 6.f);
-				float32 y = rb.y;
-				const NkRect rr{rb.x + 4.f, y, rb.w - 8.f, 24.f};
-				// La recherche de la famille, dans la liste de la zone defilable.
-				{
-					const nkgui::NkGuiInput &in = ctx.input;
-					if (in.mouseClicked[0]) {
-						mE.rechercheFocus = NkFamilleDans(rr, in.mousePos) && NkFamilleDans(mCorps, in.mousePos);
-					}
-					if (mE.rechercheFocus && in.KeyPressed(nkgui::NkGuiKey::Escape)) {
-						mE.recherche[0] = '\0';
-						mE.rechercheFocus = false;
-					} else if (mE.rechercheFocus && in.KeyPressed(nkgui::NkGuiKey::Enter)) {
-						mE.rechercheFocus = false;
-					}
-					dc.AddRectFilled(rr, mC.pal.champ, 3.f);
-					dc.AddRect(rr, mE.rechercheFocus ? mC.pal.accent : mC.pal.bord, 1.f, 3.f);
-					const float32 lx = rr.x + 12.f, ly = rr.y + rr.h * 0.5f - 1.f;
-					dc.AddCircle(NkVec2{lx, ly}, 4.5f, mC.pal.attenue, 1.3f);
-					dc.AddLine(NkVec2{lx + 3.2f, ly + 3.2f}, NkVec2{lx + 6.5f, ly + 6.5f}, mC.pal.attenue, 1.6f);
-					if (mE.recherche[0] == '\0' && !mE.rechercheFocus) {
-						NkFamilleTexte(dc, mC.petite, rr.x + 24.f, rr.y + (rr.h - NkFamilleHauteurLigne(mC.petite, 12.f)) * 0.5f,
-									   "Rechercher une propriété", mC.pal.attenue);
-					}
-					NkOverlayFieldStyle st;
-					st.fond = false;
-					st.bord = false;
-					st.texte = mC.pal.texte;
-					st.utf8 = true;
-					NkOverlayTextField(ctx, dc, mC.police, NkRect{rr.x + 20.f, rr.y, rr.w - 24.f, rr.h}, mE.recherche,
-									   static_cast<int32>(sizeof(mE.recherche)), mE.rechercheFocus, &st);
+				if (mE.rechercheFocus && in.KeyPressed(nkgui::NkGuiKey::Escape)) {
+					mE.recherche[0] = '\0';
+					mE.rechercheFocus = false;
+				} else if (mE.rechercheFocus && in.KeyPressed(nkgui::NkGuiKey::Enter)) {
+					mE.rechercheFocus = false;
 				}
+				dc.AddRectFilled(rr, mC.pal.champ, 3.f);
+				dc.AddRect(rr, mE.rechercheFocus ? mC.pal.accent : mC.pal.bord, 1.f, 3.f);
+				const float32 lx = rr.x + 12.f, ly = rr.y + rr.h * 0.5f - 1.f;
+				dc.AddCircle(NkVec2{lx, ly}, 4.5f, mC.pal.attenue, 1.3f);
+				dc.AddLine(NkVec2{lx + 3.2f, ly + 3.2f}, NkVec2{lx + 6.5f, ly + 6.5f}, mC.pal.attenue, 1.6f);
+				if (mE.recherche[0] == '\0' && !mE.rechercheFocus) {
+					NkFamilleTexte(dc, mC.petite, rr.x + 24.f, rr.y + (rr.h - NkFamilleHauteurLigne(mC.petite, 12.f)) * 0.5f,
+								   "Rechercher une propriété", mC.pal.attenue);
+				}
+				NkOverlayFieldStyle st;
+				st.fond = false;
+				st.bord = false;
+				st.texte = mC.pal.texte;
+				st.utf8 = true;
+				NkOverlayTextField(ctx, dc, mC.police, NkRect{rr.x + 20.f, rr.y, rr.w - 24.f, rr.h}, mE.recherche,
+								   static_cast<int32>(sizeof(mE.recherche)), mE.rechercheFocus, &st);
 				y += rr.h + 6.f;
-				float32 x = rb.x + 4.f;
-				const bool dansCorps = NkFamilleDans(mCorps, ctx.input.mousePos);
+				float32 x = fx + 4.f;
 				for (int32 k = 0; k < 7; ++k) {
 					const int32 cat = kOrdre[k];
 					const char *nomCat = NkFamilleNomCategorie(static_cast<NkFamilleCategorie>(cat));
 					const float32 w = NkFamilleLargeur(mC.petite, nomCat) + 18.f;
-					if (x + w > rb.x + rb.w - 4.f && x > rb.x + 4.f) {
-						x = rb.x + 4.f;
+					if (x + w > fx + fw - 4.f && x > fx + 4.f) {
+						x = fx + 4.f;
 						y += ph + 4.f;
 					}
 					const NkRect r{x, y, w, ph};
+					mE.pastilles[cat] = r;
 					const bool sel = mE.categorie == cat;
-					if (NkFamilleBouton(mC, r, "", sel, dansCorps, &dc)) {
+					if (NkFamilleBouton(mC, r, "", sel, surFixe, &dc)) {
 						mE.categorie = cat;
 					}
 					NkFamilleTexteDansBoite(dc, mC.petite, r, nomCat, sel ? mC.pal.surAccent : mC.pal.texte);
 					x += w + 4.f;
 				}
 			}
+			// Le FILET entre l'en-tete fixe et les cartes.
+			dc.AddRectFilled(NkRect{mZone.x, fixe.y + fixe.h - 1.f, mZone.w, 1.f}, mC.pal.bord);
+
+			// ── LES CARTES, et elles seules, dans leur zone DEFILABLE ──────────
+			mCorps = NkRect{mZone.x, fixe.y + fixe.h, mZone.w, bas - (fixe.y + fixe.h)};
+			mE.cartes = mCorps;
+			// Un defilement PAR FILTRE : changer de pastille ou de composant montre
+			// ses cartes depuis le haut, y revenir retrouve ou l'on en etait.
+			char zoneCartes[48];
+			std::snprintf(zoneCartes, sizeof(zoneCartes), "famille.details.%d.%d", mE.categorie, mE.composant);
+			if (mCorps.h < 8.f || !nkgui::BeginChild(ctx, zoneCartes, mCorps, false)) {
+				return false;
+			}
+			mOuvert = true;
+			ctx.PushId(cle != nullptr ? cle : "details");
+			// Les rangees d'une carte se TOUCHENT : l'espacement vertical de NKGui
+			// y ouvrirait des fentes (et casserait le bord des cartes).
+			mEspacement = ctx.layout.itemSpacingY;
+			ctx.layout.itemSpacingY = 0.f;
 			return true;
 		}
 
@@ -451,6 +478,10 @@ namespace nkentseu {
 			Espace(ctx, 6.f);
 			const NkRect r0 = ctx.NextItemRect(0.f, ENTETE_H);
 			const NkRect r{r0.x + 4.f, r0.y, r0.w - 8.f, r0.h};
+			if (!mPremiere) {
+				mE.premiereCarteY = r.y;
+				mPremiere = true;
+			}
 			const bool ouverte = (mE.cartesRepliees & bitTrouve) == 0u;
 			const float32 cy = r.y + r.h * 0.5f;
 			const NkRect rMenu{r.x + r.w - 22.f, r.y + 3.f, 18.f, r.h - 6.f};

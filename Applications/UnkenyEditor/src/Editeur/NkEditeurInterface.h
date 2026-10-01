@@ -628,6 +628,11 @@ namespace nkentseu {
 				/// (la 0 = l'acteur), les pastilles, la recherche, le verrou, la
 				/// cloison ; les cartes dessinees, les fleches de remise MONTREES.
 				nkgui::NkRect detailsAjouter{0.f, 0.f, 0.f, 0.f};
+				/// (2026-10-02) L'EN-TETE FIXE (nom, case, « + Ajouter », arbre,
+				/// recherche, pastilles : il ne defile pas) et la zone des CARTES, qui
+				/// seule defile, avec sa barre.
+				nkgui::NkRect detailsEntete{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect detailsCartes{0.f, 0.f, 0.f, 0.f};
 				NkVector<nkgui::NkRect> detailsArbre;
 				NkVector<int32> detailsArbreCartes;
 				nkgui::NkRect detailsPastilles[7] = {};

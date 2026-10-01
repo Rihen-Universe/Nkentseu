@@ -91,6 +91,16 @@ namespace nkentseu {
 				/// Ce que le panneau a releve a la derniere trame (bancs, captures).
 				nkgui::NkRect ajouter{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect caseActif{0.f, 0.f, 0.f, 0.f};
+				/// (2026-10-02) L'EN-TETE FIXE (nom, arbre, recherche, pastilles : il ne
+				/// defile pas), ses pieces, et la zone des CARTES, qui seule defile.
+				nkgui::NkRect entete{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect cartes{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect arbre{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect rechercheRect{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect pastilles[7] = {};
+				/// Le haut de la PREMIERE carte dessinee a la trame (il descend et monte
+				/// avec le defilement des cartes ; l'en-tete, lui, ne bouge pas).
+				float32 premiereCarteY = 0.f;
 				int32 liseres = 0;			 ///< combien de liseres d'axe ont ete peints
 				/// Rien n'est tape dans le panneau (les raccourcis de l'editeur passent).
 				bool Libre() const noexcept {
@@ -120,9 +130,11 @@ namespace nkentseu {
 				bool Entete(uint64 cleEntite, const char *nom, bool *actif, const char *ligneType, bool ajouterOuvert,
 							NkString *nouveauNom);
 
-				/// Ouvre la zone DEFILABLE : l'arbre des composants (l'acteur `nomActeur`
-				/// puis `composants`), la recherche et les pastilles. Faux = rien a
-				/// dessiner (zone trop petite). Toujours suivi de `Fin` si vrai.
+				/// Pose l'en-tete FIXE -- l'arbre des composants (l'acteur `nomActeur`
+				/// puis `composants`), la recherche et les pastilles -- puis ouvre la
+				/// zone DEFILABLE des cartes, sous lui (2026-10-02 : seules les cartes
+				/// defilent). Faux = rien a dessiner (zone trop petite). Toujours suivi
+				/// de `Fin` si vrai.
 				bool Debut(const char *cle, const char *nomActeur, const NkFamilleComposant *composants, int32 n);
 
 				/// Une carte : rend vrai si son CORPS est a peindre (depliee et
@@ -173,6 +185,7 @@ namespace nkentseu {
 				float32 mHaut = 0.f;		 ///< sous l'en-tete
 				float32 mEspacement = 0.f;	 ///< l'espacement NKGui d'avant (rendu par Fin)
 				bool mOuvert = false;		 ///< entre Debut et Fin
+				bool mPremiere = false;		 ///< la premiere carte de la trame est relevee
 				bool mCherche = false;
 				bool mNouvelle = false;		 ///< la recherche vient de changer : toutes les cartes se redessinent
 				int32 mCarte = -1;

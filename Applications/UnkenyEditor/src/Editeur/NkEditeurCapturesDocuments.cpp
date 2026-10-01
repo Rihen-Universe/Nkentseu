@@ -194,6 +194,49 @@ namespace nkentseu {
 			NkEditeurActiverDocument(m, ui, NkDocScene());
 			Trames(2);
 
+			// ── LES DETAILS : l'en-tete fixe, les cartes qui defilent ──
+			// La Zone bleue (son Blueprint), et assez de composants pour deborder.
+			{
+				const ecs::NkEntityId zb = ParNom(m.scene, "Zone bleue");
+				m.selection = zb;
+				m.aSelection = zb.IsValid();
+				if (zb.IsValid()) {
+					NkEditeurAjouterComposant(m, zb, NkComposantEditeur::NK_SPRITE);
+					NkEditeurAjouterComposant(m, zb, NkComposantEditeur::NK_LUMIERE);
+					NkEditeurAjouterComposant(m, zb, NkComposantEditeur::NK_SOURCE);
+				}
+				ui.ongletDroite = 0;
+				ui.detailsCategorie = 0;
+				ui.detailsComposant = -1;
+				T.pctx->input.mousePos = nkgui::NkVec2{-100.f, -100.f};
+				Trames(3);
+				Capture("05_details_en_haut.png");
+				// La molette SUR LES CARTES : elles defilent, l'en-tete reste.
+				const nkgui::NkVec2 surCartes{ui.detailsCartes.x + ui.detailsCartes.w * 0.5f, ui.detailsCartes.y + ui.detailsCartes.h * 0.5f};
+				for (int32 k = 0; k < 4; ++k) {
+					T.pctx->input.mousePos = surCartes;
+					T.pctx->input.AddWheelDeferred(-3.f);
+					T.Trame();
+				}
+				T.pctx->input.mousePos = nkgui::NkVec2{-100.f, -100.f};
+				Trames(2);
+				Capture("06_details_apres_defilement.png");
+				// Tout en bas : la carte « Scripts » (plus aucun bloc brut dessous).
+				for (int32 k = 0; k < 20; ++k) {
+					T.pctx->input.mousePos = surCartes;
+					T.pctx->input.AddWheelDeferred(-6.f);
+					T.Trame();
+				}
+				T.pctx->input.mousePos = nkgui::NkVec2{-100.f, -100.f};
+				Trames(2);
+				Capture("07_details_en_bas_carte_scripts.png");
+				// La pastille « Acteur » : Hierarchie, Scripts (le comportement).
+				ui.detailsCategorie = 2;
+				Trames(3);
+				Capture("08_details_pastille_acteur_scripts.png");
+				ui.detailsCategorie = 0;
+			}
+
 			NkEditeurFermerTousOnglets(c);
 			NkEditeurScriptsArreter(s);
 			al.Delete(pt);

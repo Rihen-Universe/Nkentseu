@@ -2164,39 +2164,66 @@ namespace nkentseu {
 					return true;
 				};
 
-				// ── L'arbre, la recherche, les pastilles et les cartes, dans une zone
-				//    DEFILABLE : a petite hauteur, les proprietes gardent la place ──
+				// ── L'EN-TETE FIXE ET LES CARTES QUI DEFILENT (2026-10-02, Rihen : « la ou
+				//    on a l'instance, rechercher et filtre peuvent rester statiques, et
+				//    les autres ont leur scroll : les composants ont leur scroll a
+				//    part »). L'arbre de l'instance et de ses composants, la recherche
+				//    et les pastilles sont POSES sous le nom et ne bougent plus ; SEULES
+				//    les cartes defilent, dans leur zone, avec leur barre. Ils etaient
+				//    dans la zone defilable : on les perdait des qu'on descendait.
+				//    ⚠️ RIEN NE DEBORDE : l'arbre perd des lignes (jusqu'a une) avant que
+				//       les cartes n'aient moins de CARTES_MIN px.
 				const float32 haut = y;
-				const NkRect corps{zone.x, haut, zone.w, zone.y + zone.h - haut};
-				if (!nkgui::BeginChild(ctx, "details.composants", corps, false)) {
-					return;
+				const float32 pad = ctx.layout.padding;
+				const float32 fx = zone.x + pad;
+				const float32 fw = zone.w - 2.f * pad;
+				const float32 bas = zone.y + zone.h;
+				constexpr float32 CARTES_MIN = 96.f;
+				auto &dc = ctx.dl;
+				const nkgui::NkGuiInput &in = ctx.input;
+				// Les CARTES de l'entite (l'arbre en a besoin pour sa hauteur).
+				NkVector<int32> cartes;
+				cartes.PushBack(-1);
+				if (c.m.scene.Monde().Has<NkTransform2D>(id)) {
+					cartes.PushBack(static_cast<int32>(NkCarteEditeur::NK_TRANSFORM));
 				}
-				gRecherche = c.ui.detailsRecherche;
-				// Chaque entite garde ses propres identifiants de champs : sans
-				// cette cle, un glisser commence sur une caisse finirait sur une autre.
-				char cle[24];
-				std::snprintf(cle, sizeof(cle), "e%llu", static_cast<unsigned long long>(id.Pack()));
-				ctx.PushId(cle);
-				// Les rangees d'une carte se TOUCHENT : l'espacement vertical de NKGui
-				// y ouvrirait des fentes (et casserait le bord des cartes).
-				const float32 espacement = ctx.layout.itemSpacingY;
-				ctx.layout.itemSpacingY = 0.f;
+				for (uint32 k = 0; k < static_cast<uint32>(NkCarteEditeur::NK_COUNT); ++k) {
+					const NkCarteEditeur carte = static_cast<NkCarteEditeur>(c.ui.ordreCartes[k]);
+					if (carte != NkCarteEditeur::NK_TRANSFORM && NkEditeurAUneCarte(c.m, id, carte)) {
+						cartes.PushBack(static_cast<int32>(carte));
+					}
+				}
+				// Les PASTILLES, mesurees : combien de lignes il leur faut.
+				static const int32 kOrdre[7] = {1, 2, 3, 4, 5, 6, 0};
+				const float32 ph = 20.f;
+				int32 lignesPastilles = 1;
+				{
+					float32 x = fx + 4.f;
+					for (int32 k = 0; k < 7; ++k) {
+						const float32 w = renderer::NkTexteLargeur(c.petite, kCategories[kOrdre[k]]) + 18.f;
+						if (x + w > fx + fw - 4.f && x > fx + 4.f) {
+							x = fx + 4.f;
+							++lignesPastilles;
+						}
+						x += w + 4.f;
+					}
+				}
+				const float32 hFiltres = 24.f + 6.f + static_cast<float32>(lignesPastilles) * (ph + 4.f) + 6.f;
+				constexpr float32 LIGNE = 22.f;
+				const uint32 total = static_cast<uint32>(cartes.Size());
+				// QUATRE lignes d'arbre au plus (Unreal le garde court) ; moins si le
+				// panneau est bas : les cartes gardent leur place.
+				uint32 n = total < 4u ? total : 4u;
+				while (n > 1u && haut + LIGNE * static_cast<float32>(n) + 14.f + hFiltres + CARTES_MIN > bas) {
+					--n;
+				}
+				const NkRect fixe{zone.x, haut, zone.w, LIGNE * static_cast<float32>(n) + 14.f + hFiltres};
+				const bool surFixe = NkEditeurDans(fixe, in.mousePos) && NkEditeurDans(zone, in.mousePos);
+				c.ui.detailsEntete = NkRect{zone.x, zone.y, zone.w, fixe.y + fixe.h - zone.y};
 				// ── L'ARBRE DES COMPOSANTS (Unreal : « Floor (Instance) » puis ses
 				//    composants) : un clic n'affiche que ce composant, l'acteur les
 				//    montre tous ─────────────────────────────────────────────────────
-				auto &dc = ctx.DL();
 				{
-					NkVector<int32> cartes;
-					cartes.PushBack(-1);
-					if (c.m.scene.Monde().Has<NkTransform2D>(id)) {
-						cartes.PushBack(static_cast<int32>(NkCarteEditeur::NK_TRANSFORM));
-					}
-					for (uint32 k = 0; k < static_cast<uint32>(NkCarteEditeur::NK_COUNT); ++k) {
-						const NkCarteEditeur carte = static_cast<NkCarteEditeur>(c.ui.ordreCartes[k]);
-						if (carte != NkCarteEditeur::NK_TRANSFORM && NkEditeurAUneCarte(c.m, id, carte)) {
-							cartes.PushBack(static_cast<int32>(carte));
-						}
-					}
 					// --details=NOM : le composant demande au demarrage.
 					if (!c.ui.demDetails.Empty()) {
 						for (uint32 k = 1; k < cartes.Size(); ++k) {
@@ -2213,20 +2240,15 @@ namespace nkentseu {
 					if (!present) {
 						c.ui.detailsComposant = -1;
 					}
-					constexpr float32 LIGNE = 22.f;
-					// QUATRE lignes visibles au plus (Unreal garde l'arbre court) ; la
-					// molette fait defiler le reste.
-					const uint32 total = static_cast<uint32>(cartes.Size());
-					const uint32 n = total < 4u ? total : 4u;
 					const int32 maxDefil = static_cast<int32>(total - n);
 					c.ui.detailsArbreDefil = c.ui.detailsArbreDefil > maxDefil ? maxDefil : (c.ui.detailsArbreDefil < 0 ? 0 : c.ui.detailsArbreDefil);
-					const NkRect r0 = ctx.NextItemRect(0.f, LIGNE * static_cast<float32>(n) + 6.f + 8.f);
-					const NkRect boite{r0.x + 4.f, r0.y, r0.w - 8.f, LIGNE * static_cast<float32>(n) + 6.f};
+					const NkRect boite{fx + 4.f, haut, fw - 8.f, LIGNE * static_cast<float32>(n) + 6.f};
 					dc.AddRectFilled(boite, Melange(c.pal.panneau, c.pal.fond, 0.55f), 3.f);
 					dc.AddRect(boite, c.pal.bord, 1.f, 3.f);
 					c.ui.detailsArbre.Clear();
 					c.ui.detailsArbreCartes.Clear();
-					if (maxDefil > 0 && NkEditeurDans(boite, ctx.input.mousePos) && ctx.input.wheel != 0.f) {
+					// La molette sur l'arbre fait defiler L'ARBRE (pas les cartes).
+					if (maxDefil > 0 && NkEditeurDans(boite, in.mousePos) && ctx.input.wheel != 0.f) {
 						c.ui.detailsArbreDefil -= ctx.input.wheel > 0.f ? 1 : -1;
 						c.ui.detailsArbreDefil = c.ui.detailsArbreDefil > maxDefil ? maxDefil : (c.ui.detailsArbreDefil < 0 ? 0 : c.ui.detailsArbreDefil);
 					}
@@ -2234,7 +2256,7 @@ namespace nkentseu {
 						const uint32 k = v + static_cast<uint32>(c.ui.detailsArbreDefil);
 						const NkRect ligne{boite.x + 3.f, boite.y + 3.f + static_cast<float32>(v) * LIGNE, boite.w - 6.f, LIGNE};
 						const bool choisie = cartes[k] == c.ui.detailsComposant;
-						const bool survol = NkEditeurDans(ligne, ctx.input.mousePos) && NkEditeurDans(corps, ctx.input.mousePos);
+						const bool survol = NkEditeurDans(ligne, in.mousePos) && surFixe;
 						if (choisie) {
 							dc.AddRectFilled(ligne, Melange(c.pal.accent, c.pal.panneau, 0.2f), 2.f);
 						} else if (survol) {
@@ -2254,7 +2276,7 @@ namespace nkentseu {
 						dc.PushClipRect(ligne, true);
 						renderer::NkTexte(dc, c.police, ic.x + ic.w + 7.f, ligne.y + (LIGNE - lhP) * 0.5f, libelle.CStr(), tl);
 						dc.PopClipRect();
-						if (survol && ctx.input.mouseClicked[0]) {
+						if (survol && in.mouseClicked[0]) {
 							c.ui.detailsComposant = cartes[k];
 						}
 						c.ui.detailsArbre.PushBack(ligne);
@@ -2271,29 +2293,11 @@ namespace nkentseu {
 				// ── LA RECHERCHE dans les proprietes, puis les PASTILLES de
 				//    categorie (Unreal : General, Acteur, ... et « Tout ») ────────────
 				{
-					static const int32 kOrdre[7] = {1, 2, 3, 4, 5, 6, 0};
-					const float32 ph = 20.f;
-					const NkRect rz = ctx.NextItemRect(0.f, 1.f); // la largeur de la zone
-					// Les lignes de pastilles, MESUREES avant de reserver la place.
-					int32 lignes = 1;
-					{
-						float32 x = rz.x + 4.f;
-						for (int32 k = 0; k < 7; ++k) {
-							const float32 w = renderer::NkTexteLargeur(c.petite, kCategories[kOrdre[k]]) + 18.f;
-							if (x + w > rz.x + rz.w - 4.f && x > rz.x + 4.f) {
-								x = rz.x + 4.f;
-								++lignes;
-							}
-							x += w + 4.f;
-						}
-					}
-					const NkRect rb = ctx.NextItemRect(0.f, 24.f + 6.f + static_cast<float32>(lignes) * (ph + 4.f) + 6.f);
-					float32 y = rb.y;
-					const NkRect rr{rb.x + 4.f, y, rb.w - 8.f, 24.f};
+					float32 yf = haut + LIGNE * static_cast<float32>(n) + 14.f;
+					const NkRect rr{fx + 4.f, yf, fw - 8.f, 24.f};
 					c.ui.detailsRechercheRect = rr;
-					const nkgui::NkGuiInput &in = ctx.input;
 					if (in.mouseClicked[0]) {
-						c.ui.detailsRechercheFocus = NkEditeurDans(rr, in.mousePos) && NkEditeurDans(corps, in.mousePos);
+						c.ui.detailsRechercheFocus = NkEditeurDans(rr, in.mousePos) && surFixe;
 					}
 					if (c.ui.detailsRechercheFocus && in.KeyPressed(nkgui::NkGuiKey::Escape)) {
 						c.ui.detailsRecherche[0] = '\0';
@@ -2316,29 +2320,54 @@ namespace nkentseu {
 					st.bord = false;
 					st.texte = c.pal.texte;
 					st.utf8 = true;
-					editorkit::NkOverlayTextField(ctx, dl, c.police, NkRect{rr.x + 20.f, rr.y, rr.w - 24.f, rr.h}, c.ui.detailsRecherche,
+					editorkit::NkOverlayTextField(ctx, dc, c.police, NkRect{rr.x + 20.f, rr.y, rr.w - 24.f, rr.h}, c.ui.detailsRecherche,
 												  static_cast<int32>(sizeof(c.ui.detailsRecherche)), c.ui.detailsRechercheFocus, &st);
-					y += rr.h + 6.f;
+					yf += rr.h + 6.f;
 					// Les pastilles, en flux (elles passent a la ligne comme celles
 					// d'Unreal) ; « Tout » en dernier.
-					float32 x = rb.x + 4.f;
+					float32 x = fx + 4.f;
 					for (int32 k = 0; k < 7; ++k) {
 						const int32 cat = kOrdre[k];
 						const float32 w = renderer::NkTexteLargeur(c.petite, kCategories[cat]) + 18.f;
-						if (x + w > rb.x + rb.w - 4.f && x > rb.x + 4.f) {
-							x = rb.x + 4.f;
-							y += ph + 4.f;
+						if (x + w > fx + fw - 4.f && x > fx + 4.f) {
+							x = fx + 4.f;
+							yf += ph + 4.f;
 						}
-						const NkRect r{x, y, w, ph};
+						const NkRect r{x, yf, w, ph};
 						c.ui.detailsPastilles[cat] = r;
 						const bool sel = c.ui.detailsCategorie == cat;
-						if (NkEditeurBouton(c, r, "", sel, NkEditeurDans(corps, ctx.input.mousePos), &dc)) {
+						if (NkEditeurBouton(c, r, "", sel, surFixe, &dc)) {
 							c.ui.detailsCategorie = cat;
 						}
 						renderer::NkTexteDansBoite(dc, c.petite, r, kCategories[cat], sel ? c.pal.surAccent : c.pal.texte);
 						x += w + 4.f;
 					}
 				}
+				// Le FILET entre l'en-tete fixe et les cartes : ce qui est au-dessus
+				// reste, ce qui est en dessous defile.
+				dc.AddRectFilled(NkRect{zone.x, fixe.y + fixe.h - 1.f, zone.w, 1.f}, c.pal.bord);
+
+				// ── LES CARTES, et elles seules, dans leur zone DEFILABLE ──────────
+				const NkRect corps{zone.x, fixe.y + fixe.h, zone.w, bas - (fixe.y + fixe.h)};
+				c.ui.detailsCartes = corps;
+				// Un defilement PAR FILTRE (pastille, composant choisi dans l'arbre) :
+				// changer de filtre montre ses cartes depuis le haut, et y revenir
+				// retrouve ou l'on en etait.
+				char zoneCartes[48];
+				std::snprintf(zoneCartes, sizeof(zoneCartes), "details.composants.%d.%d", c.ui.detailsCategorie, c.ui.detailsComposant);
+				if (corps.h < 8.f || !nkgui::BeginChild(ctx, zoneCartes, corps, false)) {
+					return;
+				}
+				gRecherche = c.ui.detailsRecherche;
+				// Chaque entite garde ses propres identifiants de champs : sans
+				// cette cle, un glisser commence sur une caisse finirait sur une autre.
+				char cle[24];
+				std::snprintf(cle, sizeof(cle), "e%llu", static_cast<unsigned long long>(id.Pack()));
+				ctx.PushId(cle);
+				// Les rangees d'une carte se TOUCHENT : l'espacement vertical de NKGui
+				// y ouvrirait des fentes (et casserait le bord des cartes).
+				const float32 espacement = ctx.layout.itemSpacingY;
+				ctx.layout.itemSpacingY = 0.f;
 
 				NkInspecteur I{c, id, corps, Melange(c.pal.entete, c.pal.texte, 0.05f), Melange(c.pal.entete, c.pal.texte, 0.12f),
 							   Melange(c.pal.panneau, c.pal.entete, 0.45f), c.pal.bord};
