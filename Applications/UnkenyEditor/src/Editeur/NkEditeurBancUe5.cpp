@@ -35,6 +35,10 @@
 //         choisi va au champ et le projet le RETIENT (relatif, `.nkprojet`) ;
 //         un autre projet reprend le sien ; --sortie= garde la priorite ; une
 //         cle inconnue du fichier survit a la reecriture
+//   (u7)  le JOURNAL du tiroir comme l'Output Log d'Unreal : lignes sans codes
+//         ANSI, classees et colorees ; puces Erreurs (la seule erreur) et
+//         Avertissements (avertissements et erreurs) ; la recherche se tape
+//         (la scene n'en recoit rien) ; Copier ; Effacer
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -44,6 +48,7 @@
 #include "Editeur/NkEditeurContenu.h"
 #include "Editeur/NkEditeurProjet.h"
 #include "Editeur/NkEditeurReferences.h"
+#include "Livraison/NkEditeurDeroulement.h"
 
 #include "NKEditorKit/Components/NkRecordingPaint.h"
 #include "NKFileSystem/NkDirectory.h"
@@ -558,6 +563,67 @@ namespace nkentseu {
 				k.ouverte = false;
 				m.projet = NkString();
 				NkDirectory::Delete("banc_u6", true);
+			}
+
+			// (u7) LE JOURNAL DU TIROIR, comme l'Output Log d'Unreal (retour 7 de
+			// Rihen : « le tiroir Journal du bas n'a pas de filtres »).
+			{
+				NkEditeurNouvelleScene(m);
+				NkEditeurBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				ui.ongletTiroir = 1;
+				// Les annonces de la scene neuve passent d'abord au journal ; puis on
+				// le remplit de lignes connues.
+				t.Trame();
+				t.Trame();
+				ui.journal.Clear();
+				ui.journal.PushBack(NkString("[00:01]  Scene ouverte"));
+				ui.journal.PushBack(NkString("\x1b[31mmain.cpp:3: error: boom\x1b[0m"));
+				ui.journal.PushBack(NkString("x.cpp:7: warning: variable inutilisee"));
+				ui.journal.PushBack(NkString("[00:02]  Texture posee sur la caisse"));
+				ui.journal.PushBack(NkString("Build Successful"));
+				t.Trame();
+				t.Trame();
+				auto Milieu = [](const nkgui::NkRect &r) { return nkgui::NkVec2{r.x + r.w * 0.5f, r.y + r.h * 0.5f}; };
+				// (a) tout, sans un code ANSI, colore par niveau ; la plus recente en haut
+				bool propre = ui.journalMontrees.Size() == 5u;
+				for (uint32 i = 0; i < ui.journalMontrees.Size(); ++i) {
+					propre = propre && std::strchr(ui.journalMontrees[i].CStr(), 0x1b) == nullptr;
+				}
+				const bool niveaux = propre && ui.journalMontrees[0] == NkString("Build Successful") &&
+									 ui.journalNiveaux[0] == static_cast<uint8>(NkNiveauLigne::NK_SUCCES) &&
+									 ui.journalNiveaux[3] == static_cast<uint8>(NkNiveauLigne::NK_ERREUR) &&
+									 ui.journalNiveaux[2] == static_cast<uint8>(NkNiveauLigne::NK_AVERTISSEMENT);
+				// (b) la puce « Erreurs » : la seule erreur ; (c) « Avertissements » :
+				// avertissements ET erreurs (le filtre de « Construire »)
+				t.Clic(0, Milieu(ui.journalPuces[2]).x, Milieu(ui.journalPuces[2]).y);
+				const bool erreurs = ui.journalFiltre == 2 && ui.journalMontrees.Size() == 1u && Contient(ui.journalMontrees[0], "boom");
+				t.Clic(0, Milieu(ui.journalPuces[1]).x, Milieu(ui.journalPuces[1]).y);
+				const bool avertissements = ui.journalFiltre == 1 && ui.journalMontrees.Size() == 2u;
+				t.Clic(0, Milieu(ui.journalPuces[0]).x, Milieu(ui.journalPuces[0]).y);
+				// (d) la RECHERCHE : cliquer le champ, taper ; la scene n'en recoit rien
+				t.Clic(0, Milieu(ui.journalRechercheRect).x, Milieu(ui.journalRechercheRect).y);
+				const NkOutil outilAvant = m.outil;
+				t.Taper("TEXTURE w");
+				t.Touche(nkgui::NkGuiKey::Backspace);
+				t.Touche(nkgui::NkGuiKey::Backspace);
+				const bool recherche = ui.journalRechercheFocus && ui.journalMontrees.Size() == 1u &&
+									   Contient(ui.journalMontrees[0], "Texture posee") && m.outil == outilAvant;
+				// (e) Copier : les lignes montrees au presse-papiers
+				t.pressePapiers = NkString();
+				t.Clic(0, Milieu(ui.journalCopier).x, Milieu(ui.journalCopier).y);
+				const bool copie = Contient(t.pressePapiers, "Texture posee") && !Contient(t.pressePapiers, "boom");
+				// (f) Effacer
+				t.Clic(0, Milieu(ui.journalEffacer).x, Milieu(ui.journalEffacer).y);
+				const bool efface = ui.journal.Empty() && ui.journalMontrees.Empty();
+				const bool ok = niveaux && erreurs && avertissements && recherche && copie && efface;
+				if (!ok) {
+					std::printf("        propre %d niveaux %d erreurs %d avertissements %d (%u) recherche %d (%u, « %s ») copie %d efface %d\n", propre,
+								niveaux, erreurs, avertissements, static_cast<uint32>(ui.journalMontrees.Size()), recherche,
+								static_cast<uint32>(ui.journalMontrees.Size()), ui.journalRecherche, copie, efface);
+				}
+				Temoin(ok, "(u7) Journal du tiroir : Tout / Avertissements / Erreurs, recherche, Copier, Effacer, sans ANSI",
+					   static_cast<float32>(niveaux + erreurs + avertissements + recherche + copie + efface));
 			}
 
 			m.chemin = cheminAvant;

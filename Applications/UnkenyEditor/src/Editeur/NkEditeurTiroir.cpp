@@ -38,6 +38,7 @@
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurReferences.h"
+#include "Livraison/NkEditeurFenetreConstruire.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/Components/NkContentBrowserDisque.h"
@@ -1419,23 +1420,152 @@ namespace nkentseu {
 				DemandesDemarrage(c);
 			}
 
+			/// `texte` contient-il `motif` (sans tenir compte de la casse ASCII) ?
+			bool ContientSansCasse(const char *texte, const char *motif) {
+				auto bas = [](char ch) { return (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch; };
+				if (motif == nullptr || motif[0] == '\0') {
+					return true;
+				}
+				for (const char *t = texte; *t != '\0'; ++t) {
+					usize k = 0;
+					while (motif[k] != '\0' && t[k] != '\0' && bas(t[k]) == bas(motif[k])) {
+						++k;
+					}
+					if (motif[k] == '\0') {
+						return true;
+					}
+				}
+				return false;
+			}
+
+			/// LE JOURNAL DU TIROIR, a la maniere de l'Output Log d'Unreal (2026-10-01,
+			/// retour 7 de Rihen : « le Journal du bas n'a pas de filtres ») : les
+			/// puces Tout / Avertissements / Erreurs avec leurs comptes, la recherche,
+			/// « Copier » et « Effacer » ; chaque ligne nettoyee de ses codes ANSI
+			/// (NkSansAnsi), classee (NkJournalConstruction::NiveauDe) et coloree par
+			/// niveau -- les MEMES pieces que l'onglet Journal de « Construire »
+			/// (NkEditeurFenetreConstruire.h), pas une copie.
 			void OngletJournal(NkEditeurCadre &c, const NkRect &zone) {
 				NkEditeurInterface &ui = c.ui;
 				auto &dl = c.ctx.dl;
+				const nkgui::NkGuiInput &in = c.ctx.input;
 				dl.AddRectFilled(zone, c.pal.panneau);
-				if (ui.journal.Empty()) {
-					renderer::NkTexteCentre(dl, c.police, zone.x + zone.w * 0.5f, zone.y + zone.h * 0.4f,
-											"Le journal est vide : les annonces de l'éditeur s'y inscrivent.", c.pal.attenue);
+				ui.journalMontrees.Clear();
+				ui.journalNiveaux.Clear();
+				// ── Le classement : une fois par trame (le journal est borne) ──
+				NkVector<NkString> propres;
+				NkVector<uint8> niveaux;
+				int32 nAvt = 0, nErr = 0;
+				for (uint32 i = 0; i < ui.journal.Size(); ++i) {
+					const NkString p = NkSansAnsi(ui.journal[i].CStr());
+					const NkNiveauLigne n = NkJournalConstruction::NiveauDe(p);
+					nAvt += n == NkNiveauLigne::NK_AVERTISSEMENT ? 1 : 0;
+					nErr += n == NkNiveauLigne::NK_ERREUR ? 1 : 0;
+					propres.PushBack(p);
+					niveaux.PushBack(static_cast<uint8>(n));
+				}
+				// ── La barre : puces, recherche, Copier, Effacer ──
+				const float32 bh = 22.f;
+				const float32 by = zone.y + 5.f;
+				float32 x = NkEditeurPucesNiveau(c, dl, zone.x + 8.f, by, bh, static_cast<int32>(ui.journal.Size()), nAvt, nErr,
+												 ui.journalFiltre, nullptr, ui.journalPuces);
+				const float32 wE = renderer::NkTexteLargeur(c.petite, "Effacer") + 22.f;
+				const float32 wC = renderer::NkTexteLargeur(c.petite, "Copier") + 22.f;
+				ui.journalEffacer = NkRect{zone.x + zone.w - 8.f - wE, by, wE, bh};
+				ui.journalCopier = NkRect{ui.journalEffacer.x - 6.f - wC, by, wC, bh};
+				const float32 xr = x + 6.f;
+				ui.journalRechercheRect = NkRect{xr, by, ui.journalCopier.x - 10.f - xr, bh};
+				const NkRect &rr = ui.journalRechercheRect;
+				if (rr.w > 40.f) {
+					if (in.mouseClicked[0]) {
+						ui.journalRechercheFocus = NkEditeurDans(rr, in.mousePos);
+					}
+					if (ui.journalRechercheFocus && (in.KeyPressed(nkgui::NkGuiKey::Escape) || in.KeyPressed(nkgui::NkGuiKey::Enter))) {
+						ui.journalRechercheFocus = false;
+					}
+					dl.AddRectFilled(rr, c.pal.champ, 2.f);
+					dl.AddRect(rr, ui.journalRechercheFocus ? c.pal.accent : c.pal.bord, 1.f, 2.f);
+					// la loupe
+					const float32 lx = rr.x + 11.f, ly = rr.y + bh * 0.5f - 1.f;
+					dl.AddCircle(nkgui::NkVec2{lx, ly}, 4.f, c.pal.attenue, 1.3f);
+					dl.AddLine(nkgui::NkVec2{lx + 3.f, ly + 3.f}, nkgui::NkVec2{lx + 6.f, ly + 6.f}, c.pal.attenue, 1.5f);
+					if (ui.journalRecherche[0] == '\0' && !ui.journalRechercheFocus) {
+						renderer::NkTexte(dl, c.petite, rr.x + 22.f, rr.y + (bh - renderer::NkTexteHauteurLigne(c.petite, 12.f)) * 0.5f,
+										  "Rechercher dans le journal", c.pal.attenue);
+					}
+					editorkit::NkOverlayFieldStyle st;
+					st.fond = false;
+					st.bord = false;
+					st.texte = c.pal.texte;
+					st.utf8 = true;
+					editorkit::NkOverlayTextField(c.ctx, dl, c.police, NkRect{rr.x + 18.f, rr.y, rr.w - 20.f, rr.h}, ui.journalRecherche,
+												  static_cast<int32>(sizeof(ui.journalRecherche)), ui.journalRechercheFocus, &st);
+				}
+				// ── Les lignes MONTREES : le plus RECENT en haut (c'est lui qu'on
+				//    vient chercher, sans defiler) ──
+				NkVector<uint32> montrees;
+				for (int32 i = static_cast<int32>(ui.journal.Size()) - 1; i >= 0; --i) {
+					const uint32 k = static_cast<uint32>(i);
+					if (NkEditeurNiveauMontre(static_cast<NkNiveauLigne>(niveaux[k]), ui.journalFiltre) &&
+						ContientSansCasse(propres[k].CStr(), ui.journalRecherche)) {
+						montrees.PushBack(k);
+						ui.journalMontrees.PushBack(propres[k]);
+						ui.journalNiveaux.PushBack(niveaux[k]);
+					}
+				}
+				if (NkEditeurBouton(c, ui.journalCopier, "Copier", false, !montrees.Empty())) {
+					// Dans l'ordre du temps : c'est ainsi qu'on colle un journal.
+					NkString tout;
+					for (int32 i = static_cast<int32>(montrees.Size()) - 1; i >= 0; --i) {
+						tout += propres[montrees[static_cast<uint32>(i)]] + "\n";
+					}
+					c.ctx.SetClipboard(tout.CStr());
+					ui.journalRetour = NkString::Format("%u ligne(s) copiée(s)", static_cast<unsigned>(montrees.Size()));
+					ui.journalRetourJusqua = ui.temps + 2.5f;
+				}
+				if (NkEditeurBouton(c, ui.journalEffacer, "Effacer", false, !ui.journal.Empty())) {
+					ui.journal.Clear();
+					ui.defilJournal = 0.f;
+					ui.journalMontrees.Clear();
+					ui.journalNiveaux.Clear();
+					montrees.Clear();
+				}
+				// ── La liste ──
+				const NkRect liste{zone.x, by + bh + 6.f, zone.w, zone.y + zone.h - (by + bh + 6.f)};
+				const float32 lh = renderer::NkTexteHauteurLigne(c.police, 16.f) + 3.f;
+				if (NkEditeurDans(liste, in.mousePos) && in.wheel != 0.f) {
+					ui.defilJournal -= in.wheel * 3.f;
+				}
+				const float32 maxi = static_cast<float32>(montrees.Size()) - liste.h / lh + 1.f;
+				ui.defilJournal = ui.defilJournal > maxi ? maxi : ui.defilJournal;
+				ui.defilJournal = ui.defilJournal < 0.f ? 0.f : ui.defilJournal;
+				if (!ui.journalRetour.Empty() && ui.temps < ui.journalRetourJusqua) {
+					renderer::NkTexteADroite(dl, c.petite, ui.journalCopier.x - 10.f,
+											 by + (bh - renderer::NkTexteHauteurLigne(c.petite, 12.f)) * 0.5f, ui.journalRetour.CStr(),
+											 NkEditeurCouleurNiveau(c, NkNiveauLigne::NK_SUCCES));
+				}
+				if (montrees.Empty()) {
+					const char *vide = ui.journal.Empty()					  ? "Le journal est vide : les annonces de l'éditeur s'y inscrivent."
+									   : ui.journalRecherche[0] != '\0' ? "Aucune ligne ne correspond à la recherche."
+									   : ui.journalFiltre == 1			  ? "Aucun avertissement."
+																		  : "Aucune erreur.";
+					renderer::NkTexteCentre(dl, c.police, liste.x + liste.w * 0.5f, liste.y + liste.h * 0.4f, vide, c.pal.attenue);
 					return;
 				}
-				// Le plus RECENT en haut : c'est lui qu'on vient chercher, et il ne
-				// doit pas falloir defiler pour le lire.
-				const float32 lh = renderer::NkTexteHauteurLigne(c.police, 16.f) + 3.f;
-				dl.PushClipRect(zone, true);
-				float32 y = zone.y + 6.f;
-				for (int32 i = static_cast<int32>(ui.journal.Size()) - 1; i >= 0 && y < zone.y + zone.h; --i) {
-					renderer::NkTexte(dl, c.police, zone.x + 10.f, y, ui.journal[static_cast<uint32>(i)].CStr(),
-									  i + 1 == static_cast<int32>(ui.journal.Size()) ? c.pal.texte : c.pal.attenue);
+				dl.PushClipRect(liste, true);
+				float32 y = liste.y + 2.f;
+				for (uint32 i = static_cast<uint32>(ui.defilJournal); i < montrees.Size() && y < liste.y + liste.h; ++i) {
+					const uint32 k = montrees[i];
+					const NkNiveauLigne n = static_cast<NkNiveauLigne>(niveaux[k]);
+					NkEditeurBandeNiveau(c, dl, NkRect{liste.x + 4.f, y - 1.f, liste.w - 8.f, lh}, n);
+					// Une ligne SIMPLE garde l'usage d'avant : la plus recente vive, les
+					// autres attenuees ; un niveau (erreur, avertissement, succes) a sa
+					// couleur.
+					NkColor teinte = NkEditeurCouleurNiveau(c, n);
+					if (n == NkNiveauLigne::NK_INFO) {
+						teinte = k + 1u == ui.journal.Size() ? c.pal.texte : c.pal.attenue;
+					}
+					renderer::NkTexte(dl, c.police, liste.x + 10.f, y, propres[k].CStr(), teinte);
 					y += lh;
 				}
 				dl.PopClipRect();

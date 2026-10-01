@@ -307,6 +307,29 @@ namespace nkentseu {
 					mExempleHud = true;
 					continue;
 				}
+				// --exemple=journal (2026-10-01) : le tiroir sur son JOURNAL, avec des
+				// lignes de chaque niveau (une construction typique) -- la capture de
+				// l'Output Log sans lancer Jenga.
+				if (args[i] == "--exemple=journal") {
+					mUi->voirTiroir = true;
+					mUi->ongletTiroir = 1;
+					static const char *kLignes[] = {
+						"[00:01]  Scene ouverte : Niveau1.nkscene",
+						"[00:04]  Construire « Niveau1 » pour Windows (Developpement)",
+						"Compiling NkUnkenyScene.cpp",
+						"Engine/Unkeny/src/Unkeny/Scene/NkUnkenyScene.cpp:212:15: warning: unused variable 'pas' [-Wunused-variable]",
+						"Compiling NkEditeurJeu.cpp",
+						"Applications/UnkenyPlayer/src/main.cpp:48:9: error: use of undeclared identifier 'NkJouer'",
+						"Build Failed : 1 erreur, 1 avertissement",
+						"[00:31]  Correction : main.cpp",
+						"Build Successful",
+						"[00:52]  Jeu construit : Construit/Niveau1/Niveau1.exe",
+					};
+					for (const char *l : kLignes) {
+						mUi->journal.PushBack(NkString(l));
+					}
+					continue;
+				}
 				if (args[i] == "--exemple=nuit") {
 					mExempleNuit = true;
 					continue;
@@ -770,7 +793,8 @@ namespace nkentseu {
 			}
 			// (2026-10-01) Les CHAMPS du navigateur (recherche, recherche d'une section,
 			// renommage en place) gardent leurs touches : Suppr efface une lettre.
-			if (c.ui.contenu.searchFocused || c.ui.contenu.sourcesRechercheFocus || !c.ui.renommeChemin.Empty()) {
+			if (c.ui.contenu.searchFocused || c.ui.contenu.sourcesRechercheFocus || !c.ui.renommeChemin.Empty() ||
+				c.ui.journalRechercheFocus) {
 				return;
 			}
 			// Le navigateur qui a le FOCUS prend Ctrl+C / X / V / D / A, F2, Suppr.

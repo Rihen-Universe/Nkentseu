@@ -135,15 +135,78 @@ namespace nkentseu {
 			}
 
 			bool Montree(const NkLigneJournal &l, int32 filtre) noexcept {
-				if (filtre == 2) {
-					return l.niveau == NkNiveauLigne::NK_ERREUR;
-				}
-				if (filtre == 1) {
-					return l.niveau == NkNiveauLigne::NK_ERREUR || l.niveau == NkNiveauLigne::NK_AVERTISSEMENT;
-				}
-				return true;
+				return NkEditeurNiveauMontre(l.niveau, filtre);
 			}
 		} // namespace
+
+		// =====================================================================
+		// LES PIECES DE L'OUTPUT LOG, PARTAGEES (2026-10-01, retour 7 de Rihen) :
+		// cet onglet et le tiroir « Journal » de l'editeur (NkEditeurTiroir.cpp).
+		// =====================================================================
+		bool NkEditeurNiveauMontre(NkNiveauLigne n, int32 filtre) noexcept {
+			if (filtre == 2) {
+				return n == NkNiveauLigne::NK_ERREUR;
+			}
+			if (filtre == 1) {
+				return n == NkNiveauLigne::NK_ERREUR || n == NkNiveauLigne::NK_AVERTISSEMENT;
+			}
+			return true;
+		}
+
+		NkColor NkEditeurCouleurNiveau(const NkEditeurCadre &c, NkNiveauLigne n) {
+			const NkTeintes t = Teintes(c);
+			switch (n) {
+				case NkNiveauLigne::NK_ERREUR:
+					return t.erreur;
+				case NkNiveauLigne::NK_AVERTISSEMENT:
+					return t.avertissement;
+				case NkNiveauLigne::NK_SUCCES:
+					return t.succes;
+				case NkNiveauLigne::NK_NOTE:
+					return c.pal.attenue;
+				case NkNiveauLigne::NK_ETAPE:
+					return c.pal.texte;
+				default:
+					return t.info;
+			}
+		}
+
+		void NkEditeurBandeNiveau(const NkEditeurCadre &c, nkgui::NkGuiDrawList &dl, const NkRect &r, NkNiveauLigne n) {
+			if (n != NkNiveauLigne::NK_ERREUR && n != NkNiveauLigne::NK_AVERTISSEMENT) {
+				return;
+			}
+			const NkColor teinte = NkEditeurCouleurNiveau(c, n);
+			dl.AddRectFilled(r, Alpha(teinte, n == NkNiveauLigne::NK_ERREUR ? 26 : 20));
+			dl.AddRectFilled(NkRect{r.x, r.y, 2.f, r.h}, teinte);
+		}
+
+		float32 NkEditeurPucesNiveau(NkEditeurCadre &c, nkgui::NkGuiDrawList &dl, float32 x, float32 y, float32 h, int32 tout,
+									 int32 avertissements, int32 erreurs, int32 &filtre, bool *change, NkRect *rects) {
+			const float32 lp = renderer::NkTexteHauteurLigne(c.petite, 12.f);
+			const NkString lTout = NkString::Format("Tout  %d", static_cast<int>(tout));
+			const NkString lAvt = NkString::Format("Avertissements  %d", static_cast<int>(avertissements));
+			const NkString lErr = NkString::Format("Erreurs  %d", static_cast<int>(erreurs));
+			const char *etiquettes[3] = {lTout.CStr(), lAvt.CStr(), lErr.CStr()};
+			for (int32 f = 0; f < 3; ++f) {
+				const float32 w = renderer::NkTexteLargeur(c.petite, etiquettes[f]) + 34.f;
+				const NkRect r{x, y, w, h};
+				if (rects != nullptr) {
+					rects[f] = r;
+				}
+				if (NkEditeurBouton(c, r, "", filtre == f, true, &dl)) {
+					filtre = f;
+					if (change != nullptr) {
+						*change = true;
+					}
+				}
+				// La pastille de couleur du niveau, puis le libelle.
+				const NkColor pastille = f == 0 ? c.pal.attenue : NkEditeurCouleurNiveau(c, f == 1 ? NkNiveauLigne::NK_AVERTISSEMENT : NkNiveauLigne::NK_ERREUR);
+				dl.AddCircleFilled(NkVec2{r.x + 13.f, r.y + h * 0.5f}, 3.5f, pastille);
+				renderer::NkTexte(dl, c.petite, r.x + 22.f, r.y + (h - lp) * 0.5f, etiquettes[f], filtre == f ? c.pal.surAccent : c.pal.texte);
+				x += w + 6.f;
+			}
+			return x;
+		}
 
 		void NkEditeurDessinerJournalConstruction(NkEditeurCadre &c, NkEditeurConstruction &k, const NkRect &zone) {
 			auto &dl = c.ctx.dlOverlay;
@@ -272,24 +335,10 @@ namespace nkentseu {
 			}
 			{
 				const float32 bh = lh + 8.f;
-				const NkString lTout = NkString::Format("Tout  %u", static_cast<unsigned>(j.lignes.Size()));
-				const NkString lAvt = NkString::Format("Avertissements  %d", static_cast<int>(nAvertissements));
-				const NkString lErr = NkString::Format("Erreurs  %d", static_cast<int>(nErreurs));
-				const char *etiquettes[3] = {lTout.CStr(), lAvt.CStr(), lErr.CStr()};
-				float32 x = dx;
-				for (int32 f = 0; f < 3; ++f) {
-					const float32 w = renderer::NkTexteLargeur(c.petite, etiquettes[f]) + 34.f;
-					const NkRect r{x, y, w, bh};
-					if (NkEditeurBouton(c, r, "", k.filtre == f, true, &dl)) {
-						k.filtre = f;
-						k.suivre = true;
-					}
-					// La pastille de couleur du niveau, puis le libelle.
-					const NkColor pastille = f == 0 ? c.pal.attenue : (f == 1 ? t.avertissement : t.erreur);
-					dl.AddCircleFilled(NkVec2{r.x + 13.f, r.y + bh * 0.5f}, 3.5f, pastille);
-					renderer::NkTexte(dl, c.petite, r.x + 22.f, r.y + (bh - lp) * 0.5f, etiquettes[f],
-									  k.filtre == f ? c.pal.surAccent : c.pal.texte);
-					x += w + 6.f;
+				bool change = false;
+				(void)NkEditeurPucesNiveau(c, dl, dx, y, bh, static_cast<int32>(j.lignes.Size()), nAvertissements, nErreurs, k.filtre, &change);
+				if (change) {
+					k.suivre = true;
 				}
 				const char *lOuvrir = "Ouvrir le dossier";
 				const char *lCopier = "Copier le journal";
@@ -387,30 +436,8 @@ namespace nkentseu {
 			float32 yl = liste.y + 5.f;
 			for (int32 i = premiere; i < n && i < premiere + visibles + 1; ++i) {
 				const NkLigneJournal &l = j.lignes[montrees[static_cast<usize>(i)]];
-				NkColor teinte = t.info;
-				switch (l.niveau) {
-					case NkNiveauLigne::NK_ERREUR:
-						teinte = t.erreur;
-						dl.AddRectFilled(NkRect{liste.x + 1.f, yl - 1.f, liste.w - 2.f, pas}, Alpha(t.erreur, 26));
-						dl.AddRectFilled(NkRect{liste.x + 1.f, yl - 1.f, 2.f, pas}, t.erreur);
-						break;
-					case NkNiveauLigne::NK_AVERTISSEMENT:
-						teinte = t.avertissement;
-						dl.AddRectFilled(NkRect{liste.x + 1.f, yl - 1.f, liste.w - 2.f, pas}, Alpha(t.avertissement, 20));
-						dl.AddRectFilled(NkRect{liste.x + 1.f, yl - 1.f, 2.f, pas}, t.avertissement);
-						break;
-					case NkNiveauLigne::NK_SUCCES:
-						teinte = t.succes;
-						break;
-					case NkNiveauLigne::NK_NOTE:
-						teinte = c.pal.attenue;
-						break;
-					case NkNiveauLigne::NK_ETAPE:
-						teinte = c.pal.texte;
-						break;
-					default:
-						break;
-				}
+				const NkColor teinte = NkEditeurCouleurNiveau(c, l.niveau);
+				NkEditeurBandeNiveau(c, dl, NkRect{liste.x + 1.f, yl - 1.f, liste.w - 2.f, pas}, l.niveau);
 				renderer::NkTexte(dl, c.petite, liste.x + 10.f, yl, Horloge(l.temps).CStr(), Alpha(c.pal.attenue, 170));
 				float32 xt = liste.x + 54.f;
 				if (l.niveau == NkNiveauLigne::NK_ETAPE) {

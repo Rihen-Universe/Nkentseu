@@ -412,6 +412,22 @@ namespace nkentseu {
 				NkVector<NkString> journal;
 				float32 agePrecedent = 99.f;
 				float32 defilJournal = 0.f;
+				/// Le tiroir « Journal » a la maniere de l'Output Log d'Unreal
+				/// (2026-10-01, retour 7 de Rihen) : le filtre (0 tout, 1 avertissements
+				/// et erreurs, 2 erreurs), la recherche, et ce que le banc vise.
+				int32 journalFiltre = 0;
+				char journalRecherche[96] = {};
+				bool journalRechercheFocus = false;
+				nkgui::NkRect journalPuces[3] = {};
+				nkgui::NkRect journalRechercheRect{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect journalCopier{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect journalEffacer{0.f, 0.f, 0.f, 0.f};
+				/// Les lignes MONTREES a cette trame (nettoyees, filtrees), de la plus
+				/// recente a la plus ancienne, et leur niveau (NkNiveauLigne).
+				NkVector<NkString> journalMontrees;
+				NkVector<uint8> journalNiveaux;
+				NkString journalRetour; ///< « 3 ligne(s) copiée(s) », un instant
+				float32 journalRetourJusqua = 0.f;
 
 				/// (2026-10-01) Ce que le Content Browser TRAINE a cette trame (chemin du
 				/// navigateur ; vide = rien) : les cibles de depot (la reference de
