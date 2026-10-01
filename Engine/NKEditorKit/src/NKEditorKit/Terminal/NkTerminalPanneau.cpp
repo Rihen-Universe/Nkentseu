@@ -377,14 +377,14 @@ namespace nkentseu {
 			const NkGuiFont *f = ctx.font;
 			const float32 rangH = 30.f, titreH = 28.f, pad = 6.f;
 			const int32 n = static_cast<int32>(l.Size());
-			float32 w = 320.f;
+			float32 w = 440.f; // assez pour lire le chemin de chaque shell
 			for (int32 i = 0; i < n && f; ++i) {
 				const float32 lw = f->MeasureWidth(l[static_cast<usize>(i)].nom.CStr()) + 150.f;
 				if (lw > w)
 					w = lw;
 			}
-			if (w > 520.f)
-				w = 520.f;
+			if (w > 600.f)
+				w = 600.f;
 			const float32 h = titreH + n * rangH + 9.f + rangH + pad;
 			const NkRect r = NkPlacerPresDeLAncre(mAncrePlus, w, h, borne.x + borne.w, borne.y + borne.h, NkCoteAncre::Dessous);
 			NkSurfaceFlottante surf(ctx, r, NkCouche::Menu, NkPriseClavier::Oui);

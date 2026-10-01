@@ -619,7 +619,7 @@ namespace nkentseu {
 			}
 			if (dossier && *dossier) {
 				dl.AddRectFilled({x - 4.f, bande.y + bande.h * 0.3f, 1.f, bande.h * 0.4f}, pal.bord);
-				const float32 reste = bande.x + bande.w - wDroite - x - 6.f;
+				const float32 reste = bande.x + bande.w - wDroite - x - 24.f; // un vrai blanc avant la taille
 				if (reste > 30.f) {
 					const NkString d = CouperAGauche(f, dossier, reste);
 					dl.AddText(f->Face(), f->TexId(), {x + 4.f, base}, d.CStr(), pal.attenue);

@@ -200,6 +200,12 @@ namespace nkentseu {
 				if (NkEditeurTerminalArgument(*mUi, args[i])) {
 					continue;
 				}
+				// --fenetre-cachee : avec --capture=, une photo SANS fenetre a l'ecran
+				// (une sonde ne doit pas surgir sous les yeux de celui qui travaille).
+				if (args[i] == "--fenetre-cachee") {
+					Config().fenetre.visible = false;
+					continue;
+				}
 				// --cuire=DOSSIER (2026-10-01) : cuit les DONNEES du jeu (scene,
 				// textures, regle de camera) sans rien construire, pour les jouer
 				// aussitot : UnkenyPlayer --jeu=DOSSIER. Avec --exemple=hud,
