@@ -350,6 +350,13 @@ namespace nkentseu {
 				  "Nessun workspace (.jenga con 'with workspace') in questa cartella.",
 				  "В этой папке нет workspace (.jenga с 'with workspace').",
 				  "Aucun workspace (.jenga avec 'with workspace') dans ce dossier."}},
+				// (01/10) Le chemin a ouvrir n'est pas un DOSSIER (absent, ou un
+				// fichier). « Aucun workspace » envoyait chercher un .jenga la ou le
+				// vrai probleme etait le chemin (capture de Rihen, 21:28).
+				{"load.err.nofolder",
+				 {"Ce dossier n'existe pas : %s", "This folder does not exist: %s", "Esta carpeta no existe: %s",
+				  "Esta pasta não existe: %s", "Dieser Ordner existiert nicht: %s", "Questa cartella non esiste: %s",
+				  "Эта папка не существует: %s", "Ce dossier n'existe pas : %s"}},
 				{"load.err.timeout",
 				 {"Délai dépassé : jenga info ne répond pas.", "Timed out: jenga info is not responding.",
 				  "Tiempo agotado: jenga info no responde.", "Tempo esgotado: jenga info não responde.",

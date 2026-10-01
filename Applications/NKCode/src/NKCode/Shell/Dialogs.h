@@ -856,7 +856,8 @@ namespace nkentseu {
 				// Lance l'ecran de CHARGEMENT (section 14) : LoadFolder + etapes reelles.
 				// La bascule vers l'editeur (LoadUiState + showStart=false) se fait quand loading.finished
 				// (gere dans DrawHome). Une erreur .jenga affiche l'etat d'erreur inline (pas de bascule).
-				void DoLoad(const NkPath &folder) {
+				// `openJenga` (facultatif) : le .jenga precis a choisir dans le dossier.
+				void DoLoad(const NkPath &folder, const char *openJenga = nullptr) {
 					if (wsAddAsRoot && st) {
 						// Wizard « Nouveau Workspace » lance DEPUIS L'EDITEUR (modale) :
 						// le workspace cree est AJOUTE comme racine de l'explorateur
@@ -866,7 +867,7 @@ namespace nkentseu {
 						st->status = NkString("Workspace cree : ") + folder.ToString().CStr();
 						return;
 					}
-					loading.Start(folder, st);
+					loading.Start(folder, st, openJenga);
 				}
 
 				void OpenSaveAs() {
