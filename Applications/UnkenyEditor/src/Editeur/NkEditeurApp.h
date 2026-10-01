@@ -43,6 +43,7 @@
 #include "Editeur/NkEditeurSelecteur.h"
 #include "Editeur/NkEditeurSouris.h"
 #include "Livraison/NkEditeurFenetreConstruire.h"
+#include "Script/NkEditeurScripts.h"
 
 #include "NKCanvas/App/NkCanvasGuiApp.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -100,6 +101,9 @@ namespace nkentseu {
 				memory::NkUniquePtr<NkEditeurConstruction> mConstruction;
 				/// LE selecteur de fichiers (NKEditorKit) : Importer, Exporter, Parcourir.
 				memory::NkUniquePtr<NkEditeurSelecteurEtat> mSelecteur;
+				/// Les scripts (2026-10-01) : APRES le modele, donc detruits AVANT lui
+				/// (l'hote se retire de la scene du modele en partant).
+				memory::NkUniquePtr<NkEditeurScripts> mScripts;
 				editorkit::NkTheme mTheme;
 				NkPaletteEditeur mPalette;
 				float32 mDernierDt = 1.f / 60.f;

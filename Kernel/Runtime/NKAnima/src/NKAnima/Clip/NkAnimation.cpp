@@ -96,6 +96,33 @@ namespace nkentseu {
 				duration = fmaxf(duration, lightIntensity.GetDuration());
 			if (!ppExposure.Empty())
 				duration = fmaxf(duration, ppExposure.GetDuration());
+			for (auto &p : propertyTracks)
+				if (!p.curve.Empty())
+					duration = fmaxf(duration, p.curve.GetDuration());
+		}
+
+		NkAnimationClip::NkPropertyTrack *NkAnimationClip::FindPropertyTrack(const NkString &target,
+																			  const NkString &property) {
+			for (uint32 i = 0; i < (uint32)propertyTracks.Size(); ++i) {
+				if (propertyTracks[i].target == target && propertyTracks[i].property == property) {
+					return &propertyTracks[i];
+				}
+			}
+			return nullptr;
+		}
+
+		NkAnimationClip::NkPropertyTrack &NkAnimationClip::AddPropertyTrack(const NkString &target,
+																			 const NkString &property, NkPropertyKind kind) {
+			if (NkPropertyTrack *p = FindPropertyTrack(target, property)) {
+				return *p;
+			}
+			NkPropertyTrack t;
+			t.target = target;
+			t.property = property;
+			t.kind = kind;
+			t.curve.name = property;
+			propertyTracks.PushBack(t);
+			return propertyTracks[propertyTracks.Size() - 1];
 		}
 
 		void NkAnimationClip::ResizeBones(uint32 count) {
@@ -149,6 +176,13 @@ namespace nkentseu {
 			constexpr uint32 kNkAnimCtlMagic = 0x43414B4E;	 // 'NKAC' (little-endian) : .nkanimctl, contrôleur d'animation
 			constexpr uint32 kNkAnimCtlVersion = 1;
 			constexpr uint32 kNkAnimSectionHFSM = 0x4D534648; // 'HFSM' (little-endian)
+			// (2026-10-01) Un clip a pistes de PROPRIETES : corps v2 + sections, dont
+			// 'PROP'. Le numero 3 reste celui de la machine du 29/09 : un clip ne le
+			// reprend pas, sinon un lecteur d'hier le prendrait pour une machine.
+			constexpr uint32 kNkAnimVersionProprietes = 4;
+			constexpr uint32 kNkAnimSectionPROP = 0x504F5250; // 'PROP' (little-endian)
+			// La disposition de la machine dans l'editeur (.nkanimctl, page Animateur).
+			constexpr uint32 kNkAnimSectionGRPH = 0x48505247; // 'GRPH' (little-endian)
 
 			struct ByteWriter {
 					NkVector<nk_uint8> buf;
@@ -353,8 +387,40 @@ namespace nkentseu {
 		bool NkAnimationClip::SaveBinary(const NkString &path) const {
 			ByteWriter w;
 			w.u32(kNkAnimMagic);
-			w.u32(kNkAnimVersion);
+			// Sans piste de propriete : v2, OCTET POUR OCTET comme avant le 01/10 --
+			// un moteur d'hier relit tout clip qu'il savait deja lire.
+			const bool proprietes = !propertyTracks.Empty();
+			w.u32(proprietes ? kNkAnimVersionProprietes : kNkAnimVersion);
 			WriteClipBody(w, *this);
+			if (proprietes) {
+				// [nbSections] puis 'PROP' : [version(u32)=1] [nbPistes(u32)]
+				//   par piste : [cible] [propriete] [genre(u8)] [active(u8)] [nbCles(u32)]
+				//     par cle : [temps(f32)] [x y z w (4*f32)] [interp(u8)]
+				ByteWriter sct;
+				sct.u32(1);
+				sct.u32((uint32)propertyTracks.Size());
+				for (uint32 i = 0; i < (uint32)propertyTracks.Size(); ++i) {
+					const NkPropertyTrack &p = propertyTracks[i];
+					sct.str(p.target);
+					sct.str(p.property);
+					sct.u8((uint8)p.kind);
+					sct.u8(p.curve.enabled ? 1 : 0);
+					sct.u32(p.curve.KeyCount());
+					for (uint32 k = 0; k < p.curve.KeyCount(); ++k) {
+						const NkKeyframe<NkVec4f> &kf = p.curve.GetKey(k);
+						sct.f32(kf.time);
+						sct.f32(kf.value.x);
+						sct.f32(kf.value.y);
+						sct.f32(kf.value.z);
+						sct.f32(kf.value.w);
+						sct.u8((uint8)kf.interp);
+					}
+				}
+				w.u32(1);
+				w.u32(kNkAnimSectionPROP);
+				w.u32((uint32)sct.buf.Size());
+				w.raw(sct.buf.Data(), sct.buf.Size());
+			}
 			if (!NkFile::WriteAllBytes(path.CStr(), w.buf)) {
 				logger.Errorf("[NkAnimClip] SaveBinary echec : %s\n", path.CStr());
 				return false;
@@ -390,11 +456,67 @@ namespace nkentseu {
 							  path.CStr());
 				return false;
 			}
-			if (ver < 1 || ver > kNkAnimVersion) {
+			if (ver < 1 || (ver > kNkAnimVersion && ver != kNkAnimVersionProprietes)) {
 				logger.Errorf("[NkAnimClip] version %u non supportee : %s\n", ver, path.CStr());
 				return false;
 			}
 			const uint32 nb = ReadClipBody(r, ver, *this);
+			propertyTracks.Clear();
+			if (r.ok && ver == kNkAnimVersionProprietes) {
+				// Les sections : 'PROP' lue, toute autre SAUTEE grace a sa taille.
+				const uint32 nbSections = r.u32();
+				for (uint32 sc = 0; sc < nbSections && r.ok; ++sc) {
+					const uint32 tag = r.u32();
+					const uint32 taille = r.u32();
+					if (!r.need(taille)) {
+						break;
+					}
+					ByteReader s(r.p + r.off, taille);
+					r.off += taille;
+					if (tag != kNkAnimSectionPROP) {
+						continue;
+					}
+					if (s.u32() != 1) {
+						logger.Errorf("[NkAnimClip] section PROP d'une version inconnue : %s\n", path.CStr());
+						return false;
+					}
+					// Meme borne que ReadClipBody : un compte ne depasse jamais ce qui
+					// reste a lire (14 o = deux noms vides, genre, drapeau, nombre de cles).
+					uint32 np = s.u32();
+					if (np > (s.n - s.off) / 14u) {
+						s.ok = false;
+						np = 0;
+					}
+					for (uint32 i = 0; i < np && s.ok; ++i) {
+						NkPropertyTrack p;
+						p.target = s.str();
+						p.property = s.str();
+						const uint8 genre = s.u8();
+						p.kind = genre <= (uint8)NkPropertyKind::NK_STEP ? (NkPropertyKind)genre : NkPropertyKind::NK_NUMBER;
+						p.curve.enabled = s.u8() != 0;
+						p.curve.name = p.property;
+						uint32 nk = s.u32();
+						if (nk > (s.n - s.off) / 21u) { // temps + 4 flottants + interp
+							s.ok = false;
+							nk = 0;
+						}
+						for (uint32 k = 0; k < nk && s.ok; ++k) {
+							const float32 t = s.f32();
+							NkVec4f v;
+							v.x = s.f32();
+							v.y = s.f32();
+							v.z = s.f32();
+							v.w = s.f32();
+							const uint8 interp = s.u8();
+							p.curve.AddKey(t, v, (NkInterpMode)(interp <= (uint8)NkInterpMode::NK_BACK ? interp : 1u));
+						}
+						propertyTracks.PushBack(p);
+					}
+					if (!s.ok) {
+						r.ok = false;
+					}
+				}
+			}
 			if (!r.ok) {
 				logger.Errorf("[NkAnimClip] LoadBinary tronque : %s\n", path.CStr());
 				return false;
@@ -1371,6 +1493,123 @@ namespace nkentseu {
 			return (state >= 0 && state < (int32)mStates.Size()) ? mStates[(uint32)state].depth : -1;
 		}
 
+		// ── Lecture complete pour un editeur (2026-10-01) ────────────────────────
+		uint8 NkAnimStateMachine::GetStateRefKind(int32 state) const {
+			return (state >= 0 && state < (int32)mStates.Size()) ? mStates[(uint32)state].refKind : (uint8)0;
+		}
+
+		const NkString &NkAnimStateMachine::GetStateRef(int32 state) const {
+			static NkString sEmpty;
+			return (state >= 0 && state < (int32)mStates.Size()) ? mStates[(uint32)state].ref : sEmpty;
+		}
+
+		void NkAnimStateMachine::SetStateClipRef(int32 state, const NkString &clipName, const NkAnimationClip *clip) {
+			if (state < 0 || state >= (int32)mStates.Size() || mStates[(uint32)state].composite) {
+				return;
+			}
+			State &st = mStates[(uint32)state];
+			st.refKind = clipName.Empty() && clip == nullptr ? (uint8)0 : (uint8)1;
+			st.ref = clipName;
+			st.clip = clip;
+			st.tree = nullptr;
+			st.tree2d = nullptr;
+		}
+
+		int32 NkAnimStateMachine::GetTransitionFrom(uint32 t) const {
+			return t < (uint32)mTransitions.Size() ? mTransitions[t].from : -1;
+		}
+
+		int32 NkAnimStateMachine::GetTransitionTo(uint32 t) const {
+			return t < (uint32)mTransitions.Size() ? mTransitions[t].to : -1;
+		}
+
+		bool NkAnimStateMachine::IsAnyStateTransition(uint32 t) const {
+			return t < (uint32)mTransitions.Size() && mTransitions[t].any;
+		}
+
+		int32 NkAnimStateMachine::GetTransitionScope(uint32 t) const {
+			return t < (uint32)mTransitions.Size() ? mTransitions[t].scope : NK_ROOT;
+		}
+
+		float32 NkAnimStateMachine::GetTransitionFade(uint32 t) const {
+			return t < (uint32)mTransitions.Size() ? mTransitions[t].fadeDur : 0.f;
+		}
+
+		int32 NkAnimStateMachine::GetTransitionPriority(uint32 t) const {
+			return t < (uint32)mTransitions.Size() ? mTransitions[t].priority : 0;
+		}
+
+		uint32 NkAnimStateMachine::GetConditionCount(uint32 t) const {
+			return t < (uint32)mTransitions.Size() ? (uint32)mTransitions[t].conds.Size() : 0u;
+		}
+
+		bool NkAnimStateMachine::GetCondition(uint32 t, uint32 k, NkString &param, NkCondKind &kind,
+											  float32 &threshold) const {
+			if (t >= (uint32)mTransitions.Size() || k >= (uint32)mTransitions[t].conds.Size()) {
+				return false;
+			}
+			const Condition &c = mTransitions[t].conds[k];
+			param = c.param;
+			kind = c.kind;
+			threshold = c.threshold;
+			return true;
+		}
+
+		float32 NkAnimStateMachine::GetParamDefault(uint32 i) const {
+			return i < (uint32)Params().Size() ? Params()[i].defaultValue : 0.f;
+		}
+
+		// ── Disposition dans l'editeur (2026-10-01) ──────────────────────────────
+		void NkAnimStateMachine::SetStatePosition(int32 state, float32 x, float32 y) {
+			if (state >= 0 && state < (int32)mStates.Size()) {
+				State &st = mStates[(uint32)state];
+				st.edX = x;
+				st.edY = y;
+				st.edPlaced = true;
+			}
+		}
+
+		bool NkAnimStateMachine::GetStatePosition(int32 state, float32 &x, float32 &y) const {
+			if (state < 0 || state >= (int32)mStates.Size() || !mStates[(uint32)state].edPlaced) {
+				return false;
+			}
+			x = mStates[(uint32)state].edX;
+			y = mStates[(uint32)state].edY;
+			return true;
+		}
+
+		void NkAnimStateMachine::SetPseudoPosition(int32 machine, int32 pseudo, float32 x, float32 y) {
+			if (pseudo < 0 || pseudo > 1 || (machine != NK_ROOT && !IsSubMachine(machine))) {
+				return;
+			}
+			Pseudo *p = nullptr;
+			for (uint32 i = 0; i < (uint32)mPseudos.Size(); ++i) {
+				if (mPseudos[i].machine == machine) {
+					p = &mPseudos[i];
+				}
+			}
+			if (p == nullptr) {
+				Pseudo n;
+				n.machine = machine;
+				mPseudos.PushBack(n);
+				p = &mPseudos[mPseudos.Size() - 1];
+			}
+			p->x[pseudo] = x;
+			p->y[pseudo] = y;
+			p->placed[pseudo] = true;
+		}
+
+		bool NkAnimStateMachine::GetPseudoPosition(int32 machine, int32 pseudo, float32 &x, float32 &y) const {
+			for (uint32 i = 0; pseudo >= 0 && pseudo <= 1 && i < (uint32)mPseudos.Size(); ++i) {
+				if (mPseudos[i].machine == machine && mPseudos[i].placed[pseudo]) {
+					x = mPseudos[i].x[pseudo];
+					y = mPseudos[i].y[pseudo];
+					return true;
+				}
+			}
+			return false;
+		}
+
 		bool NkAnimStateMachine::IsSubMachine(int32 state) const {
 			return state >= 0 && state < (int32)mStates.Size() && mStates[(uint32)state].composite;
 		}
@@ -1867,7 +2106,14 @@ namespace nkentseu {
 			ByteWriter w;
 			w.u32(kNkAnimCtlMagic);
 			w.u32(kNkAnimCtlVersion);
-			w.u32(1); // une section
+			// (2026-10-01) La disposition de l'editeur, s'il y en a une, dans une
+			// SECONDE section ('GRPH') : sans elle, le fichier est octet pour octet
+			// celui d'avant ; avec, un lecteur d'avant la saute.
+			bool disposition = !mPseudos.Empty();
+			for (uint32 i = 0; i < (uint32)mStates.Size() && !disposition; ++i) {
+				disposition = mStates[i].edPlaced;
+			}
+			w.u32(disposition ? 2u : 1u);
 			ByteWriter s;
 			s.u32(1); // version de la section HFSM
 			s.u32((uint32)mStates.Size());
@@ -1909,6 +2155,30 @@ namespace nkentseu {
 			w.u32(kNkAnimSectionHFSM);
 			w.u32((uint32)s.buf.Size());
 			w.raw(s.buf.Data(), s.buf.Size());
+			if (disposition) {
+				// 'GRPH' : [version(u32)=1] [nbEtats(u32)] par etat : [place(u8)] [x(f32)] [y(f32)]
+				//   [nbNiveaux(u32)] par niveau : [machine(i32)] 2 x ([place(u8)] [x(f32)] [y(f32)])
+				ByteWriter g;
+				g.u32(1);
+				g.u32((uint32)mStates.Size());
+				for (uint32 i = 0; i < (uint32)mStates.Size(); ++i) {
+					g.u8(mStates[i].edPlaced ? 1 : 0);
+					g.f32(mStates[i].edX);
+					g.f32(mStates[i].edY);
+				}
+				g.u32((uint32)mPseudos.Size());
+				for (uint32 i = 0; i < (uint32)mPseudos.Size(); ++i) {
+					g.i32(mPseudos[i].machine);
+					for (int32 k = 0; k < 2; ++k) {
+						g.u8(mPseudos[i].placed[k] ? 1 : 0);
+						g.f32(mPseudos[i].x[k]);
+						g.f32(mPseudos[i].y[k]);
+					}
+				}
+				w.u32(kNkAnimSectionGRPH);
+				w.u32((uint32)g.buf.Size());
+				w.raw(g.buf.Data(), g.buf.Size());
+			}
 			out = w.buf;
 		}
 
@@ -1943,11 +2213,21 @@ namespace nkentseu {
 			const uint32 nbSections = r.u32();
 			bool trouve = false;
 			NkAnimStateMachine lu;
+			// La disposition de l'editeur ('GRPH'), appliquee APRES la boucle : elle
+			// peut venir avant ou apres la section des etats.
+			const nk_uint8 *grph = nullptr;
+			uint32 grphTaille = 0;
 			for (uint32 sct = 0; sct < nbSections && r.ok; ++sct) {
 				const uint32 tag = r.u32();
 				const uint32 taille = r.u32();
 				if (!r.need(taille)) {
 					break;
+				}
+				if (tag == kNkAnimSectionGRPH && grph == nullptr) {
+					grph = r.p + r.off;
+					grphTaille = taille;
+					r.off += taille;
+					continue;
 				}
 				if (tag != kNkAnimSectionHFSM || trouve) {
 					r.off += taille; // section inconnue : sautee, pas refusee
@@ -2062,6 +2342,35 @@ namespace nkentseu {
 				}
 			}
 			mRootEntry = lu.mRootEntry;
+			// La disposition de l'editeur : relue si elle est la et coherente (autant
+			// d'etats), ignoree sinon -- elle n'a jamais d'effet sur la machine.
+			mPseudos.Clear();
+			if (grph != nullptr) {
+				ByteReader g(grph, grphTaille);
+				if (g.u32() == 1u && g.u32() == (uint32)mStates.Size()) {
+					for (uint32 i = 0; i < (uint32)mStates.Size() && g.ok; ++i) {
+						mStates[i].edPlaced = g.u8() != 0;
+						mStates[i].edX = g.f32();
+						mStates[i].edY = g.f32();
+					}
+					uint32 nn = g.u32();
+					if (nn > (g.n - g.off) / 22u) {
+						nn = 0;
+					}
+					for (uint32 i = 0; i < nn && g.ok; ++i) {
+						Pseudo p;
+						p.machine = g.i32();
+						for (int32 k = 0; k < 2; ++k) {
+							p.placed[k] = g.u8() != 0;
+							p.x[k] = g.f32();
+							p.y[k] = g.f32();
+						}
+						if (g.ok) {
+							mPseudos.PushBack(p);
+						}
+					}
+				}
+			}
 			mNext = -1;
 			mFadeT = 0.f;
 			mFadeDur = 0.f;

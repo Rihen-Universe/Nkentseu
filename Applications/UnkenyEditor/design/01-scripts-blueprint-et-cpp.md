@@ -1178,3 +1178,116 @@ Rien n'a été compilé ni exécuté pour ce document. En particulier :
 | Q4 | Projet UnkenyEditor : extension **`.nkunk`**. | Premier octet écrit selon `CONVENTIONS_FICHIERS.md`. |
 | Q5 | **Non** au début : pas de « Jouer isolé » par défaut. | N1–N2 dès S5, N3 en S7. |
 | Q6 | **Les deux** : parties nommées d'abord, corps reliés ensuite quand `Relier` entre corps est prouvé. | Transmis au chantier `comble/physique-2d-jeu`. |
+
+---
+
+## 14. Ce qui est fait — S0, S1, S2, et le C++ à chaud (01/10/2026)
+
+> Branche `unkeny/scripts-s0-s2`. Tout ce qui suit est **construit et éprouvé**
+> (`UnkenyEditor --selftest` : 18 bancs REUSSI ; `UnkenyPlayer --selftest`),
+> chaque garantie avec sa contre-épreuve de mutation (citée dans les commits).
+> Les choix que le document laissait ouverts sont tranchés ici, « le plus simple
+> qui ne ferme aucune porte ».
+
+### 14.1 Où est quoi
+
+| brique | fichier | rôle |
+|---|---|---|
+| table C | `Engine/Unkeny/src/Unkeny/Script/NkUnkenyScriptABI.h` | `NkUnkHoteV1` (journal, temps, entités, transform, corps, sprite, animation, **effets**, actions, son, variables), `NkUnkEvenementV1`, classes et module C++, `nkunk::Script`, `NK_UNKENY_CLASSE`, `NK_UNKENY_CLASSE_VARIABLES`, `NK_UNKENY_GARDER` |
+| composant | `Script/NkUnkenyScript.h` | `NkScript2D` : **4 scripts ordonnés** par entité (Q1), 16 variables par entité, chacune à son script |
+| registre + hôte | `Script/NkUnkenyScripts.h` | `NkScripts2D` (nom → Blueprint ou `cpp:Classe`), `NkHoteScripts2D` (2 systèmes, ordre des événements, fautes isolées, migration à chaud) |
+| module + VM | `Script/NkUnkenyBpModule.h`, `Script/NkUnkenyBpMachine.h` | bytecode (écrire, lire, **vérifier**), `.nkbp` GRAF + MODL, machine à registres typés, budget, natifs = la table, assembleur |
+| DLL à chaud | `Script/NkUnkenyModulesCpp.h` | copie par génération, nouvelle avant ancienne, migration, `Symbole()` (greffons R36) |
+| M1 | `NkScene::AppliquerForce / AppliquerImpulsion` | pont 2D, NaN refusé |
+| canevas | `Engine/NKEditorKit/src/NKEditorKit/Components/NkCanevasNoeuds.h` | **générique** (couche 2) : réutilisable par les matériaux et l'Animateur |
+| catalogue + compilateur | `Applications/UnkenyEditor/src/Script/NkBpCatalogue.h` | types, nœuds (un par natif), graphe → module vérifié, erreur → nœud |
+| éditeur | `Script/NkEditeurScripts.h`, `NkEditeurGraphe.h`, `NkEditeurScriptsUi.h` | compilation clang++, rechargement, Journal ; page du graphe ; bloc « Scripts » des Détails ; « + Ajouter » ; double-clic |
+| exemple | `Script/NkEditeurExemplePortes.h` | `--exemple=portes` |
+| livraison | `Unkeny/Livraison/NkUnkenyLivraison.h`, `Livraison/NkEditeurConstruire.cpp`, `UnkenyPlayer.jenga` | Blueprints cuits sans graphe ; C++ lié en statique |
+| bancs | `Banc/NkUnkenyBancScripts.cpp` (37), `Script/NkEditeurBancScripts.cpp` (20) | x1–x11, c1–c3, r1, b1–b6, p1–p2 ; e13–e18, c4, c5 |
+| G1 | `Kernel/Runtime/NKGraph/src/NKGraph/NkNodeGraph.inl` | `Validate` connaît la famille ; cas `exec/validate-connait-la-famille` (NkMatGraphCheck, 144 cas) |
+
+### 14.2 Les choix tranchés
+
+1. **Variables : deux réels** (`NkVec2f`) par valeur — réel, entier (exact
+   jusqu'à 2²⁴), booléen, vec2. Une valeur plus large (entité, M3) prendra un
+   genre de plus sans changer le fichier.
+2. **Le composant est un composant DÉCRIT** (`PhotographierAussi`, déclaré dans
+   `NkScene::Init`), écrit sous `"jeu" > "NkScript2D"` champ par champ (tableaux
+   de textes ajoutés à la sauvegarde décrite : une ligne par élément). **Pas de
+   version 3 du fichier** : un moteur ancien ignore le composant inconnu (la
+   règle de tous les composants décrits), au lieu de refuser la scène — choix
+   plus simple que le § 6.3, réversible.
+3. **Le projet** est le dossier qui porte `Contenu/` (l'existant :
+   `NkEditeurDossierProjet`, réglages `.nkprojet`). Les sources C++ : tout
+   `Contenu/**/*.cpp` ; les produits : `Intermediaire/Scripts/` (registre
+   généré, `Scripts.dll`, copies `Scripts.genN.dll`). ⚠️ **L'extension `.nkunk`
+   (Q4) n'est pas encore écrite** : le fichier de réglages `.nkprojet`, posé par
+   le chantier de livraison le 01/10, en tient lieu ; le renommer est une
+   décision à confirmer (deux fichiers de projet seraient pire qu'un).
+4. **Compilation C++ = appel direct de clang++** (S5a) : `-shared -std=c++17
+   -O1 --target=x86_64-w64-windows-gnu -static…`, ≈ 1 s pour l'exemple, la DLL
+   ne dépend que du système. Le registre des classes est **généré** en lisant
+   les `NK_UNKENY_CLASSE(...)` des sources (pas d'auto-enregistrement statique).
+5. **État au rechargement** : variables exposées dans le composant (rien à
+   faire) ; état privé par `NK_UNKENY_GARDER(membre)` (copie bit à bit, 4 Ko au
+   plus) ; l'ancienne instance est détruite par **l'ancien** code, la nouvelle
+   reçoit `Recharge()`. Mesuré : sans cette migration avant le déchargement,
+   l'éditeur tombe.
+6. **Les clés des prises n'ont pas d'espace** (`soiEstLaZone`, `alors0`) : le
+   `.nkgraph` lit les prises par jetons ; un nom avec espace perdait ses fils à
+   la relecture (mesuré par e16).
+7. **Une entrée « entité » libre vaut Soi** ; une valeur saisie sur une entrée
+   libre est sa valeur par défaut (UE5).
+8. **Un corps STATIQUE téléporté est refait** (`TeleporterEntite`) : le solveur
+   ne resynchronise jamais un statique, la porte « ouverte » bloquait encore le
+   Joueur (mesuré, e13).
+9. **Livraison** : chaque `.nkbp` que la scène nomme est cuit **sans GRAF**
+   (`assets/scripts/`, sommaire `"scripts"`, facultatif) ; les `.cpp` du projet
+   et le registre (`NK_UNKENY_SCRIPTS_STATIQUES`) entrent dans le workspace
+   généré (`UNKENY_JEU["scripts"]`, lu par `UnkenyPlayer.jenga`).
+   `UnkenyPlayer --verifier` nomme un script absent ; `--essai-scripts` joue
+   sans fenêtre.
+
+### 14.3 Ce que n'a PAS ce premier lot
+
+Créer un acteur depuis un script ; les nœuds latents (Délai), boucles,
+fonctions, événements personnalisés (S7) ; corps mous pilotables (S3) ; les
+commentaires, copier/coller et la recherche de nœud depuis une prise tirée du
+canevas (S4) ; Linux/macOS (chemin `dlopen` écrit, non éprouvé) ; Web,
+Android, iOS (le statique est écrit, non construit) ; « Jouer isolé » (N3) et
+l'attrapeur de dernier recours (N2).
+
+### 14.4 Les témoins et leurs contre-épreuves
+
+| garantie | témoin | mutation qui le fait rougir |
+|---|---|---|
+| ordre des scripts d'une entité | x1 | liste parcourue à l'envers |
+| état privé gardé au rechargement | r1 (moteur), c4 (éditeur, clang réel) | `Relire` sauté ; DLL compilée non rechargée |
+| vérificateur | b2 | cibles de saut non vérifiées |
+| `Validate` connaît la famille (G1) | `exec/validate-connait-la-famille` | branche exec neutralisée |
+| les valeurs saisies sur les nœuds | e13 (porte bleue), e16 | vec2 saisi ignoré par le compilateur |
+| la porte ouverte laisse passer | e13 « le Joueur PASSE » | corps statique non refait à la téléportation |
+| le jeu construit fait pareil | `Portes.exe --verifier` (complet), `--essai-scripts` (les deux portes à +2 m, le Joueur à x = 13,1) | — (le même code que l'éditeur) |
+
+### 14.5 Le premier script de Rihen, pas à pas
+
+1. `UnkenyEditor --exemple=portes` : le projet d'exemple s'écrit dans
+   `Documents/Unkeny/Exemples/Portes/` et s'ouvre. ▶ **Jouer**, flèches ou
+   A / D pour marcher, Espace pour sauter : à gauche la porte **bleue**
+   (Blueprint) s'ouvre, à droite la **rouge** (C++).
+2. **C++** : dans le Contenu, double-clic sur `Scripts/PorteCpp.cpp` (NKCode ou
+   l'éditeur du système). Pendant Jouer, changez le texte d'`Afficher` ou la
+   hauteur, **enregistrez** : le Journal dit « recompilés et rechargés à
+   chaud » ; une faute de frappe y apparaît en rouge (fichier:ligne), l'ancienne
+   version continue.
+3. **Blueprint** : double-clic sur `Scripts/PorteBlueprint.nkbp` : la page du
+   graphe remplace la vue. Changez « 0 2 » dans le nœud `+ (vec2)`, ou ajoutez
+   un nœud (clic droit dans le vide, puis la palette), tirez un fil d'une
+   prise à l'autre, **Compiler et enregistrer** ; une erreur entoure son nœud
+   en rouge. **Fermer** rend la vue.
+4. **Le vôtre** : Contenu > **+ Ajouter > Script C++** (le modèle commenté
+   s'ouvre) ou **Blueprint** ; choisissez une entité, Détails > **Scripts** >
+   « + cpp:NouveauScript » ou « + Contenu/Scripts/NouveauBlueprint.nkbp ».
+5. **Le jeu** : Fichier > Construire… : les Blueprints sont cuits, le C++ est
+   lié au joueur ; `Portes.exe --essai-scripts` le rejoue sans fenêtre.

@@ -48,6 +48,7 @@
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurContenu.h"
 #include "Editeur/NkEditeurModele.h"
+#include "Editeur/NkEditeurPagesAnim.h"
 
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
@@ -228,7 +229,12 @@ namespace nkentseu {
 			NK_A_PLACER = 1550,			  ///< + indice du catalogue du panneau : au centre de la vue
 			// La reference d'asset des Details (2026-10-01, document 02 §5) : une plage
 			// loin des autres (des branches paralleles ajoutent les leurs).
-			NK_A_TEXTURE_SPRITE = 2100 ///< + 0 = « Aucune », + 1 + i = texturesProposees[i]
+			NK_A_TEXTURE_SPRITE = 2100, ///< + 0 = « Aucune », + 1 + i = texturesProposees[i]
+			// Les pages Animation et Animateur (2026-10-01, NkEditeurPagesAnim.h) : 2400-2449.
+			NK_A_ANIM_ANIMATION = 2400, ///< Fenetre > Animation : le clip de la selection (ou un neuf)
+			NK_A_ANIM_ANIMATEUR = 2401,	///< Fenetre > Animateur : le controleur de la selection (ou un neuf)
+			// Les SCRIPTS (2026-10-01, Script/NkEditeurScriptsUi.h) : la plage 2200-2299.
+			NK_A_SCRIPT = 2200 ///< + NkActionScript
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
@@ -688,6 +694,8 @@ namespace nkentseu {
 				bool aimantVu = false;
 				NkVec2f aimantPoint{0.f, 0.f};
 				int32 aimantGenre = 0; ///< NkGenreAimant
+				// --- Les pages Animation et Animateur (2026-10-01, NkEditeurPagesAnim.h) ---
+				NkPagesAnim pagesAnim;
 		};
 
 		/// Ce qu'une fonction de dessin recoit. Rien ne s'y recalcule.

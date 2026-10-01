@@ -193,6 +193,14 @@ namespace nkentseu {
 
 				void PoserVitesse(ecs::NkEntityId id, const NkVec2f &vitesse);
 				NkVec2f Vitesse(ecs::NkEntityId id) const;
+				/// (2026-10-01, manque M1 du document 01) Une FORCE ou une IMPULSION
+				/// au centre de masse du corps rigide, en 2D -- le pont z = 0 reste
+				/// ici. Le corps est reveille. false : pas de corps dynamique, ou une
+				/// valeur non finie (refusee : elle empoisonnerait le solveur).
+				/// ⚠️ Une force ne vit qu'UN pas fixe (Step la remet a zero) : la
+				/// poser a chaque pas fixe, avant la physique.
+				bool AppliquerForce(ecs::NkEntityId id, const NkVec2f &force);
+				bool AppliquerImpulsion(ecs::NkEntityId id, const NkVec2f &impulsion);
 
 				physics::NkPhysicsWorld *MondePhysique() noexcept {
 					return mPhysique;
@@ -555,6 +563,27 @@ namespace nkentseu {
 				bool EcrireComposantPhoto(uint32 i, ecs::NkEntityId id, const uint8 *octets);
 				/// Retire de `id` le composant `i`.
 				bool RetirerComposantPhoto(uint32 i, ecs::NkEntityId id);
+				/// (2026-10-01, pages Animation) Les octets BRUTS du composant `i` de
+				/// `id` (TailleComposantPhoto(i) octets) -- poignees d'entite telles
+				/// quelles, a la difference de la photo. Faux si `id` ne le porte pas.
+				/// C'est par ici qu'une piste d'animation lit un champ DECRIT.
+				bool LireComposantBrut(uint32 i, ecs::NkEntityId id, uint8 *dst) {
+					return i < mCopieurs.Size() && mCopieurs[i].lire != nullptr && mCopieurs[i].lire(mMonde, id, dst);
+				}
+				/// Les reecrit (meme forme que LireComposantBrut). Faux si `id` ne le
+				/// porte pas : une piste n'AJOUTE jamais un composant.
+				bool EcrireComposantBrut(uint32 i, ecs::NkEntityId id, const uint8 *src) {
+					if (i >= mCopieurs.Size() || mCopieurs[i].ecrire == nullptr || mCopieurs[i].lire == nullptr) {
+						return false;
+					}
+					NkVector<uint8> tmp;
+					tmp.Resize(mCopieurs[i].taille);
+					if (!mCopieurs[i].lire(mMonde, id, tmp.Data())) {
+						return false;
+					}
+					mCopieurs[i].ecrire(mMonde, id, src);
+					return true;
+				}
 				/// L'indice du copieur declare sous `nom`, ou -1.
 				int32 IndexComposantPhoto(const char *nom) const noexcept {
 					for (uint32 i = 0; nom != nullptr && i < mCopieurs.Size(); ++i) {

@@ -46,6 +46,7 @@
 #include "Unkeny/Rendu/NkUnkenyRenduParticules.h"
 #include "Unkeny/Rendu/NkUnkenyTextures.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
+#include "Unkeny/Script/NkUnkenyScripts.h"
 #include "Unkeny/Son/NkUnkenySon.h"
 
 namespace nkentseu {
@@ -69,7 +70,23 @@ namespace nkentseu {
 				/// une fenetre de jeu.vueLargeur x jeu.vueHauteur.
 				float32 zoomRelu = 32.f;
 				bool pause = false;
+				/// (2026-10-01) Les SCRIPTS : les Blueprints cuits (au registre par
+				/// NkChargerJeu), les classes C++ LIEES au joueur, et l'hote. DECLARES
+				/// APRES la scene : detruits AVANT elle (l'hote s'en retire).
+				unkeny::NkScripts2D scripts;
+				unkeny::NkHoteScripts2D hote;
 		};
+
+		/// Branche les scripts du jeu : le module C++ statique s'il est lie
+		/// (NK_UNKENY_SCRIPTS_STATIQUES), l'hote sur la scene, les actions du
+		/// joueur 1, les sons, le journal vers la sortie standard.
+		void NkJoueurBrancherScripts(NkPartieJouee &p);
+
+		/// `--essai-scripts` : relit le jeu SANS fenetre, joue 8 s en marchant
+		/// a gauche puis a droite (l'axe « Avancer »), ecrit le journal des scripts
+		/// et la position de chaque entite dont le nom commence par « Porte ».
+		/// 0 = aucun manque, aucune faute.
+		int32 NkJoueurEssaiScripts(const NkString &dossier);
 
 		class NkJoueurApp : public renderer::NkCanvasGuiApp {
 			public:

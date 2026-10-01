@@ -45,6 +45,8 @@
 //   Simulation/ le catalogue des acteurs (corps mous, fluides, atomes, tissus)
 //   Ui/        mise en page ancree sur la zone sure, widgets
 //   Jeu/       vocabulaire de GENRE (jeux a tours) — facultatif
+//   Script/    les SCRIPTS : composant, hote, table C (NkUnkHoteV1), VM des
+//              Blueprints, classes C++ (2026-10-01, document 01 d'UnkenyEditor)
 //
 // L'ORDRE D'UNE TRAME, et il n'est pas indifferent
 //   1. entrees        -> l'application decide
@@ -78,6 +80,8 @@
 #include "Unkeny/Scene/NkUnkenyScene.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
 #include "Unkeny/Scene/NkUnkenyPrefab.h"
+#include "Unkeny/Script/NkUnkenyScript.h"
+#include "Unkeny/Script/NkUnkenyScripts.h"
 #include "Unkeny/Son/NkUnkenySon.h"
 #include "Unkeny/Simulation/NkUnkenyActeurs.h"
 #include "Unkeny/Banc/NkUnkenyBanc.h"

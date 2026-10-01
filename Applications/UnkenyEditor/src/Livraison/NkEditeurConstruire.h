@@ -166,6 +166,10 @@ namespace nkentseu {
 				/// l'editeur (temoin l1 sur le produit reel). Vide sinon.
 				NkString verification;
 				uint64 empreinte = 0u; ///< celle de la scene cuite (temoin l1)
+				/// (2026-10-01) Les scripts C++ du projet LIES au jeu (chemins
+				/// absolus, « / ») et le registre statique genere a cote
+				/// (`<dossierJeu>/scripts/NkUnkRegistre.cpp`). Vide : aucun.
+				NkVector<NkString> scriptsCpp;
 
 				/// Le moteur RETENU (la demande, ou le repli sur les sources) et
 				/// pourquoi ; en precompile, son cache et s'il etait deja scelle.

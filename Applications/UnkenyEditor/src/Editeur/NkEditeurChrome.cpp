@@ -25,6 +25,7 @@
 #include "Editeur/NkEditeurPlacer.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
+#include "Script/NkEditeurScriptsUi.h"
 #include "NKEditorKit/NkThemeToGui.h"
 #include "Unkeny/Livraison/NkUnkenyLivraison.h"
 
@@ -262,6 +263,10 @@ namespace nkentseu {
 						out.PushBack(Entree("Tiroir de contenu", NK_A_VOIR_TIROIR, "", c.ui.voirTiroir));
 						out.PushBack(Entree("Entrées du jeu", NK_A_ENTREES, "", c.ui.panneauEntrees));
 						out.PushBack(Entree("Réglages du projet : collision", NK_A_REGLAGES_COLLISION, "", c.ui.reglagesCollision));
+						out.PushBack(Separateur());
+						// (2026-10-01) Les pages, en onglets de document (NkEditeurPagesAnim.h).
+						out.PushBack(Entree("Animation (frise)", NK_A_ANIM_ANIMATION));
+						out.PushBack(Entree("Animateur (graphe d'états)", NK_A_ANIM_ANIMATEUR));
 						out.PushBack(Separateur());
 						out.PushBack(Entree("Disposition par défaut", NK_A_DISPOSITION));
 						break;
@@ -517,6 +522,8 @@ namespace nkentseu {
 								out.PushBack(Entree("Scène", NK_A_CONTENU_NOUVELLE_SCENE));
 								out.PushBack(Entree("Prefab (de la sélection)", NK_A_CONTENU_NOUVEAU_PREFAB, "", false, m.aSelection));
 								out.PushBack(Entree("Contrôleur d'animation", NK_A_CONTENU_NOUVEAU_CONTROLEUR));
+								out.PushBack(Entree("Script C++", NK_A_SCRIPT + NK_SCRIPT_NOUVEAU_CPP));
+								out.PushBack(Entree("Blueprint", NK_A_SCRIPT + NK_SCRIPT_NOUVEAU_BP));
 								out.PushBack(Separateur());
 								out.PushBack(Entree("Importer…", NK_A_CONTENU_IMPORTER));
 								out.PushBack(Entree("Coller", NK_A_CONTENU_COLLER, "Ctrl+V", false, !c.ui.pressePapierContenu.Empty()));
@@ -540,6 +547,8 @@ namespace nkentseu {
 						out.PushBack(Entree("Scène", NK_A_CONTENU_NOUVELLE_SCENE));
 						out.PushBack(Entree("Prefab (de la sélection)", NK_A_CONTENU_NOUVEAU_PREFAB, "", false, m.aSelection));
 						out.PushBack(Entree("Contrôleur d'animation", NK_A_CONTENU_NOUVEAU_CONTROLEUR));
+						out.PushBack(Entree("Script C++", NK_A_SCRIPT + NK_SCRIPT_NOUVEAU_CPP));
+						out.PushBack(Entree("Blueprint", NK_A_SCRIPT + NK_SCRIPT_NOUVEAU_BP));
 						out.PushBack(Separateur());
 						out.PushBack(Entree("Importer…", NK_A_CONTENU_IMPORTER));
 						break;
@@ -1086,6 +1095,10 @@ namespace nkentseu {
 			if (NkEditeurActionPlacer(c, action)) {
 				return;
 			}
+			// 2026-10-01 : les pages Animation et Animateur (2400-2449, NkEditeurPagesAnim.h).
+			if (NkEditeurActionAnim(c, action)) {
+				return;
+			}
 			// Les plages d'abord : leur indice est ajoute a la base.
 			// 2026-09-30 : lumieres et emetteurs (NkEditeurLumiere.h).
 			if (action >= NK_A_LUMIERE && action < NK_A_LUMIERE + 3) {
@@ -1457,6 +1470,8 @@ namespace nkentseu {
 					// (2026-10-01) Les gestes du navigateur : 1306 a 1399.
 					if (action >= NK_A_CONTENU_NOUVEAU_DOSSIER && action < 1400) {
 						NkEditeurActionContenu(c, action);
+					} else if (action >= NK_A_SCRIPT && action < NK_A_SCRIPT + 100) {
+						NkEditeurActionScript(c, action); // 2026-10-01 : les scripts
 					}
 					break;
 			}
@@ -1668,8 +1683,13 @@ namespace nkentseu {
 			// A DROITE du logo, qui tient le coin sur les deux lignes.
 			const NkRect onglet{b.x + c.ui.logo.w + 4.f, b.y + 3.f, w, b.h - 3.f};
 			c.ui.ongletScene = onglet;
-			dl.AddRectFilled(onglet, c.pal.panneau, 2.f);
-			dl.AddRectFilled(NkRect{onglet.x, onglet.y, onglet.w, 2.f}, c.pal.accent);
+			// (2026-10-01) Une page Animation / Animateur au premier plan : la scene
+			// devient un onglet comme les autres (NkEditeurPagesAnim.h).
+			const bool scenePremierPlan = !NkEditeurPageAnimOuverte(c.ui);
+			dl.AddRectFilled(onglet, scenePremierPlan ? c.pal.panneau : c.pal.fond, 2.f);
+			if (scenePremierPlan) {
+				dl.AddRectFilled(NkRect{onglet.x, onglet.y, onglet.w, 2.f}, c.pal.accent);
+			}
 			const float32 ty = onglet.y + (onglet.h - renderer::NkTexteHauteurLigne(c.police, 16.f)) * 0.5f;
 			if (c.ui.modifiee) {
 				dl.AddCircleFilled(nkgui::NkVec2{onglet.x + 12.f + 4.f, onglet.y + onglet.h * 0.5f}, 3.5f, c.pal.selection);
@@ -1692,6 +1712,7 @@ namespace nkentseu {
 			if (survolX && in.mouseClicked[0]) {
 				NkEditeurExecuter(c, NK_A_FERMER_SCENE);
 			}
+			NkEditeurDessinerOngletsAnim(c); // les documents d'animation, a sa droite
 		}
 
 		// =====================================================================

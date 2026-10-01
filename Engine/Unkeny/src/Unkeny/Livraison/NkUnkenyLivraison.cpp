@@ -28,6 +28,8 @@
 #include "NKSerialization/NkArchive.h"
 #include "Unkeny/Rendu/NkUnkenyTextures.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
+#include "Unkeny/Script/NkUnkenyBpModule.h"
+#include "Unkeny/Script/NkUnkenyScripts.h"
 #include "Unkeny/Son/NkUnkenySon.h"
 
 #include <cstdio>
@@ -290,6 +292,64 @@ namespace nkentseu {
 				++rapport.sons;
 			}
 
+			// ── 3 ter. Les BLUEPRINTS que la scene nomme (2026-10-01) : le module
+			//    seul, sans le graphe (le jeu n'a ni NKGraph ni compilateur) ──
+			NkVector<NkArchive> tableScripts;
+			{
+				NkVector<NkString> refs;
+				scene.Monde().Query<NkScript2D>().ForEach([&](ecs::NkEntityId, NkScript2D &sc) {
+					for (uint32 k = 0; k < sc.nombre && k < NK_UNKENY_SCRIPTS_MAX; ++k) {
+						const NkString ref(sc.refs[k]);
+						if (ref.Empty() || ref.StartsWith(NK_SCRIPT_PREFIXE_CPP)) {
+							continue; // une classe C++ est liee au joueur, pas cuite
+						}
+						bool deja = false;
+						for (uint32 i = 0; i < refs.Size(); ++i) {
+							deja = deja || refs[i] == ref;
+						}
+						if (!deja) {
+							refs.PushBack(ref);
+						}
+					}
+				});
+				if (!refs.Empty()) {
+					NkDirectory::CreateRecursive((racine + "scripts").CStr());
+				}
+				for (uint32 i = 0; i < refs.Size(); ++i) {
+					if (demande.projet.Empty()) {
+						rapport.erreurs.PushBack(NkString::Format("Blueprint « %s » : dossier du projet inconnu", refs[i].CStr()));
+						continue;
+					}
+					NkModuleBp module;
+					bool aModule = false;
+					NkString err;
+					const NkString source = demande.projet + refs[i];
+					if (!NkLireFichierBp(source.CStr(), nullptr, &module, &aModule, &err) || !aModule) {
+						rapport.erreurs.PushBack(NkString::Format("Blueprint « %s » : %s", refs[i].CStr(),
+																  err.Empty() ? "jamais compile (pas de module)" : err.CStr()));
+						continue;
+					}
+					NkVector<uint8> charge;
+					NkEcrireChargeBp(NkString(), &module, charge);
+					NkAssetMetadata meta;
+					meta.type = NkAssetType::Blueprint;
+					meta.typeName = "unkeny.Blueprint";
+					meta.assetPath.path = refs[i];
+					meta.assetPath.name = refs[i];
+					const NkString fichier = NomUnique("scripts", refs[i].CStr(), NkAssetExtensionFor(NkAssetType::Blueprint), pris);
+					if (!NkAssetIO::Write((racine + fichier).CStr(), meta, charge.Data(), charge.Size(), &err)) {
+						rapport.erreurs.PushBack(NkString::Format("Blueprint « %s » : ecriture de %s : %s", refs[i].CStr(), fichier.CStr(), err.CStr()));
+						continue;
+					}
+					NkArchive entree;
+					entree.SetString(V("nom"), refs[i].View());
+					entree.SetString(V("fichier"), fichier.View());
+					tableScripts.PushBack(entree);
+					rapport.fichiers.PushBack(fichier);
+					++rapport.scripts;
+				}
+			}
+
 			// ── 3 bis. Les entrees du jeu (30/09) ────────────────────────────
 			bool entreesEcrites = false;
 			if (!demande.entrees.Empty()) {
@@ -313,6 +373,9 @@ namespace nkentseu {
 			s.SetString(V("camera"), V(NkNomRegleCamera(demande.regleCamera)));
 			s.SetObjectArray(V("textures"), tableTextures);
 			s.SetObjectArray(V("sons"), tableSons);
+			if (!tableScripts.Empty()) {
+				s.SetObjectArray(V("scripts"), tableScripts); // FACULTATIF : un jeu sans script n'en ecrit pas
+			}
 			if (entreesEcrites) {
 				s.SetString(V("entrees"), V(NK_LIVRAISON_ENTREES));
 			}
@@ -329,6 +392,34 @@ namespace nkentseu {
 		// =====================================================================
 		// RELIRE
 		// =====================================================================
+		uint32 NkVerifierScriptsDuJeu(NkScene &scene, const NkScripts2D &scripts, NkJeuCharge &sortie) {
+			uint32 n = 0;
+			NkVector<NkString> vus;
+			scene.Monde().Query<NkScript2D>().ForEach([&](ecs::NkEntityId, NkScript2D &sc) {
+				for (uint32 k = 0; k < sc.nombre && k < NK_UNKENY_SCRIPTS_MAX; ++k) {
+					const NkString ref(sc.refs[k]);
+					bool deja = ref.Empty();
+					for (uint32 i = 0; i < vus.Size(); ++i) {
+						deja = deja || vus[i] == ref;
+					}
+					if (deja) {
+						continue;
+					}
+					vus.PushBack(ref);
+					const NkDefinitionScript *d = scripts.Definition(scripts.Trouver(ref.CStr()));
+					if (d == nullptr) {
+						sortie.manquantes.PushBack(NkString::Format("script « %s » : absent de ce jeu%s", ref.CStr(),
+																   ref.StartsWith(NK_SCRIPT_PREFIXE_CPP) ? " (classe C++ non liee)" : ""));
+						++n;
+					} else if (!d->erreur.Empty()) {
+						sortie.manquantes.PushBack(NkString::Format("script « %s » : %s", ref.CStr(), d->erreur.CStr()));
+						++n;
+					}
+				}
+			});
+			return n;
+		}
+
 		NkString NkNomDuJeu(const char *dossier) {
 			const NkString texte = NkFile::ReadAllText((NkString(dossier != nullptr ? dossier : "") + NK_LIVRAISON_SOMMAIRE).CStr());
 			NkArchive s;
@@ -340,7 +431,8 @@ namespace nkentseu {
 			return nom;
 		}
 
-		bool NkChargerJeu(const char *dossier, NkScene &scene, NkTextures2D &textures, NkSons2D *sons, NkJeuCharge &sortie) {
+		bool NkChargerJeu(const char *dossier, NkScene &scene, NkTextures2D &textures, NkSons2D *sons, NkJeuCharge &sortie,
+						  NkScripts2D *scripts) {
 			sortie = NkJeuCharge();
 			const NkString racine(dossier != nullptr ? dossier : "");
 
@@ -457,6 +549,30 @@ namespace nkentseu {
 					sons->Creer(mono.Data(), mono.Size(), frequence, nom.CStr());
 				}
 				++sortie.sons;
+			}
+
+			// ── 3 bis. Les BLUEPRINTS (2026-10-01) : au registre SOUS LEUR NOM ──
+			table.Clear();
+			(void)s.GetObjectArray(V("scripts"), table);
+			for (usize i = 0; scripts != nullptr && i < table.Size(); ++i) {
+				NkString nom;
+				NkString fichier;
+				(void)table[i].GetString(V("nom"), nom);
+				(void)table[i].GetString(V("fichier"), fichier);
+				NkAssetMetadata meta;
+				NkVector<nk_uint8> payload;
+				const NkString chemin = racine + fichier;
+				if (!NkAssetIO::ReadFull(chemin.CStr(), meta, payload, &err)) {
+					sortie.manquantes.PushBack(NkString::Format("Blueprint « %s » : fichier %s absent ou illisible", nom.CStr(), fichier.CStr()));
+					continue;
+				}
+				NkString refus;
+				scripts->ChargerBlueprintOctets(nom.CStr(), payload.Data(), payload.Size(), &refus);
+				if (!refus.Empty()) {
+					sortie.manquantes.PushBack(NkString::Format("Blueprint « %s » : %s", nom.CStr(), refus.CStr()));
+					continue;
+				}
+				++sortie.scripts;
 			}
 
 			// ── 4. La scene ────────────────────────────────────────────────────

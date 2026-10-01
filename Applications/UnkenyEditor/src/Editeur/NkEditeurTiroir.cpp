@@ -38,6 +38,7 @@
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurTerminal.h"
+#include "Script/NkEditeurScriptsUi.h"
 #include "Editeur/NkEditeurReferences.h"
 #include "Livraison/NkEditeurFenetreConstruire.h"
 
@@ -1839,6 +1840,11 @@ namespace nkentseu {
 					// n'a pas encore d'editeur : on dit comment le poser, on ne pose
 					// RIEN par surprise (un double-clic n'est pas un geste sur la scene).
 					ui.sceneAOuvrir = NkString();
+					// (2026-10-01) Un script : le .cpp dans l'editeur de texte, le .nkbp
+					// dans la page du graphe (Script/NkEditeurScriptsUi.h).
+					if (NkEditeurScriptOuvrirAsset(c, chemin)) {
+						break;
+					}
 					const NkNatureContenu n = NkEditeurNatureFichier(chemin);
 					if (n.type == NkAssetType::Scene) {
 						ui.sceneAOuvrir = NkEditeurCheminContenu(m, chemin);

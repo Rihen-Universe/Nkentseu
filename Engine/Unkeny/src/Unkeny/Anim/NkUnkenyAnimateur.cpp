@@ -9,6 +9,7 @@
 #include "NKECS/World/NkWorld.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NKMemory.h"
+#include "Unkeny/Anim/NkUnkenyProprietes.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
 #include "Unkeny/Scene/NkUnkenyActif.h"
 
@@ -335,6 +336,14 @@ namespace nkentseu {
 				const int32 etat = a.execution.current;
 				if (etat == avant || etat < 0) {
 					return;
+				}
+				// (2026-10-01) Un etat qui designe une ANIMATION par son nom (page
+				// Animateur : « creer un etat a partir d'une animation ») la fait jouer
+				// au clip de proprietes de l'entite, s'il y en a un.
+				if (m->GetStateRefKind(etat) == 1 && !m->GetStateRef(etat).Empty()) {
+					if (NkClipProprietes2D *cp = monde.Get<NkClipProprietes2D>(id)) {
+						cp->Jouer(m->GetStateRef(etat).CStr());
+					}
 				}
 				NkAnimSprite2D *s = monde.Get<NkAnimSprite2D>(id);
 				if (s == nullptr) {

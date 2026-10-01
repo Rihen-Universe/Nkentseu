@@ -46,6 +46,7 @@
 #include "NKEditorKit/NkEditorTextField.h"
 #include "NKEditorKit/NkThemeToGui.h"
 #include "NKGui/Widgets/NkGuiWidgets.h"
+#include "Script/NkEditeurScriptsUi.h"
 
 #include <cmath>
 #include <cstdio>
@@ -1771,6 +1772,8 @@ namespace nkentseu {
 					// categorie « Physique » du nouveau panneau).
 					NkEditeurBlocForme(c, id);
 					NkEditeurBlocCollision(c, id);
+					// Les SCRIPTS (2026-10-01, Script/NkEditeurScriptsUi.h) : simple, a mettre au style.
+					NkEditeurBlocScript(c, id);
 				}
 				// ── « Ajouter un composant », en bas (Unity) ─────────────────
 				Espace(ctx, 10.f);
