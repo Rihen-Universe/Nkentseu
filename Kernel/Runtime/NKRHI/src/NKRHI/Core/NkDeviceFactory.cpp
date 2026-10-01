@@ -210,10 +210,11 @@ namespace nkentseu {
 		// (mslSource), le device retrouve l'entree de chaque etage, et un cube
 		// n'a plus arrayLength = 6. Le MSL suit la convention de liaison du device
 		// (NKSL/ShaderConvert/NkMslConventions.h).
-		// Repli : OpenGL, puis le rendu logiciel (ajoute a la fin pour tous). Sur
-		// Apple, l'OpenGL de NKRHI REFUSE de s'initialiser (refus nomme,
-		// NkOpenglDevice.cpp) : le repli effectif d'un Metal en echec est donc le
-		// rendu logiciel, qui tourne (NKCraft --backend=software).
+		// Repli : OpenGL, puis le rendu logiciel (ajoute a la fin pour tous).
+		// Depuis le 2026-10-01, l'OpenGL de NKRHI demarre sur macOS en 4.1 core
+		// (contexte NSOpenGL, doublures 4.2-4.5 de NkOpenglCompat41.cpp, refus
+		// nommes pour le calcul et les SSBO) : c'est le vrai repli d'un Metal en
+		// echec ; le rendu logiciel ne vient qu'apres.
 		// ORDRE (decision de Rihen, 2026-10-01, le meme que NkCanvasApp) :
 		// Vulkan s'il est disponible -- compile (SDK Vulkan / MoltenVK au build)
 		// ET un pilote a l'execution --, puis Metal, OpenGL, logiciel.
