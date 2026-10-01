@@ -283,6 +283,19 @@ namespace nkentseu {
 				const NkEclairage2D &Eclairage() const noexcept {
 					return mEclairage;
 				}
+				/// (2026-10-01) Les CALQUES DE COLLISION de la scene : leurs noms et la
+				/// matrice « qui touche qui » (NkCalquesCollision2D). Lus par
+				/// AjouterCorps ; apres une retouche, AppliquerCalques refait les corps.
+				/// Par defaut tout touche tout, et rien n'est ecrit au fichier.
+				NkCalquesCollision2D &Calques() noexcept {
+					return mCalques;
+				}
+				const NkCalquesCollision2D &Calques() const noexcept {
+					return mCalques;
+				}
+				/// Refait chaque corps rigide avec la matrice courante (vitesses
+				/// gardees, ActualiserCorps). Rend le nombre de corps refaits.
+				uint32 AppliquerCalques();
 				/// Les particules visuelles vivantes. Avancees par Pas() ; un editeur
 				/// qui veut un APERCU hors jeu appelle Effets().Avancer lui-meme :
 				/// elles ne changent rien a la simulation.
@@ -655,6 +668,7 @@ namespace nkentseu {
 				NkVue2D mCamera;
 				NkEcranDuJeu mEcran;
 				NkEclairage2D mEclairage;
+				NkCalquesCollision2D mCalques; ///< 2026-10-01 : la matrice des calques
 				NkEffets2D mEffets;
 				float32 mAccumulateur = 0.f;
 				int32 mDernierNbPas = 0;

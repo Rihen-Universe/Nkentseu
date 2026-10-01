@@ -73,6 +73,7 @@
 #include "Unkeny/Scene/NkUnkenyCamera.h"
 #include "Unkeny/Scene/NkUnkenyComposants.h"
 #include "Unkeny/Scene/NkUnkenyEcran.h"
+#include "Unkeny/Scene/NkUnkenyFormes.h"
 #include "Unkeny/Scene/NkUnkenyHierarchie.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"

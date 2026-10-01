@@ -65,6 +65,12 @@ namespace nkentseu {
 				NK_UNKENY_CHAMP(NkCollisionneur2D, couche, NkTypeChamp::NK_U32),
 				NK_UNKENY_CHAMP(NkCollisionneur2D, masque, NkTypeChamp::NK_U32),
 				NK_UNKENY_CHAMP(NkCollisionneur2D, declencheur, NkTypeChamp::NK_BOOL),
+				// (2026-10-01) Polygone, chaine, rotation : fusionnes comme le reste.
+				NK_UNKENY_CHAMP(NkCollisionneur2D, rotation, NkTypeChamp::NK_F32),
+				NK_UNKENY_CHAMP(NkCollisionneur2D, nbSommets, NkTypeChamp::NK_U8),
+				NK_UNKENY_CHAMP(NkCollisionneur2D, boucle, NkTypeChamp::NK_BOOL),
+				NkChampSauve{"sommets", NkTypeChamp::NK_VEC2, static_cast<uint32>(offsetof(NkCollisionneur2D, sommets)),
+							 static_cast<uint32>(sizeof(NkVec2f)), NK_COLLISION_SOMMETS_MAX, 0u, false},
 			};
 			const NkChampSauve kChampsCorps[] = {
 				NK_UNKENY_CHAMP(NkCorps2D, type, NkTypeChamp::NK_U8),

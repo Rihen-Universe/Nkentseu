@@ -8,6 +8,7 @@
 #include "Unkeny/Rendu/NkUnkenyRendu.h"
 
 #include "NKContainers/Sequential/NkVector.h"
+#include "NKMath/NkEarcut.h"
 
 namespace nkentseu {
 	namespace unkeny {
@@ -25,10 +26,69 @@ namespace nkentseu {
 			/// requete finie. On ne garde PAS de pointeur vers les composants :
 			/// une requete NKECS peut deplacer les donnees entre archetypes, et
 			/// un pointeur retenu pointerait alors ailleurs.
+			/// (2026-10-01) Un aplat est un sprite OU une forme : un seul tri.
 			struct Aplat {
 					NkTransform2D t;
 					NkSprite2D s;
+					int32 forme = -1; ///< indice dans la liste des formes, -1 = sprite
+					int32 couche = 0;
 			};
+
+			NkColor Opacite(const NkColor &c, float32 o) noexcept {
+				const float32 k = o < 0.f ? 0.f : (o > 1.f ? 1.f : o);
+				return NkColor(c.r, c.g, c.b, static_cast<uint8>(static_cast<float32>(c.a) * k + 0.5f));
+			}
+
+			/// Le dessin d'une forme dont le contour est DEJA en pixels.
+			/// `pxParM` : les pixels d'un metre (epaisseurs du trait et du contour).
+			void DessinerContourForme(nkgui::NkGuiDrawList &dl, const NkRenduForme2D &f, const NkVec2f *e, uint32 n,
+									  bool ferme, float32 pxParM) {
+				if (n < 2u) {
+					return;
+				}
+				// 0xRRGGBBAA : le constructeur de math::NkColor (NKMath/NkColor.h).
+				const NkColor fond = Opacite(NkColor(f.remplissage), f.opacite);
+				const NkColor bord = Opacite(NkColor(f.couleurContour), f.opacite);
+				const float32 contour = f.epaisseurContour > 0.f ? math::NkMax(f.epaisseurContour * pxParM, 1.f) : 0.f;
+				if (!ferme) {
+					// Une LIGNE : son contour d'abord (plus large), puis le trait ;
+					// des disques aux points font les bouts et les jointures ronds.
+					const float32 trait = math::NkMax(f.epaisseur * pxParM, 1.f);
+					for (int32 passe = 0; passe < 2; ++passe) {
+						if (passe == 0 && contour <= 0.f) {
+							continue;
+						}
+						const NkColor col = passe == 0 ? bord : fond;
+						const float32 ep = passe == 0 ? trait + 2.f * contour : trait;
+						if (passe == 1 && !f.rempli) {
+							continue;
+						}
+						dl.AddPolyline(e, static_cast<int32>(n), col, ep, false);
+						for (uint32 i = 0; i < n; ++i) {
+							dl.AddCircleFilled(e[i], ep * 0.5f, col);
+						}
+					}
+					return;
+				}
+				if (f.rempli && n >= 3u) {
+					if (!NkFormePeutEtreConcave(f)) {
+						dl.AddConvexPolyFilled(e, static_cast<int32>(n), fond);
+					} else {
+						// CONCAVE (etoile, polygone libre) : l'eventail d'un convexe
+						// deborderait dans les creux. La porte SANS allocation de NKMath.
+						detail::NkEarcutNode<float32> noeuds[NK_FORME_CONTOUR_MAX];
+						uint32 idx[(NK_FORME_CONTOUR_MAX - 2u) * 3u];
+						const uint32 nbTri = NkEarcutVers<float32>(e, n, noeuds, NK_FORME_CONTOUR_MAX, idx,
+																	(NK_FORME_CONTOUR_MAX - 2u) * 3u);
+						for (uint32 k = 0; k < nbTri; ++k) {
+							dl.AddTriangleFilled(e[idx[k * 3u]], e[idx[k * 3u + 1u]], e[idx[k * 3u + 2u]], fond);
+						}
+					}
+				}
+				if (contour > 0.f) {
+					dl.AddPolyline(e, static_cast<int32>(n), bord, contour, true);
+				}
+			}
 
 			bool Chevauche(const NkRect &a, const NkRect &b) noexcept {
 				return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
@@ -42,6 +102,7 @@ namespace nkentseu {
 			const NkRect visible = cam.ZoneVisible();
 
 			NkVector<Aplat> aplats;
+			NkVector<NkRenduForme2D> formes;
 			scene.Monde().Query<NkTransform2D, NkSprite2D>().ForEach(
 				[&](ecs::NkEntityId id, NkTransform2D &t, NkSprite2D &s) {
 					// Une entite ETEINTE (NkUnkenyActif.h) n'est pas rendue.
@@ -65,6 +126,29 @@ namespace nkentseu {
 					Aplat a;
 					a.t = t;
 					a.s = s;
+					a.couche = s.couche;
+					aplats.PushBack(a);
+				});
+			// Les FORMES 2D (2026-10-01), meme hors-champ, meme tri.
+			scene.Monde().Query<NkTransform2D, NkRenduForme2D>().ForEach(
+				[&](ecs::NkEntityId id, NkTransform2D &t, NkRenduForme2D &f) {
+					if (!f.visible || !scene.EstActive(id)) {
+						return;
+					}
+					++stats.entitesVues;
+					const NkVec2f d = NkDemiBoiteForme2D(f);
+					const float32 dx = d.x * math::NkAbs(t.echelle.x);
+					const float32 dy = d.y * math::NkAbs(t.echelle.y);
+					const float32 r = math::NkSqrt(dx * dx + dy * dy);
+					const NkRect boite{t.position.x - r, t.position.y - r, r * 2.f, r * 2.f};
+					if (!Chevauche(boite, visible)) {
+						return;
+					}
+					Aplat a;
+					a.t = t;
+					a.forme = static_cast<int32>(formes.Size());
+					a.couche = f.couche;
+					formes.PushBack(f);
 					aplats.PushBack(a);
 				});
 
@@ -77,7 +161,7 @@ namespace nkentseu {
 			for (uint32 i = 1; i < aplats.Size(); ++i) {
 				const Aplat cle = aplats[i];
 				int32 j = static_cast<int32>(i) - 1;
-				while (j >= 0 && aplats[static_cast<uint32>(j)].s.couche > cle.s.couche) {
+				while (j >= 0 && aplats[static_cast<uint32>(j)].couche > cle.couche) {
 					aplats[static_cast<uint32>(j + 1)] = aplats[static_cast<uint32>(j)];
 					--j;
 				}
@@ -87,6 +171,11 @@ namespace nkentseu {
 			for (uint32 i = 0; i < aplats.Size(); ++i) {
 				const NkTransform2D &t = aplats[i].t;
 				const NkSprite2D &s = aplats[i].s;
+				if (aplats[i].forme >= 0) {
+					NkDessinerRenduForme2D(dl, cam, t, formes[static_cast<uint32>(aplats[i].forme)]);
+					++stats.entitesDessinees;
+					continue;
+				}
 
 				// Les quatre coins, en LOCAL puis en monde puis en ecran. Passer
 				// par les coins — et non par un rectangle ecran — est ce qui rend
@@ -125,35 +214,70 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
+		void NkDessinerRenduForme2D(nkgui::NkGuiDrawList &dl, const NkVue2D &cam, const NkTransform2D &t,
+									const NkRenduForme2D &f) {
+			NkVec2f pts[NK_FORME_CONTOUR_MAX];
+			bool ferme = true;
+			const uint32 n = NkContourForme2D(f, pts, NK_FORME_CONTOUR_MAX, ferme);
+			// Local -> monde (rotation ET echelle, comme un sprite) -> ecran.
+			for (uint32 i = 0; i < n; ++i) {
+				pts[i] = cam.MondeVersEcran(t.VersMonde(pts[i]));
+			}
+			const float32 echelle = (math::NkAbs(t.echelle.x) + math::NkAbs(t.echelle.y)) * 0.5f;
+			DessinerContourForme(dl, f, pts, n, ferme, cam.LongueurVersEcran(1.f) * echelle);
+		}
+
+		void NkDessinerFormeVignette(nkgui::NkGuiDrawList &dl, const NkRenduForme2D &f, const NkRect &r) {
+			NkVec2f pts[NK_FORME_CONTOUR_MAX];
+			bool ferme = true;
+			const uint32 n = NkContourForme2D(f, pts, NK_FORME_CONTOUR_MAX, ferme);
+			if (n < 2u) {
+				return;
+			}
+			// La boite du contour, ramenee au rectangle (marge comprise), y vers le bas.
+			NkVec2f mn = pts[0], mx = pts[0];
+			for (uint32 i = 1; i < n; ++i) {
+				mn = NkVec2f(math::NkMin(mn.x, pts[i].x), math::NkMin(mn.y, pts[i].y));
+				mx = NkVec2f(math::NkMax(mx.x, pts[i].x), math::NkMax(mx.y, pts[i].y));
+			}
+			const float32 bord = (ferme ? f.epaisseurContour : f.epaisseur) * 0.5f;
+			const float32 lw = math::NkMax(mx.x - mn.x + 2.f * bord, 1.0e-3f);
+			const float32 lh = math::NkMax(mx.y - mn.y + 2.f * bord, 1.0e-3f);
+			const float32 k = math::NkMin(r.w / lw, r.h / lh);
+			const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+			const float32 mx0 = (mn.x + mx.x) * 0.5f, my0 = (mn.y + mx.y) * 0.5f;
+			for (uint32 i = 0; i < n; ++i) {
+				pts[i] = NkVec2f(cx + (pts[i].x - mx0) * k, cy - (pts[i].y - my0) * k);
+			}
+			DessinerContourForme(dl, f, pts, n, ferme, k);
+		}
+
+		// =====================================================================
 		void NkDessinerCollisionneurs(nkgui::NkGuiDrawList &dl, NkScene &scene, uint32 couleur) {
 			const NkVue2D &cam = scene.Camera();
 			const NkColor col = Couleur(couleur);
 
+			// (2026-10-01) Le contour EXACT de chaque collisionneur, ROTATIONS
+			// comprises (celle de l'entite et la sienne) : avant, une boite et une
+			// capsule etaient tracees droites quel que soit leur angle. Polygones et
+			// chaines aussi, leurs sommets marques.
 			scene.Monde().Query<NkTransform2D, NkCollisionneur2D>().ForEach(
 				[&](ecs::NkEntityId id, NkTransform2D &t, NkCollisionneur2D &c) {
 					if (!scene.EstActive(id)) {
 						return; // eteint : son collisionneur ne touche rien, il ne se montre pas
 					}
-					const NkVec2f centre(t.position.x + c.decalage.x, t.position.y + c.decalage.y);
-					const NkVec2f e = cam.MondeVersEcran(centre);
-					switch (c.forme) {
-						case NkForme2D::NK_CERCLE:
-							dl.AddCircle(e, cam.LongueurVersEcran(c.rayon), col, 1.5f);
-							break;
-						case NkForme2D::NK_CAPSULE: {
-							const float32 r = cam.LongueurVersEcran(c.rayon);
-							const float32 d = cam.LongueurVersEcran(c.demiTaille.x);
-							dl.AddCircle(NkVec2f(e.x - d, e.y), r, col, 1.5f);
-							dl.AddCircle(NkVec2f(e.x + d, e.y), r, col, 1.5f);
-							dl.AddLine(NkVec2f(e.x - d, e.y - r), NkVec2f(e.x + d, e.y - r), col, 1.5f);
-							dl.AddLine(NkVec2f(e.x - d, e.y + r), NkVec2f(e.x + d, e.y + r), col, 1.5f);
-							break;
-						}
-						default: {
-							const float32 hw = cam.LongueurVersEcran(c.demiTaille.x);
-							const float32 hh = cam.LongueurVersEcran(c.demiTaille.y);
-							dl.AddRect(NkRect{e.x - hw, e.y - hh, hw * 2.f, hh * 2.f}, col, 1.5f);
-							break;
+					NkVec2f pts[NK_COLLISION_SOMMETS_MAX + 72u];
+					bool ferme = true;
+					const uint32 n = NkContourCollisionneur2D(t, c, pts, NK_COLLISION_SOMMETS_MAX + 72u, ferme);
+					for (uint32 i = 0; i < n; ++i) {
+						pts[i] = cam.MondeVersEcran(pts[i]);
+					}
+					if (n >= 2u) {
+						dl.AddPolyline(pts, static_cast<int32>(n), col, 1.5f, ferme);
+					}
+					if (c.forme == NkForme2D::NK_POLYGONE || c.forme == NkForme2D::NK_CHAINE) {
+						for (uint32 i = 0; i < n; ++i) {
+							dl.AddCircleFilled(pts[i], 2.5f, col);
 						}
 					}
 				});
@@ -180,6 +304,12 @@ namespace nkentseu {
 				if (sp != nullptr && sp->visible && sp->texId != 0u) {
 					return; // texture : c'est NkDessinerScene qui le dessine
 				}
+				// (2026-10-01) Une FORME 2D se dessine elle-meme (NkDessinerScene),
+				// a ses couleurs : son collisionneur ne la double pas. Cachee, elle
+				// ne laisse rien voir non plus.
+				if (monde.Has<NkRenduForme2D>(id)) {
+					return;
+				}
 				NkColor fond, bord;
 				if (rigide) {
 					fond = sp != nullptr ? Couleur(sp->couleur) : NkColor(180, 180, 190);
@@ -189,10 +319,36 @@ namespace nkentseu {
 					fond = Couleur(propre != 0u ? propre : o.decor);
 					bord = propre != 0u ? Mix(fond, NkColor(255, 255, 255), 0.25f) : Couleur(o.decorBord);
 				}
+				// (2026-10-01) La rotation PROPRE du collisionneur y est (0 avant).
+				const float32 cr = math::NkCos(c.rotation), sr = math::NkSin(c.rotation);
 				auto E = [&](float32 lx, float32 ly) {
-					return cam.MondeVersEcran(t.VersMonde(NkVec2f(lx + c.decalage.x, ly + c.decalage.y)));
+					return cam.MondeVersEcran(t.VersMonde(NkVec2f(c.decalage.x + lx * cr - ly * sr, c.decalage.y + lx * sr + ly * cr)));
 				};
 				switch (c.forme) {
+					case NkForme2D::NK_POLYGONE:
+					case NkForme2D::NK_CHAINE: {
+						// Le decor fait a la main (une colline, une pente) : rempli s'il
+						// est ferme, un trait sinon.
+						NkVec2f q[NK_COLLISION_SOMMETS_MAX];
+						const uint32 n = NkNbSommetsCollision2D(c);
+						for (uint32 i = 0; i < n; ++i) {
+							q[i] = E(c.sommets[i].x, c.sommets[i].y);
+						}
+						const bool ferme = c.forme == NkForme2D::NK_POLYGONE || c.boucle;
+						if (ferme && n >= 3u) {
+							detail::NkEarcutNode<float32> noeuds[NK_COLLISION_SOMMETS_MAX];
+							uint32 idx[(NK_COLLISION_SOMMETS_MAX - 2u) * 3u];
+							const uint32 nbTri = NkEarcutVers<float32>(q, n, noeuds, NK_COLLISION_SOMMETS_MAX, idx,
+																		(NK_COLLISION_SOMMETS_MAX - 2u) * 3u);
+							for (uint32 k = 0; k < nbTri; ++k) {
+								dl.AddTriangleFilled(q[idx[k * 3u]], q[idx[k * 3u + 1u]], q[idx[k * 3u + 2u]], fond);
+							}
+							dl.AddPolyline(q, static_cast<int32>(n), bord, 1.5f, true);
+						} else if (n >= 2u) {
+							dl.AddPolyline(q, static_cast<int32>(n), fond, 3.f, false);
+						}
+						break;
+					}
 					case NkForme2D::NK_CERCLE: {
 						const NkVec2f e = E(0.f, 0.f);
 						const float32 r = cam.LongueurVersEcran(c.rayon);

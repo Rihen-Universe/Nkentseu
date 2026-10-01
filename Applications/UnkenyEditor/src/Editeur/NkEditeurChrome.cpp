@@ -22,6 +22,7 @@
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurMarque.h"
 #include "Editeur/NkEditeurReferences.h"
+#include "Editeur/NkEditeurPlacer.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/NkThemeToGui.h"
@@ -255,10 +256,12 @@ namespace nkentseu {
 						out.PushBack(Entree("Cadrer tout", NK_A_CADRER));
 						break;
 					case NkMenuEditeur::NK_FENETRE:
+						out.PushBack(Entree("Placer des acteurs", NK_A_VOIR_PLACER, "", c.ui.voirPlacer));
 						out.PushBack(Entree("Outliner", NK_A_VOIR_OUTLINER, "", c.ui.voirOutliner));
 						out.PushBack(Entree("Détails", NK_A_VOIR_DETAILS, "", c.ui.voirDetails));
 						out.PushBack(Entree("Tiroir de contenu", NK_A_VOIR_TIROIR, "", c.ui.voirTiroir));
 						out.PushBack(Entree("Entrées du jeu", NK_A_ENTREES, "", c.ui.panneauEntrees));
+						out.PushBack(Entree("Réglages du projet : collision", NK_A_REGLAGES_COLLISION, "", c.ui.reglagesCollision));
 						out.PushBack(Separateur());
 						out.PushBack(Entree("Disposition par défaut", NK_A_DISPOSITION));
 						break;
@@ -301,6 +304,7 @@ namespace nkentseu {
 											NK_A_OPTION_APPAREIL + static_cast<int32>(NkOptionAppareil::NK_AJOUTER_HUD), "",
 											false, m.etat == NkEtatJeu::NK_EDITION));
 						EntreesCatalogue(out, NK_A_POSER_ACTEUR);
+						NkEditeurMenuFormes(out, NK_A_FORME); // 2026-10-01 : les formes 2D
 						break;
 					case NkMenuEditeur::NK_CTX_ENTITE: {
 						// Le clic droit a CHOISI l'entite : ces actions la visent.
@@ -348,6 +352,9 @@ namespace nkentseu {
 							out.PushBack(Entree(NkString::Format("%s ici", NkNomPresetEffet2D(static_cast<NkPresetEffet2D>(p))).CStr(),
 												NK_A_EMETTEUR_ICI + p));
 						}
+						// 2026-10-01 : les formes 2D et les volumes, au point du clic droit.
+						NkEditeurMenuFormes(out, NK_A_FORME_ICI);
+						NkEditeurMenuVolumes(out, NK_A_VOLUME_ICI);
 						break;
 					case NkMenuEditeur::NK_APPAREIL: {
 						// (2026-10-01) Le catalogue PAR FAMILLE : 21 appareils en vrac ne
@@ -697,6 +704,9 @@ namespace nkentseu {
 								}
 							}
 						}
+						// 2026-10-01 : un collisionneur (boite... depuis la forme / le
+						// sprite) et une forme 2D, comme Unreal propose ses composants.
+						NkEditeurMenuCollisions(c, out);
 						if (out.Empty()) {
 							out.PushBack(Intitule("(tous les composants possibles sont là)"));
 						}
@@ -835,11 +845,16 @@ namespace nkentseu {
 			const float32 colonnesBas = corpsBas - tiroirH - (ui.voirTiroir ? EPAISSEUR_CLOISON : 0.f);
 			const float32 colonnesH = colonnesBas - corpsHaut > 0.f ? colonnesBas - corpsHaut : 0.f;
 
+			// (2026-10-01) « Placer des acteurs » A GAUCHE DE TOUT, comme UE5
+			// (NkEditeurPlacer.h) ; l'Outliner glisse d'autant.
+			const float32 P = ui.voirPlacer ? Borne(ui.largeurPlacer, 170.f, W * 0.25f) : 0.f;
+			const float32 x0 = P + (P > 0.f ? EPAISSEUR_CLOISON : 0.f);
+			ui.placer = NkRect{0.f, corpsHaut, P, colonnesH};
 			const float32 L = ui.voirOutliner ? Borne(ui.largeurOutliner, 150.f, W * 0.35f) : 0.f;
 			const float32 R = ui.voirDetails ? Borne(ui.largeurDetails, 240.f, W * 0.42f) : 0.f;
-			ui.outliner = NkRect{0.f, corpsHaut, L, colonnesH};
+			ui.outliner = NkRect{x0, corpsHaut, L, colonnesH};
 			ui.details = NkRect{W - R, corpsHaut, R, colonnesH};
-			const float32 vx = L + (L > 0.f ? EPAISSEUR_CLOISON : 0.f);
+			const float32 vx = x0 + L + (L > 0.f ? EPAISSEUR_CLOISON : 0.f);
 			float32 vw = W - R - (R > 0.f ? EPAISSEUR_CLOISON : 0.f) - vx;
 			if (vw < 0.f) {
 				vw = 0.f;
@@ -1067,6 +1082,10 @@ namespace nkentseu {
 		void NkEditeurExecuter(NkEditeurCadre &c, int32 action) {
 			NkEditeurModele &m = c.m;
 			NkEditeurInterface &ui = c.ui;
+			// 2026-10-01 : formes, collisions, Placer des acteurs (1500-1599).
+			if (NkEditeurActionPlacer(c, action)) {
+				return;
+			}
 			// Les plages d'abord : leur indice est ajoute a la base.
 			// 2026-09-30 : lumieres et emetteurs (NkEditeurLumiere.h).
 			if (action >= NK_A_LUMIERE && action < NK_A_LUMIERE + 3) {
@@ -1805,7 +1824,7 @@ namespace nkentseu {
 				if (!in.mouseDown[0]) {
 					ui.cloisonTenue = -1;
 				} else if (ui.cloisonTenue == 0) {
-					ui.largeurOutliner = in.mousePos.x;
+					ui.largeurOutliner = in.mousePos.x - ui.outliner.x; // le panneau Placer est a sa gauche
 				} else if (ui.cloisonTenue == 1) {
 					ui.largeurDetails = ui.ecran.w - in.mousePos.x;
 				} else {

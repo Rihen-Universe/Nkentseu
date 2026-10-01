@@ -440,6 +440,21 @@ namespace nkentseu {
 						return 3.14159265f * c.rayon * c.rayon;
 					case NkForme2D::NK_CAPSULE:
 						return 4.f * c.demiTaille.x * c.rayon + 3.14159265f * c.rayon * c.rayon;
+					case NkForme2D::NK_POLYGONE:
+					case NkForme2D::NK_CHAINE: {
+						// (2026-10-01) L'aire du contour (une chaine ouverte : sa boite).
+						const uint32 n = NkNbSommetsCollision2D(c);
+						const float32 a = math::NkAbs(NkAireSignee2D(c.sommets, n));
+						if (a > 1.0e-6f) {
+							return a;
+						}
+						NkVec2f mn(0.f, 0.f), mx(0.f, 0.f);
+						for (uint32 i = 0; i < n; ++i) {
+							mn = NkVec2f(math::NkMin(mn.x, c.sommets[i].x), math::NkMin(mn.y, c.sommets[i].y));
+							mx = NkVec2f(math::NkMax(mx.x, c.sommets[i].x), math::NkMax(mx.y, c.sommets[i].y));
+						}
+						return (mx.x - mn.x) * (mx.y - mn.y);
+					}
 					default:
 						return 4.f * c.demiTaille.x * c.demiTaille.y;
 				}
@@ -530,6 +545,12 @@ namespace nkentseu {
 			if (w.Has<NkCorpsMou2D>(id) || w.Has<NkCollisionneur2D>(id) || w.Has<NkLumiere2D>(id) || w.Has<NkEmetteur2D>(id)) {
 				return false;
 			}
+			// (2026-10-01) Une FORME 2D visible est un visuel, comme un sprite.
+			if (const NkRenduForme2D *f = w.Get<NkRenduForme2D>(id)) {
+				if (f->visible) {
+					return false;
+				}
+			}
 			const NkSprite2D *s = w.Get<NkSprite2D>(id);
 			return s == nullptr || !s->visible;
 		}
@@ -584,11 +605,29 @@ namespace nkentseu {
 				c.centre = t.position;
 				prise.Proposer(c);
 			});
+			// (2026-10-01) Les FORMES 2D visibles (niveau 1, par couche, comme les
+			// sprites : NkDessinerScene les trie ensemble). Prises sur leur CONTOUR
+			// dessine : le creux d'une etoile n'est pas l'etoile.
+			w.Query<NkTransform2D, NkRenduForme2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t, NkRenduForme2D &f) {
+				if (!f.visible || exclue(id)) {
+					return;
+				}
+				CandidatPrise c;
+				c.id = id;
+				c.niveau = 1;
+				c.couche = f.couche;
+				c.distance = NkDistanceRenduForme2D(t, f, monde);
+				const NkVec2f d = NkDemiBoiteForme2D(f);
+				c.aire = math::NkAbs(4.f * d.x * t.echelle.x * d.y * t.echelle.y);
+				c.centre = t.position;
+				prise.Proposer(c);
+			});
 			// Les formes (niveau 0) : ce que NkDessinerFormes peint, soit toute
-			// entite a collisionneur SAUF celle qu'un sprite texture remplace.
+			// entite a collisionneur SAUF celle qu'un sprite texture remplace (et,
+			// depuis le 2026-10-01, celle qui a sa FORME 2D : prise ci-dessus).
 			w.Query<NkTransform2D, NkCollisionneur2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t, NkCollisionneur2D &col) {
 				const NkSprite2D *sp = w.Get<NkSprite2D>(id);
-				if ((sp != nullptr && sp->visible && sp->texId != 0u) || exclue(id)) {
+				if ((sp != nullptr && sp->visible && sp->texId != 0u) || exclue(id) || w.Has<NkRenduForme2D>(id)) {
 					return;
 				}
 				CandidatPrise c;
@@ -698,11 +737,34 @@ namespace nkentseu {
 				return false;
 			}
 			float32 hw = 0.5f, hh = 0.5f;
-			if (const NkCollisionneur2D *c = s.Monde().Get<NkCollisionneur2D>(m.selection)) {
+			const NkCollisionneur2D *col = s.Monde().Get<NkCollisionneur2D>(m.selection);
+			if (const NkRenduForme2D *f = s.Monde().Get<NkRenduForme2D>(m.selection)) {
+				// (2026-10-01) La FORME 2D : la boite de son contour dessine.
+				const NkVec2f d = NkDemiBoiteForme2D(*f);
+				hw = d.x * math::NkAbs(t->echelle.x);
+				hh = d.y * math::NkAbs(t->echelle.y);
+				if (t->rotation != 0.f) {
+					const float32 r = math::NkSqrt(hw * hw + hh * hh);
+					hw = hh = r;
+				}
+			} else if (col != nullptr && (col->forme == NkForme2D::NK_POLYGONE || col->forme == NkForme2D::NK_CHAINE)) {
+				// Polygone, chaine : la boite de leur contour, rotations comprises.
+				NkVec2f pts[NK_COLLISION_SOMMETS_MAX + 72u];
+				bool ferme = true;
+				const uint32 n = NkContourCollisionneur2D(*t, *col, pts, NK_COLLISION_SOMMETS_MAX + 72u, ferme);
+				if (n > 0u) {
+					mn = mx = pts[0];
+					for (uint32 i = 1; i < n; ++i) {
+						mn = NkVec2f(math::NkMin(mn.x, pts[i].x), math::NkMin(mn.y, pts[i].y));
+						mx = NkVec2f(math::NkMax(mx.x, pts[i].x), math::NkMax(mx.y, pts[i].y));
+					}
+					return true;
+				}
+			} else if (const NkCollisionneur2D *c = col) {
 				hw = c->forme == NkForme2D::NK_CERCLE ? c->rayon : c->demiTaille.x + (c->forme == NkForme2D::NK_CAPSULE ? c->rayon : 0.f);
 				hh = c->forme == NkForme2D::NK_BOITE ? c->demiTaille.y : c->rayon;
 				// Une forme TOURNEE : la boite englobante couvre sa diagonale.
-				if (t->rotation != 0.f) {
+				if (t->rotation != 0.f || c->rotation != 0.f) {
 					const float32 r = math::NkSqrt(hw * hw + hh * hh);
 					hw = hh = r;
 				}
@@ -921,8 +983,25 @@ namespace nkentseu {
 			if (NkSprite2D *s = w.Get<NkSprite2D>(id)) {
 				s->taille = NkVec2f(s->taille.x * f.x, s->taille.y * f.y);
 			}
+			// (2026-10-01) La FORME 2D : sa boite, ses points ; les epaisseurs et
+			// l'arrondi prennent la moyenne geometrique (un trait reste un trait).
+			if (NkRenduForme2D *fo = w.Get<NkRenduForme2D>(id)) {
+				const float32 g = math::NkSqrt(f.x * f.y);
+				fo->taille = NkVec2f(fo->taille.x * f.x, fo->taille.y * f.y);
+				for (uint32 i = 0; i < NK_FORME_POINTS_MAX; ++i) {
+					fo->points[i] = NkVec2f(fo->points[i].x * f.x, fo->points[i].y * f.y);
+				}
+				fo->epaisseur *= g;
+				fo->epaisseurContour *= g;
+				fo->arrondi *= g;
+			}
 			if (NkCollisionneur2D *col = w.Get<NkCollisionneur2D>(id)) {
 				col->decalage = NkVec2f(col->decalage.x * f.x, col->decalage.y * f.y);
+				// Polygone, chaine : chaque sommet (repere du collisionneur ; sa
+				// rotation propre est le plus souvent nulle).
+				for (uint32 i = 0; i < NK_COLLISION_SOMMETS_MAX; ++i) {
+					col->sommets[i] = NkVec2f(col->sommets[i].x * f.x, col->sommets[i].y * f.y);
+				}
 				switch (col->forme) {
 					case NkForme2D::NK_BOITE:
 						col->demiTaille = NkVec2f(col->demiTaille.x * f.x, col->demiTaille.y * f.y);
@@ -1670,6 +1749,9 @@ namespace nkentseu {
 			}
 			if (const NkCorps2D *c = scene.Monde().Get<NkCorps2D>(id)) {
 				return c->type == NkTypeCorps::NK_DYNAMIQUE ? "rigide" : "decor";
+			}
+			if (scene.Monde().Has<NkRenduForme2D>(id)) {
+				return "forme"; // (2026-10-01) une forme 2D sans corps
 			}
 			return "entite";
 		}

@@ -76,36 +76,127 @@ namespace nkentseu {
 		};
 
 		/// Forme de collision, en donnees pures. Le pont la traduit en NkShape.
-		enum class NkForme2D : uint8 { NK_CERCLE = 0, NK_BOITE, NK_CAPSULE };
+		/// (2026-10-01) AJOUTEES A LA FIN : le POLYGONE (convexe) et la CHAINE
+		/// (un contour exact, ouvert ou ferme, pour le decor). Un fichier ecrit
+		/// avant elles porte 0, 1 ou 2 et se relit tel quel.
+		enum class NkForme2D : uint8 { NK_CERCLE = 0, NK_BOITE, NK_CAPSULE, NK_POLYGONE, NK_CHAINE };
+
+		/// Les sommets qu'un collisionneur peut porter (polygone, chaine). C'est
+		/// aussi la copie que NKPhysics garde d'un corps (NK_SOMMETS_2D_MAX).
+		static constexpr uint32 NK_COLLISION_SOMMETS_MAX = 32u;
+		/// ⚠️ UN POLYGONE CONVEXE N'A PAS PLUS DE 8 SOMMETS : le choc polygone /
+		/// polygone de NKCollision (NkColClip, NkPoly2) n'en lit que 8. Au-dela,
+		/// le neuvieme serait ignore EN SILENCE et la forme touchee ne serait
+		/// plus celle qu'on voit. Les generateurs reduisent donc a 8 (enveloppe).
+		static constexpr uint32 NK_POLYGONE_CONVEXE_MAX = 8u;
 
 		struct NkCollisionneur2D {
 				NkForme2D forme = NkForme2D::NK_BOITE;
 				NkVec2f demiTaille{0.5f, 0.5f}; ///< boite : demi-extents ; capsule : x = demi-longueur
 				float32 rayon = 0.5f;			///< cercle et capsule
-				NkVec2f decalage{0.f, 0.f};		///< par rapport au transform
+				/// Par rapport au transform, dans le REPERE DE L'ENTITE (il tourne
+				/// avec elle). Sans rotation, c'est aussi le repere du monde.
+				NkVec2f decalage{0.f, 0.f};
 
 				/// Couches et masque : deux entites n'entrent en collision que si
 				/// chacune est dans le masque de l'autre. C'est ce qui permet aux
 				/// balles du joueur d'ignorer le joueur sans code special.
+				/// (2026-10-01) La MATRICE des calques de la scene (NkCalquesCollision2D)
+				/// s'y ajoute : le masque donne au solveur est `masque` ET la ligne
+				/// du calque. Par defaut elle laisse tout passer.
 				uint32 couche = 0x1u;
 				uint32 masque = 0xFFFFFFFFu;
 
 				/// Un declencheur detecte sans repousser. Une zone de fin de
 				/// niveau, un ramassage, un capteur.
 				bool declencheur = false;
+
+				// --- (2026-10-01) AJOUTES A LA FIN : polygone, chaine, rotation ---
+				/// Radians, la rotation PROPRE du collisionneur dans le repere de
+				/// l'entite (une boite penchee sur un sprite droit).
+				float32 rotation = 0.f;
+				/// Polygone : CONVEXE, au plus NK_POLYGONE_CONVEXE_MAX sommets.
+				/// Chaine : au plus NK_COLLISION_SOMMETS_MAX (un de moins fermee).
+				uint8 nbSommets = 0;
+				/// Chaine FERMEE : le dernier sommet rejoint le premier (le contour
+				/// d'une etoile, d'une colline). Ouverte : une ligne, une pente.
+				bool boucle = false;
+				/// Repere du COLLISIONNEUR : decalage puis rotation appliques.
+				NkVec2f sommets[NK_COLLISION_SOMMETS_MAX] = {};
 		};
+
+		/// Un point du repere du collisionneur, en MONDE (rotation du transform et
+		/// propre, decalage dans le repere de l'entite, echelle 1 -- l'editeur cuit
+		/// l'echelle dans les dimensions, NkEditeurMettreAEchelle).
+		inline NkVec2f NkPointCollision2D(const NkTransform2D &t, const NkCollisionneur2D &c, const NkVec2f &l) noexcept {
+			const float32 ce = math::NkCos(t.rotation), se = math::NkSin(t.rotation);
+			const float32 cc = math::NkCos(c.rotation), sc = math::NkSin(c.rotation);
+			const float32 x = c.decalage.x + l.x * cc - l.y * sc;
+			const float32 y = c.decalage.y + l.x * sc + l.y * cc;
+			return NkVec2f(t.position.x + x * ce - y * se, t.position.y + x * se + y * ce);
+		}
+
+		/// Le nombre de sommets UTILISES d'un polygone ou d'une chaine, borne.
+		inline uint32 NkNbSommetsCollision2D(const NkCollisionneur2D &c) noexcept {
+			const uint32 cap = c.forme == NkForme2D::NK_POLYGONE ? NK_POLYGONE_CONVEXE_MAX : NK_COLLISION_SOMMETS_MAX;
+			return c.nbSommets < cap ? c.nbSommets : cap;
+		}
+
+		/// Distance d'un point au segment [a, b].
+		inline float32 NkDistanceSegment2D(const NkVec2f &p, const NkVec2f &a, const NkVec2f &b) noexcept {
+			const float32 abx = b.x - a.x, aby = b.y - a.y;
+			const float32 l2 = abx * abx + aby * aby;
+			float32 t = l2 > 1.0e-12f ? ((p.x - a.x) * abx + (p.y - a.y) * aby) / l2 : 0.f;
+			t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+			const float32 dx = p.x - (a.x + abx * t), dy = p.y - (a.y + aby * t);
+			return math::NkSqrt(dx * dx + dy * dy);
+		}
+
+		/// Distance SIGNEE d'un point a un contour de `n` points (negative dedans
+		/// si `ferme` ; jamais sinon : une ligne n'a pas d'interieur). Le test
+		/// d'interieur est celui du rayon (pair-impair) : juste pour un contour
+		/// concave, comme une etoile.
+		inline float32 NkDistanceContour2D(const NkVec2f *pts, uint32 n, bool ferme, const NkVec2f &p) noexcept {
+			if (n == 0u) {
+				return 1.0e9f;
+			}
+			if (n == 1u) {
+				const float32 dx = p.x - pts[0].x, dy = p.y - pts[0].y;
+				return math::NkSqrt(dx * dx + dy * dy);
+			}
+			float32 d = 1.0e9f;
+			bool dedans = false;
+			const uint32 nbSeg = ferme ? n : n - 1u;
+			for (uint32 i = 0; i < nbSeg; ++i) {
+				const NkVec2f &a = pts[i];
+				const NkVec2f &b = pts[(i + 1u) % n];
+				const float32 di = NkDistanceSegment2D(p, a, b);
+				d = di < d ? di : d;
+				if (ferme && ((a.y > p.y) != (b.y > p.y)) && (p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)) {
+					dedans = !dedans;
+				}
+			}
+			return dedans ? -d : d;
+		}
 
 		/// Distance SIGNEE d'un point (monde) a la forme d'un collisionneur :
 		/// negative dedans. Rotation et echelle 1 du transform prises en compte.
 		/// C'est le test de « ce qui est sous le curseur » pour les formes sans
 		/// sprite (decor, balles, obstacles) — partage par la demo et l'editeur.
+		/// (2026-10-01) Le decalage est lu dans le repere de l'entite, comme le
+		/// dessin et le solveur : sans rotation, rien ne change.
 		inline float32 NkDistanceForme2D(const NkTransform2D &t, const NkCollisionneur2D &c, const NkVec2f &p) noexcept {
 			const float32 co = math::NkCos(-t.rotation);
 			const float32 si = math::NkSin(-t.rotation);
-			const float32 dx = p.x - t.position.x - c.decalage.x;
-			const float32 dy = p.y - t.position.y - c.decalage.y;
-			const float32 lx = dx * co - dy * si;
-			const float32 ly = dx * si + dy * co;
+			const float32 gx = p.x - t.position.x;
+			const float32 gy = p.y - t.position.y;
+			// Repere de l'entite, puis celui du collisionneur (decalage, rotation).
+			const float32 ex = gx * co - gy * si - c.decalage.x;
+			const float32 ey = gx * si + gy * co - c.decalage.y;
+			const float32 cr = math::NkCos(-c.rotation);
+			const float32 sr = math::NkSin(-c.rotation);
+			const float32 lx = ex * cr - ey * sr;
+			const float32 ly = ex * sr + ey * cr;
 			switch (c.forme) {
 				case NkForme2D::NK_CERCLE:
 					return math::NkSqrt(lx * lx + ly * ly) - c.rayon;
@@ -113,15 +204,85 @@ namespace nkentseu {
 					const float32 x = math::NkClamp(lx, -c.demiTaille.x, c.demiTaille.x);
 					return math::NkSqrt((lx - x) * (lx - x) + ly * ly) - c.rayon;
 				}
+				case NkForme2D::NK_POLYGONE:
+					return NkDistanceContour2D(c.sommets, NkNbSommetsCollision2D(c), true, NkVec2f(lx, ly));
+				case NkForme2D::NK_CHAINE:
+					return NkDistanceContour2D(c.sommets, NkNbSommetsCollision2D(c), c.boucle, NkVec2f(lx, ly));
 				default: {
 					const float32 qx = math::NkAbs(lx) - c.demiTaille.x;
 					const float32 qy = math::NkAbs(ly) - c.demiTaille.y;
-					const float32 ex = qx > 0.f ? qx : 0.f;
-					const float32 ey = qy > 0.f ? qy : 0.f;
+					const float32 ex2 = qx > 0.f ? qx : 0.f;
+					const float32 ey2 = qy > 0.f ? qy : 0.f;
 					const float32 dedans = qx > qy ? qx : qy;
-					return math::NkSqrt(ex * ex + ey * ey) + (dedans < 0.f ? dedans : 0.f);
+					return math::NkSqrt(ex2 * ex2 + ey2 * ey2) + (dedans < 0.f ? dedans : 0.f);
 				}
 			}
+		}
+
+		// =====================================================================
+		// LES CALQUES DE COLLISION (2026-10-01) — « qui touche qui »
+		//
+		// Demande de Rihen : une MATRICE, comme les reglages de physique d'Unity
+		// et les canaux d'UE5. Seize calques nommes ; le bit j de `matrice[i]`
+		// dit que le calque i touche le calque j (Poser la garde SYMETRIQUE).
+		// Un collisionneur appartient aux calques de ses bits `couche` 0 a 15 ;
+		// le solveur recoit `masque & NkMasqueCalques2D(...)`.
+		// ⚠️ PAR DEFAUT TOUT TOUCHE TOUT : une scene d'avant se simule a
+		//    l'identique, et s'ecrit a l'octet pres (NkCalquesParDefaut).
+		// =====================================================================
+		static constexpr uint32 NK_CALQUES_COLLISION = 16u;
+
+		struct NkCalquesCollision2D {
+				char noms[NK_CALQUES_COLLISION][24] = {};
+				uint16 matrice[NK_CALQUES_COLLISION] = {0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu,
+														0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu,
+														0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu};
+
+				/// Le calque i touche-t-il le calque j ?
+				bool Touche(uint32 i, uint32 j) const noexcept {
+					return i < NK_CALQUES_COLLISION && j < NK_CALQUES_COLLISION && (matrice[i] & (1u << j)) != 0u;
+				}
+				/// Pose la case (i, j) ET (j, i) : la matrice reste symetrique.
+				void Poser(uint32 i, uint32 j, bool oui) noexcept {
+					if (i >= NK_CALQUES_COLLISION || j >= NK_CALQUES_COLLISION) {
+						return;
+					}
+					if (oui) {
+						matrice[i] = static_cast<uint16>(matrice[i] | (1u << j));
+						matrice[j] = static_cast<uint16>(matrice[j] | (1u << i));
+					} else {
+						matrice[i] = static_cast<uint16>(matrice[i] & ~(1u << j));
+						matrice[j] = static_cast<uint16>(matrice[j] & ~(1u << i));
+					}
+				}
+		};
+
+		/// Le masque des calques que TOUCHE un collisionneur de `couche` : l'union
+		/// des lignes de ses calques 0 a 15. Les bits 16 a 31 (hors matrice) ne
+		/// sont jamais retires, et une couche sans aucun bit bas n'est pas
+		/// concernee par la matrice (tout passe, comme avant).
+		inline uint32 NkMasqueCalques2D(const NkCalquesCollision2D &k, uint32 couche) noexcept {
+			uint32 ligne = 0u;
+			for (uint32 i = 0; i < NK_CALQUES_COLLISION; ++i) {
+				if ((couche & (1u << i)) != 0u) {
+					ligne |= k.matrice[i];
+				}
+			}
+			if ((couche & 0xFFFFu) == 0u) {
+				ligne = 0xFFFFu;
+			}
+			return 0xFFFF0000u | ligne;
+		}
+
+		/// Vrai si les calques `k` sont le reglage par defaut (rien n'est ecrit
+		/// au fichier : une scene d'avant ressort a l'octet pres).
+		inline bool NkCalquesParDefaut(const NkCalquesCollision2D &k) noexcept {
+			for (uint32 i = 0; i < NK_CALQUES_COLLISION; ++i) {
+				if (k.matrice[i] != 0xFFFFu || k.noms[i][0] != '\0') {
+					return false;
+				}
+			}
+			return true;
 		}
 
 		enum class NkTypeCorps : uint8 {

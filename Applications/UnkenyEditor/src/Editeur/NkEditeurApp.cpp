@@ -22,6 +22,7 @@
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurTerminal.h"
 #include "Editeur/NkEditeurProjet.h"
+#include "Editeur/NkEditeurPlacer.h"
 #include "Editeur/NkEditeurTrame.h"
 #include "NKEditorKit/NkThemeToGui.h"
 #include "NKEvent/NkDropEvent.h"
@@ -161,6 +162,8 @@ namespace nkentseu {
 				{NkKey::NK_T, NkGuiKey::T},				  {NkKey::NK_U, NkGuiKey::U},
 				{NkKey::NK_W, NkGuiKey::W},				  {NkKey::NK_Y, NkGuiKey::Y},
 				{NkKey::NK_Z, NkGuiKey::Z},
+				// (2026-10-01) V maintenue : l'AIMANT le temps du geste (NkEditeurAimant.cpp).
+				{NkKey::NK_V, NkGuiKey::V},
 			};
 
 		} // namespace
@@ -359,6 +362,12 @@ namespace nkentseu {
 					mExempleNuit = true;
 					continue;
 				}
+				// (2026-10-01) --placer=formes, --exemple=formes, --selection-forme=,
+				// --collision=editer : Placer des acteurs et les formes, capturables
+				// sans souris (NkEditeurPlacer.h).
+				if (NkEditeurOptionPlacer(*mUi, args[i])) {
+					continue;
+				}
 				// --eclairage=off : la meme scene, eclairage de scene ETEINT -- la
 				// capture « avant » d'une paire avant / apres, sans souris.
 				if (args[i] == "--eclairage=off") {
@@ -404,6 +413,10 @@ namespace nkentseu {
 					}
 					continue;
 				}
+				// (2026-10-01) Des captures HORS ECRAN, sans fenetre (NkEditeurPlacer.h).
+				if (args[i].StartsWith("--captures-formes=")) {
+					return NkOptional<int>(NkEditeurCapturesFormes(NkString(args[i].SubStr(18)).CStr()));
+				}
 				if (args[i] == "--selftest") {
 					// Le moteur d'abord (textures, sauvegarde, son, systemes), puis
 					// les ACTIONS de l'editeur : un echec d'Unkeny se lit ainsi a
@@ -430,9 +443,12 @@ namespace nkentseu {
 					const int32 terminal = NkEditeurLancerBancTerminal();
 					// L'etape 2 d'Unreal (01/10, document 02) : a part, a la fin.
 					const int32 ue5 = NkEditeurLancerBancUe5();
+					// Les formes 2D, les collisionneurs et les calques (01/10) : a part,
+					// le moteur puis l'editeur (Placer des acteurs, Details, poignees).
+					const int32 formes = unkeny::NkUnkenyLancerBancFormes() | NkEditeurLancerBancFormes();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
 									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
-									   ecran != 0 || terminal != 0 || ue5 != 0;
+									   ecran != 0 || terminal != 0 || ue5 != 0 || formes != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une
@@ -538,6 +554,9 @@ namespace nkentseu {
 			if (mExempleHud) {
 				NkEditeurExempleHud(m);
 			}
+			if (mUi->demExempleFormes) {
+				NkEditeurSceneFormes(m);
+			}
 			m.carte.Creer(40, 24, 1.f);
 			m.carte.AjouterCouche(0, 1.f);
 			m.carte.PoserNature(1, NkNatureTuile::NK_SOLIDE);
@@ -601,6 +620,7 @@ namespace nkentseu {
 			if (mEclairageEteint) {
 				m.scene.Eclairage().actif = false;
 			}
+			NkEditeurDemarrerPlacer(m, *mUi);
 			if (m.simuler) {
 				NkEditeurJouer(m);
 			}
@@ -983,12 +1003,14 @@ namespace nkentseu {
 			} else if (menuDebut != NkMenuEditeur::NK_AUCUN) {
 				const bool surSous = ui.sousMenu != NkMenuEditeur::NK_AUCUN && NkEditeurDans(ui.sousMenuRect, vrais.position);
 				Neutraliser(c.ctx.input, NkEditeurDans(ui.menuRect, vrais.position) || surSous);
-			} else if (ui.panneauEntrees && NkEditeurDans(entrees.panneauRect, vrais.position)) {
+			} else if ((ui.panneauEntrees && NkEditeurDans(entrees.panneauRect, vrais.position)) ||
+					   (ui.reglagesCollision && NkEditeurDans(ui.reglagesCollisionRect, vrais.position))) {
 				// Le panneau Entrees flotte au-dessus du corps : un clic sur lui
 				// ne doit pas choisir l'entite qui est dessous.
 				Neutraliser(c.ctx.input, true);
 			}
 			NkEditeurDessinerVue(c);
+			NkEditeurDessinerPlacer(c); // 2026-10-01 : Placer des acteurs, a gauche
 			NkEditeurDessinerOutliner(c);
 			NkEditeurDessinerDetails(c);
 			NkEditeurDessinerTiroir(c);
@@ -1008,6 +1030,7 @@ namespace nkentseu {
 			// Le panneau Entrees, SOUS les menus deroulants (il ne prend aucun clic
 			// tant qu'un menu est ouvert).
 			NkEditeurDessinerPanneauEntrees(c, entrees);
+			NkEditeurDessinerReglagesCollision(c); // 2026-10-01 : les calques de collision
 			NkEditeurDessinerBarreMenus(c);
 			NkEditeurDessinerMenuOuvert(c, menuDebut);
 

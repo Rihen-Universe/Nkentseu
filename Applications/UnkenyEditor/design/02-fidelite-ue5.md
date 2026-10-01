@@ -171,6 +171,21 @@ Lumières, Formes, Effets, Volumes, Tout**, avec recherche, liste à icônes,
 - **Volumes** : zone de déclenchement, zone de physique (vent, eau…), limites de
   caméra.
 
+> **État au 01/10 (branche `unkeny/formes-2d-placer-acteurs`)** — fait : le panneau
+> à gauche (`NkEditeurPlacer.cpp`), ses huit onglets, la recherche, les favoris et
+> récents, clic = au centre de la vue, glisser = au point lâché (un volume lâché sur
+> une entité devient son collisionneur). Les **formes 2D** sont un composant du
+> moteur (`Unkeny/Scene/NkUnkenyFormes.h`, dessin dans `NkDessinerScene`) avec leur
+> collisionneur assorti ; collisionneurs polygone / chaîne / rotation, **calques de
+> collision** (Fenêtre > Réglages du projet : collision), poignées dans la vue et
+> **aimant** (sommets, arêtes, faces ; V maintenue). Base : acteur vide, sprite,
+> personnage, caisse, balle, corps mou, son, déclencheur. Lumières : ponctuelle,
+> projecteur, directionnelle. Volumes : déclencheur et volumes bloquants.
+> **Pas fait, faute de moteur** : point de départ du joueur, caméra entité, texte
+> de scène, zones de physique (vent, eau) et limites de caméra — Unkeny ne les porte
+> pas encore. Bancs FORMES (28) et FORMES EDITEUR (22) ; captures
+> `References\Captures\formes\`.
+
 ## 5. Le panneau Détails (dessin d'Unreal)
 
 - **En-tête** : icône du type, **nom** de l'acteur, **case « active »** (Unity

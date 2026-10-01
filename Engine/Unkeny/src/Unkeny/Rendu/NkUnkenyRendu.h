@@ -28,6 +28,7 @@
 #pragma once
 
 #include "NKGui/Core/NkGuiContext.h"
+#include "Unkeny/Scene/NkUnkenyFormes.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
 
 namespace nkentseu {
@@ -41,7 +42,21 @@ namespace nkentseu {
 		/// Dessine tous les sprites de la scene, tries par couche.
 		/// Rend de quoi mesurer : sans compteur, « pourquoi c'est lent » n'a pas
 		/// de reponse, et « le culling marche-t-il » non plus.
+		/// (2026-10-01) Et les FORMES 2D (NkRenduForme2D), dans le MEME tri : une
+		/// forme de couche 2 passe devant un sprite de couche 1, et derriere un
+		/// de couche 3. Elles comptent dans les statistiques comme les sprites.
 		NkStatsRendu NkDessinerScene(nkgui::NkGuiDrawList &dl, NkScene &scene);
+
+		/// Une forme 2D (NkUnkenyFormes.h) sous le transform `t`, a travers la
+		/// camera : remplissage (eventail si convexe, triangulation NkEarcutVers
+		/// si elle peut etre concave), contour, opacite. C'est le dessin de
+		/// NkDessinerScene, offert a qui veut une forme hors d'une scene.
+		void NkDessinerRenduForme2D(nkgui::NkGuiDrawList &dl, const NkVue2D &camera, const NkTransform2D &t,
+									const NkRenduForme2D &f);
+
+		/// La meme forme en VIGNETTE, inscrite dans le rectangle `r` (en pixels) :
+		/// les icones du panneau « Placer des acteurs ».
+		void NkDessinerFormeVignette(nkgui::NkGuiDrawList &dl, const NkRenduForme2D &f, const nkgui::NkRect &r);
 
 		/// ⚠️ TOUTES LES COULEURS D'UNKENY SONT EN 0xRRGGBBAA — l'alpha en
 		/// QUEUE. Ecrite en ARGB par habitude, `0x20FFFFFF` ne donne pas un
