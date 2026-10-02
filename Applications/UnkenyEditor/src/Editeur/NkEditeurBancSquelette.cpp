@@ -38,6 +38,7 @@
 #include "NKFileSystem/NkFile.h"
 #include "NKGui/Core/NkGuiDrawListRaster.h"
 #include "NKImage/Core/NkImage.h"
+#include "NKPhysics/NkParticules2D.h"
 #include "Unkeny/Anim/NkUnkenyProprietes.h"
 #include "Unkeny/Maillage/NkUnkenyMaillagePhysique.h"
 
@@ -104,10 +105,11 @@ namespace nkentseu {
 							a = 255;
 						};
 						// Les jambes et les bottes (sous la cape).
-						const bool jambeAr = fx >= 64.f && fx <= 80.f && fy >= 222.f && fy <= 272.f;
-						const bool jambeAv = fx >= 90.f && fx <= 106.f && fy >= 222.f && fy <= 272.f;
-						const bool botteAr = fx >= 62.f && fx <= 90.f && fy >= 268.f && fy <= 286.f && !(fx > 82.f && fy < 276.f);
-						const bool botteAv = fx >= 88.f && fx <= 120.f && fy >= 268.f && fy <= 286.f && !(fx > 108.f && fy < 276.f);
+						// Ecartees (20 px) : la peau de chaque jambe ne touche pas l'autre.
+						const bool jambeAr = fx >= 56.f && fx <= 72.f && fy >= 222.f && fy <= 272.f;
+						const bool jambeAv = fx >= 96.f && fx <= 112.f && fy >= 222.f && fy <= 272.f;
+						const bool botteAr = fx >= 54.f && fx <= 84.f && fy >= 268.f && fy <= 286.f && !(fx > 74.f && fy < 276.f);
+						const bool botteAv = fx >= 94.f && fx <= 126.f && fy >= 268.f && fy <= 286.f && !(fx > 114.f && fy < 276.f);
 						if (jambeAr || jambeAv) {
 							Poser(44, 38, 50);
 						}
@@ -137,10 +139,10 @@ namespace nkentseu {
 						}
 						// Le bras de devant (la manche), la main gantee.
 						if (DansPoly(fx, fy, bras, 4)) {
-							Poser(84, 70, 88);
+							Poser(52, 42, 58); // la manche, plus sombre que la cape
 						}
 						if (DansEllipse(fx, fy, 117.f, 196.f, 8.f, 9.f)) {
-							Poser(126, 108, 94);
+							Poser(98, 80, 70); // le gant
 						}
 						// La BRAISE dans la main : le dernier feu.
 						const float32 dx = fx - 124.f, dy = fy - 210.f;
@@ -190,12 +192,32 @@ namespace nkentseu {
 					return;
 				}
 				unkeny::NkSqueletteModele(*sq, anim::NkSkeleton2DTemplate::NK_HUMANOID_PROFILE, VersMetres(44.f, 288.f), VersMetres(132.f, 0.f));
+				// Les os POSES SUR L'IMAGE (les retouches qu'on ferait a la main, outil Os) :
+				// chaque jambe sur la sienne, le bras de devant dans sa manche.
+				struct Pose {
+						const char *os;
+						float32 tx, ty, qx, qy; // tete et queue, en pixels de l'image
+				};
+				static const Pose kPoses[] = {
+					{"Hanches", 84, 214, 84, 182},	  {"Torse", 84, 182, 86, 104},	  {"Cou", 86, 104, 88, 90},
+					{"Tete", 88, 90, 96, 22},		  {"BrasG", 70, 110, 66, 152},	  {"AvantBrasG", 66, 152, 66, 190},
+					{"MainG", 66, 190, 68, 204},	  {"BrasD", 104, 108, 113, 150},  {"AvantBrasD", 113, 150, 117, 188},
+					{"MainD", 117, 188, 122, 206},	  {"CuisseG", 64, 214, 64, 246},  {"JambeG", 64, 246, 64, 272},
+					{"PiedG", 64, 272, 80, 282},	  {"CuisseD", 104, 214, 104, 246}, {"JambeD", 104, 246, 104, 272},
+					{"PiedD", 104, 272, 120, 282},
+				};
+				for (const Pose &p : kPoses) {
+					const int32 j = unkeny::NkSqueletteTrouverOs(*sq, p.os);
+					if (j >= 0) {
+						unkeny::NkSqueletteReposTeteQueue(*sq, static_cast<uint32>(j), VersMetres(p.tx, p.ty), VersMetres(p.qx, p.qy));
+					}
+				}
 				const int32 cou = unkeny::NkSqueletteTrouverOs(*sq, "Cou");
 				const int32 e1 = unkeny::NkSqueletteAjouterOs(*sq, "Echarpe1", cou, VersMetres(70.f, 98.f), VersMetres(52.f, 120.f));
 				const int32 e2 = unkeny::NkSqueletteAjouterOs(*sq, "Echarpe2", e1, VersMetres(52.f, 120.f), VersMetres(37.f, 135.f));
 				unkeny::NkSqueletteAjouterOs(*sq, "Echarpe3", e2, VersMetres(37.f, 135.f), VersMetres(22.f, 149.f));
 				unkeny::NkSqueletteAjouterChaine(*sq, static_cast<uint32>(e1), 3);
-				sq->chaines[0].trainee = 2.5f;
+				sq->chaines[0].trainee = 6.f; // une echarpe legere : beaucoup de prise au vent
 				unkeny::NkAutoPoidsChaleur2D(*sq, *ml);
 			}
 
@@ -622,11 +644,26 @@ namespace nkentseu {
 				b = ParNom(m.scene, "Bodofia");
 				s = Sq(m, b);
 				const float32 pend = s != nullptr ? bout0.y - Queue(*s, static_cast<uint32>(e2), true).y : 0.f;
+				// Le corps FILE vers la droite : l'echarpe traine derriere (a gauche).
+				float32 traine = 0.f;
+				for (int32 k = 0; k < 24; ++k) {
+					b = ParNom(m.scene, "Bodofia");
+					if (NkTransform2D *t = m.scene.Monde().Get<NkTransform2D>(b)) {
+						t->position.x += 0.06f;
+					}
+					NkEditeurAvancer(m, 1.f / 60.f);
+				}
+				b = ParNom(m.scene, "Bodofia");
+				s = Sq(m, b);
+				if (s != nullptr) {
+					traine = Tete(*s, static_cast<uint32>(e1), true).x - Queue(*s, static_cast<uint32>(e2), true).x;
+				}
 				NkEditeurArreter(m);
 				b = ParNom(m.scene, "Bodofia");
 				s = Sq(m, b);
 				const bool rendu = s != nullptr && Dist(Queue(*s, static_cast<uint32>(e2), true), bout0) < 1e-4f && s->chaines[0].corps == 0u;
 				Temoin(pend > 0.2f, "(e8) Jouer : l'echarpe (chaine molle) PEND sous la gravite", pend);
+				Temoin(traine > 0.1f, "(e8) le corps file a droite : l'echarpe TRAINE derriere", traine);
 				Temoin(rendu, "(e8) Arreter : l'echarpe revient, plus de corps", 0.f);
 			}
 
@@ -784,7 +821,7 @@ namespace nkentseu {
 			Trames(1);
 			Capture("07_marche_instant_b.png");
 			// Bodofia file vers la droite : l'echarpe TRAINE derriere.
-			for (int32 k = 0; k < 24; ++k) {
+			for (int32 k = 0; k < 40; ++k) {
 				ecs::NkEntityId bj = ParNom(m.scene, "Bodofia");
 				if (NkTransform2D *t = m.scene.Monde().Get<NkTransform2D>(bj)) {
 					t->position.x += 0.06f;

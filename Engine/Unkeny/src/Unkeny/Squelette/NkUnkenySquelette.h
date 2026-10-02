@@ -113,7 +113,7 @@ namespace nkentseu {
 				float32 masse = 0.05f; ///< kg par maillon
 				/// La TRAINEE de l'air (1/s) : une echarpe se balance puis se pose ; sans
 				/// elle, la chaine est un pendule qui ne s'arrete jamais.
-				float32 trainee = 3.f;
+				float32 trainee = 5.f;
 				// --- TRANSITOIRES : l'etat EN JEU, jamais ecrit ---------------
 				uint32 corps = 0u; ///< l'id STABLE du corps de particules
 		};

@@ -1158,9 +1158,30 @@ namespace nkentseu {
 				if (sq == nullptr) {
 					return;
 				}
-				// ── La liste des os (en arbre) ──
+				// ── La liste des os, EN ARBRE (chaque os sous son parent) ──
 				Titre(P, "Os");
-				for (uint32 j = 0; j < sq->nbOs; ++j) {
+				uint32 ordre[NK_SQUELETTE2D_OS_MAX];
+				uint32 nOrdre = 0;
+				{
+					uint32 pile[NK_SQUELETTE2D_OS_MAX];
+					uint32 nPile = 0;
+					for (int32 r = static_cast<int32>(sq->nbOs) - 1; r >= 0; --r) {
+						if (sq->os[r].parent < 0) {
+							pile[nPile++] = static_cast<uint32>(r);
+						}
+					}
+					while (nPile > 0u && nOrdre < NK_SQUELETTE2D_OS_MAX) {
+						const uint32 j = pile[--nPile];
+						ordre[nOrdre++] = j;
+						for (int32 c2 = static_cast<int32>(sq->nbOs) - 1; c2 > static_cast<int32>(j); --c2) {
+							if (sq->os[c2].parent == static_cast<int32>(j) && nPile < NK_SQUELETTE2D_OS_MAX) {
+								pile[nPile++] = static_cast<uint32>(c2);
+							}
+						}
+					}
+				}
+				for (uint32 rang = 0; rang < nOrdre; ++rang) {
+					const uint32 j = ordre[rang];
 					uint32 prof = 0;
 					for (int32 p = sq->os[j].parent; p >= 0 && prof < 16u; p = sq->os[p].parent) {
 						++prof;
@@ -1178,7 +1199,7 @@ namespace nkentseu {
 					}
 					P.y += 19.f;
 					if (P.y > P.r.y + P.r.h - 40.f) {
-						Ligne(P, NkString::Format("... et %u autres", static_cast<uint32>(sq->nbOs) - j - 1u).CStr());
+						Ligne(P, NkString::Format("... et %u autres", nOrdre - rang - 1u).CStr());
 						break;
 					}
 				}
