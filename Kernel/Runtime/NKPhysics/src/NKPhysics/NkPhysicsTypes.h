@@ -27,6 +27,13 @@ namespace nkentseu {
 			NK_BODY_TRIGGER = 1u << 2,	  // détecte mais ne résout pas (zone)
 			NK_BODY_CCD = 1u << 3,		  // détection continue (corps rapide)
 			NK_BODY_SLEEPING = 1u << 4,	  // endormi (hors solveur jusqu'au réveil)
+			// (2026-10-02) PLATEFORME A SENS UNIQUE : elle ne repousse que ce qui
+			// arrive par sa face +Y LOCALE (le dessus), en descendant ; traversee
+			// par dessous et par les cotes. La decision est prise au PREMIER contact
+			// d'une paire et tenue tant que la paire dure : un corps entre par
+			// dessous n'est pas rejete vers le haut quand il redescend a mi-chemin.
+			// Les particules (NkParticules2D) la lisent aussi.
+			NK_BODY_ONE_WAY = 1u << 5,
 		};
 
 		// Comment combiner deux matériaux en contact.

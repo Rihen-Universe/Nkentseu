@@ -218,6 +218,21 @@ namespace nkentseu {
 
 				NkRigidBody *FindByCollisionId(uint32 cid) noexcept;
 				const NkRigidBody *FindByCollisionId(uint32 cid) const noexcept;
+
+				// ── Plateformes a sens unique (2026-10-02, NK_BODY_ONE_WAY) ──────
+				// La DECISION d'une paire (repousser ou laisser passer) est prise a
+				// son premier contact et TENUE tant que la paire dure. Refaite a
+				// chaque sous-pas, apres la detection : une paire disparue s'oublie.
+				struct NkDecisionSensUnique {
+						uint32 a = 0, b = 0; ///< identifiants de COLLISION de la paire
+						bool ignorer = false;
+				};
+				NkVector<NkDecisionSensUnique> mSensUnique;
+				NkVector<NkDecisionSensUnique> mSensUniquePrecedent;
+				void FiltrerSensUnique(float32 dt);
+				/// La paire (a, b) de collision est-elle traversee (sens unique) ?
+				bool PaireIgnoree(uint32 a, uint32 b) const noexcept;
+				bool PaireIgnoreePrecedente(uint32 a, uint32 b) const noexcept;
 				void SolveContacts(float32 dt); // M1..M3 : impulses séquentielles + warm-start
 				void CorrectPositions();		// M4 : split-impulse (projection positionnelle)
 				void WakeContacts();			// M6 : réveiller les corps touchés par un perturbateur

@@ -370,6 +370,84 @@ namespace nkentseu {
 			return (uint32)out.Size();
 		}
 
+		// ── Plateformes a sens unique (2026-10-02) ─────────────────────────────
+		// ⚠️ LA DECISION EST TENUE TANT QUE LA PAIRE DURE. Jugee a chaque sous-pas,
+		//    une balle entree PAR DESSOUS, arrivee au sommet de sa course a moitie
+		//    dans la plateforme, verrait la normale tournee vers le haut et serait
+		//    EJECTEE au-dessus ; et une balle posee qui rebondit (vitesse vers le
+		//    haut un instant) serait lachee puis traversee. Box2D tient de meme
+		//    l'etat « active » d'un contact sur sa duree de vie.
+		void NkPhysicsWorld::FiltrerSensUnique(float32 dt) {
+			mSensUniquePrecedent = mSensUnique;
+			mSensUnique.Clear();
+			const auto &pairs = mCollision.Pairs();
+			for (uint32 i = 0; i < (uint32)pairs.Size(); ++i) {
+				const collision::NkCollisionPair &p = pairs[i];
+				const NkRigidBody *A = FindByCollisionId(p.a);
+				const NkRigidBody *B = FindByCollisionId(p.b);
+				if (!A || !B || ((A->flags | B->flags) & NK_BODY_ONE_WAY) == 0u)
+					continue;
+				NkDecisionSensUnique d;
+				d.a = p.a;
+				d.b = p.b;
+				bool connue = false;
+				for (uint32 k = 0; k < (uint32)mSensUniquePrecedent.Size(); ++k) {
+					const NkDecisionSensUnique &v = mSensUniquePrecedent[k];
+					if ((v.a == p.a && v.b == p.b) || (v.a == p.b && v.b == p.a)) {
+						d.ignorer = v.ignorer;
+						connue = true;
+						break;
+					}
+				}
+				if (!connue) {
+					if (p.manifold.count <= 0)
+						continue; // pas encore de contact : rien a decider
+					// La plateforme et l'autre. Deux plateformes : on les laisse se
+					// traverser (elles sont statiques d'ordinaire).
+					const bool aEst = (A->flags & NK_BODY_ONE_WAY) != 0u;
+					const bool bEst = (B->flags & NK_BODY_ONE_WAY) != 0u;
+					if (aEst && bEst) {
+						d.ignorer = true;
+					} else {
+						const NkRigidBody &plat = aEst ? *A : *B;
+						const NkRigidBody &autre = aEst ? *B : *A;
+						// Normale de la PLATEFORME vers l'autre (celle du manifold va de A vers B).
+						const NkVec3f n = aEst ? p.manifold.normal : p.manifold.normal * -1.f;
+						const NkVec3f haut = plat.orientation * NkVec3f{0.f, 1.f, 0.f};
+						const float32 nHaut = n.Dot(haut);
+						const float32 vRel = (autre.linearVelocity - plat.linearVelocity).Dot(haut);
+						float32 profondeur = 0.f;
+						for (int32 k = 0; k < p.manifold.count; ++k)
+							profondeur = math::NkMax(profondeur, p.manifold.points[k].depth);
+						// Arrive PAR DESSUS : normale vers le haut, ne monte pas, et a peine
+						// enfonce (la tolerance suit la vitesse de chute sur ce sous-pas).
+						const float32 tolerance = 0.05f + math::NkMax(0.f, -vRel) * dt * 2.f + mConfig.slop;
+						const bool porte = nHaut > 0.5f && vRel <= 0.5f && profondeur <= tolerance;
+						d.ignorer = !porte;
+					}
+				}
+				mSensUnique.PushBack(d);
+			}
+		}
+
+		bool NkPhysicsWorld::PaireIgnoree(uint32 a, uint32 b) const noexcept {
+			for (uint32 k = 0; k < (uint32)mSensUnique.Size(); ++k) {
+				const NkDecisionSensUnique &v = mSensUnique[k];
+				if ((v.a == a && v.b == b) || (v.a == b && v.b == a))
+					return v.ignorer;
+			}
+			return false;
+		}
+
+		bool NkPhysicsWorld::PaireIgnoreePrecedente(uint32 a, uint32 b) const noexcept {
+			for (uint32 k = 0; k < (uint32)mSensUniquePrecedent.Size(); ++k) {
+				const NkDecisionSensUnique &v = mSensUniquePrecedent[k];
+				if ((v.a == a && v.b == b) || (v.a == b && v.b == a))
+					return v.ignorer;
+			}
+			return false;
+		}
+
 		void NkPhysicsWorld::ProcessTriggers() {
 			mTrigEnter.Clear();
 			mTrigStay.Clear();
@@ -387,8 +465,14 @@ namespace nkentseu {
 						out.PushBack(NkTriggerEvent{A->id, B->id});
 					else if (B->flags & NK_BODY_TRIGGER)
 						out.PushBack(NkTriggerEvent{B->id, A->id});
-					else if (solides != nullptr)
-						solides->PushBack(NkTriggerEvent{A->id, B->id});
+					else if (solides != nullptr) {
+						// (2026-10-02) Une paire TRAVERSEE (sens unique) n'est pas un choc :
+						// ni debut, ni fin (la fin se juge sur la decision d'avant).
+						const bool ignoree = solides == &mContactEnter ? PaireIgnoree(evs[i].a, evs[i].b)
+																	   : PaireIgnoreePrecedente(evs[i].a, evs[i].b);
+						if (!ignoree)
+							solides->PushBack(NkTriggerEvent{A->id, B->id});
+					}
 				}
 			};
 			mapEvents(mCollision.EnterEvents(), mTrigEnter, &mContactEnter);
@@ -556,6 +640,9 @@ namespace nkentseu {
 				const NkRigidBody *autre = FindByCollisionId(estA ? p.b : p.a);
 				if (autre == nullptr || (autre->flags & NK_BODY_TRIGGER) || (self->flags & NK_BODY_TRIGGER))
 					continue;
+				// (2026-10-02) Une plateforme traversee ne porte pas : « au sol » est faux.
+				if (((autre->flags | self->flags) & NK_BODY_ONE_WAY) && PaireIgnoree(p.a, p.b))
+					continue;
 				NkBodyContact c;
 				c.other = autre->id;
 				// Normale du manifold : de A vers B. Vers le corps demande, donc
@@ -632,6 +719,8 @@ namespace nkentseu {
 					continue;
 				if (!A->IsAwake() && !B->IsAwake())
 					continue; // M6 : deux corps endormis -> rien à faire
+				if (((A->flags | B->flags) & NK_BODY_ONE_WAY) && PaireIgnoree(p.a, p.b))
+					continue; // (2026-10-02) traversee : plateforme a sens unique
 				NkSolverContact c;
 				c.a = A;
 				c.b = B;
@@ -759,6 +848,8 @@ namespace nkentseu {
 					continue;
 				if ((A->flags & NK_BODY_TRIGGER) || (B->flags & NK_BODY_TRIGGER))
 					continue;
+				if (((A->flags | B->flags) & NK_BODY_ONE_WAY) && PaireIgnoree(p.a, p.b))
+					continue; // (2026-10-02) traversee : rien a corriger
 				// M6 : un corps endormi est immovable (invMass effective = 0).
 				const float32 imA = A->IsAwake() ? A->invMass : 0.f;
 				const float32 imB = B->IsAwake() ? B->invMass : 0.f;
@@ -1025,6 +1116,9 @@ namespace nkentseu {
 			}
 			// 2) détection (broadphase DBVH + manifolds multi-points)
 			mCollision.Step();
+			// 2a) (2026-10-02) les plateformes a SENS UNIQUE : quelles paires laisser
+			//     passer. Avant tout ce qui lit les paires (evenements, solveur).
+			FiltrerSensUnique(dt);
 			// 2b) réveiller les corps endormis touchés par un perturbateur
 			WakeContacts();
 			// 2c) événements de trigger (zones de détection) -> NkBodyId

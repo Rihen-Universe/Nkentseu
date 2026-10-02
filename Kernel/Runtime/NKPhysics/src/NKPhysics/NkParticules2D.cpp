@@ -917,6 +917,7 @@ namespace nkentseu {
 				Rigide r;
 				r.corps = &b;
 				r.id = b.id;
+				r.sensUnique = (b.flags & NK_BODY_ONE_WAY) != 0u;
 				r.angleCorps = 2.f * math::NkAtan2(b.orientation.z, b.orientation.w);
 				r.type = static_cast<uint8>(b.type);
 				switch (s.type) {
@@ -1078,6 +1079,17 @@ namespace nkentseu {
 							} else {
 								nl = NkVec2f(0.f, loc.y < 0.f ? -1.f : 1.f);
 								prof = fy + p.rayon;
+							}
+						}
+						// (2026-10-02) SENS UNIQUE : seule la face HAUTE porte, et seulement
+						// une particule qui etait au-dessus d'elle au debut du sous-pas
+						// (sa position `prec`, dans le repere de la boite). Une particule
+						// qui monte au travers, ou entre par le cote, passe.
+						if (r.sensUnique) {
+							const NkVec2f locPrec = Rot(p.prec - centre, cB, -sB);
+							const float32 marge = Maxf(p.rayon * 0.5f, 0.01f);
+							if (nl.y < 0.5f || locPrec.y - p.rayon < r.demi.y - marge) {
+								return;
 							}
 						}
 						n = Rot(nl, cB, sB);

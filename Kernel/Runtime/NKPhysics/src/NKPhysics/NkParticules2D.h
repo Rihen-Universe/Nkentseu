@@ -514,6 +514,10 @@ namespace nkentseu {
 						float32 mnx = 0.f, mny = 0.f, mxx = 0.f, mxy = 0.f; ///< boite englobante (etendue)
 						NkBodyId id = 0;		  ///< 2026-09-29 : pour les contacts et les attaches
 						float32 angleCorps = 0.f; ///< angle du corps au debut du pas (ancres des attaches)
+						/// (2026-10-02) Plateforme a SENS UNIQUE (NK_BODY_ONE_WAY) : une
+						/// particule n'est portee que si elle etait AU-DESSUS de sa face
+						/// haute au debut du sous-pas ; sinon elle traverse.
+						bool sensUnique = false;
 				};
 
 				void SousPas(float32 h, int32 k) noexcept;
