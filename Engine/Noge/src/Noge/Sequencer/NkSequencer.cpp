@@ -16,9 +16,10 @@
 // marqueurs aurait coûté des années. Maintenant on le sait, et il est écrit.
 //
 // PAS livré, et qui le DIT au lieu de faire semblant :
-//   - NkNLATrack::Evaluate — les pistes NLA n'appliquent rien (voir son corps).
-//     Elles sont en revanche SÉRIALISÉES : le format porte ce que le moteur
-//     n'exécute pas encore, pour ne pas avoir à le casser quand il l'exécutera.
+//   - (2026-10-01 soir) NkNLATrack::Evaluate est LIVRE avec un registre de
+//     clips : la pile de poses qu'il attendait est NKAnima/Blend/NkAnimMix.h. La
+//     piste `Animation` MELANGE aussi ses clips qui se chevauchent (par leurs
+//     fondus) au lieu de prendre le dernier.
 //
 // L'interpolation suit le contrat de bord de NKAnima (NkAnimation.h:108-122) :
 // HORS de l'intervalle des clés, on rend la valeur de BORD — jamais d'extrapolation.
@@ -31,6 +32,7 @@
 // La piste `Animation` a besoin du registre ET du lecteur de NKAnima. Ils sont
 // inclus ICI et pas dans l'en-tete : celui-ci n'en declare que le nom.
 #include "NKAnima/Clip/NkClipRegistry.h"
+#include "NKAnima/Blend/NkAnimMix.h" // (01/10 soir) la pile de poses : NLA, fondus
 
 namespace nkentseu {
 
@@ -265,6 +267,87 @@ namespace nkentseu {
 		// elle est PRIVÉE (`NkAnimation.h:445` porte `private:`, la déclaration est
 		// l.466). Si NKAnima reçoit un jour un `EvaluateAt(t)` public, ces deux
 		// lignes deviendront une seule — et ce commentaire devra partir avec elles.
+		// ── (2026-10-01 soir) Le transform d'OBJET d'un clip, et son melange ─────
+		struct ObjetTRS {
+				NkVec3f t = {0.f, 0.f, 0.f};
+				NkQuatf r = NkQuatf::Identity();
+				NkVec3f s = {1.f, 1.f, 1.f};
+		};
+
+		/// Le transform d'objet d'un clip au temps local : `Evaluate` du lecteur est
+		/// privee (voir plus bas), on passe par SeekTo + Update(0).
+		ObjetTRS EchantillonObjet(const anim::NkAnimationClip &clip, float32 local) {
+			anim::NkAnimationPlayer lecteur;
+			lecteur.SetClip(&clip);
+			lecteur.SeekTo(local);
+			lecteur.Update(0.f);
+			const anim::NkAnimationState &etat = lecteur.GetState();
+			ObjetTRS o;
+			o.t = etat.position;
+			o.s = etat.scale;
+			// `etat.rotation` est un NkVec4f (x, y, z, w) : reconstruit composante par
+			// composante (les deux types ne se convertissent pas, et c'est voulu).
+			o.r = NkQuatf(etat.rotation.x, etat.rotation.y, etat.rotation.z, etat.rotation.w);
+			return o;
+		}
+
+		ObjetTRS LireObjet(const ecs::NkTransform &tr) {
+			ObjetTRS o;
+			o.t = tr.localPosition;
+			o.r = tr.localRotation;
+			o.s = tr.localScale;
+			return o;
+		}
+
+		void EcrireObjet(ecs::NkTransform &tr, const ObjetTRS &o) {
+			tr.localPosition = o.t;
+			tr.localRotation = o.r;
+			tr.localScale = o.s;
+			// Sans ce drapeau, la pose change en mémoire et RIEN ne bouge à l'écran.
+			tr.worldDirty = true;
+		}
+
+		NkQuatf NlerpQ(const NkQuatf &a, const NkQuatf &b, float32 w) {
+			const float32 d = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+			const float32 sg = d < 0.f ? -1.f : 1.f;
+			return NkQuatf(a.x + (b.x * sg - a.x) * w, a.y + (b.y * sg - a.y) * w, a.z + (b.z * sg - a.z) * w,
+						   a.w + (b.w * sg - a.w) * w)
+				.Normalized();
+		}
+
+		/// a <- a vers b au poids w.
+		void MelangerObjet(ObjetTRS &a, const ObjetTRS &b, float32 w) {
+			w = w < 0.f ? 0.f : (w > 1.f ? 1.f : w);
+			a.t = {a.t.x + (b.t.x - a.t.x) * w, a.t.y + (b.t.y - a.t.y) * w, a.t.z + (b.t.z - a.t.z) * w};
+			a.s = {a.s.x + (b.s.x - a.s.x) * w, a.s.y + (b.s.y - a.s.y) * w, a.s.z + (b.s.z - a.s.z) * w};
+			a.r = NlerpQ(a.r, b.r, w);
+		}
+
+		/// Les os d'une pose melangee dans le NkSkeleton de l'entite (s'il en a un
+		/// et que les comptes concordent), fondus depuis sa pose a `w`.
+		void EcrireOs(NkWorld &world, NkEntityId e, const anim::NkAnimPose &pose, float32 w) {
+			if (pose.bones.Empty() || w <= 0.f)
+				return;
+			ecs::NkSkeleton *sk = world.Get<ecs::NkSkeleton>(e);
+			if (sk == nullptr || sk->pose.Size() != pose.bones.Size())
+				return;
+			for (uint32 j = 0; j < (uint32)pose.bones.Size(); ++j) {
+				ecs::NkBonePose &b = sk->Pose(j);
+				ObjetTRS cur;
+				cur.t = b.localPosition;
+				cur.r = b.localRotation;
+				cur.s = b.localScale;
+				ObjetTRS cible;
+				cible.t = pose.bones[j].t;
+				cible.r = pose.bones[j].r;
+				cible.s = pose.bones[j].s;
+				MelangerObjet(cur, cible, w);
+				b.localPosition = cur.t;
+				b.localRotation = cur.r;
+				b.localScale = cur.s;
+			}
+		}
+
 		void SeqEvalueAnimation(const NkTrack &piste, float32 time, NkWorld &world,
 								const anim::NkClipRegistry *clips) noexcept {
 			// Sans registre, une piste `Animation` ne peut pas résoudre le clip
@@ -277,36 +360,48 @@ namespace nkentseu {
 			if (tr == nullptr)
 				return;
 
-			// Le DERNIER clip actif l'emporte, comme le dernier plan caméra : deux
-			// clips qui se chevauchent sont un montage volontaire, et c'est celui du
-			// dessus qui gagne. Le vrai mélange par poids viendra avec les pistes
-			// NLA — il n'est pas simulé ici, et ne doit pas en avoir l'air.
-			const NkClipOnTrack *choisi = nullptr;
-			for (uint32 i = 0; i < (uint32)piste.clips.Size(); ++i)
-				if (piste.clips[i].IsActive(time) && piste.clips[i].GetWeight(time) > 0.f)
-					choisi = &piste.clips[i];
-			if (choisi == nullptr)
+			// (2026-10-01 soir) Les clips qui se CHEVAUCHENT se MELANGENT par leurs
+			// poids (fondus d'entree et de sortie, GetWeight) : la moyenne ponderee
+			// des transforms (rotation par NLERP), puis, si la somme des poids reste
+			// sous 1 (un clip seul a mi-fondu), un fondu depuis la pose presente.
+			// Les os suivent le meme chemin si l'entite a un squelette.
+			ObjetTRS acc;
+			anim::NkAnimPose os, p;
+			float32 somme = 0.f;
+			bool premier = true;
+			for (uint32 i = 0; i < (uint32)piste.clips.Size(); ++i) {
+				const NkClipOnTrack &c = piste.clips[i];
+				const float32 w = c.IsActive(time) ? c.GetWeight(time) : 0.f;
+				if (w <= 0.f)
+					continue;
+				const anim::NkAnimationClip *clip = clips->Resolve(c.clipHandle);
+				if (clip == nullptr)
+					continue; // refus nommé, lisible par clips->DernierRefus()
+				const float32 local = c.GetLocalTime(time);
+				const ObjetTRS o = EchantillonObjet(*clip, local);
+				somme += w;
+				if (premier) {
+					acc = o;
+				} else {
+					MelangerObjet(acc, o, w / somme);
+				}
+				if (!clip->boneTracks.Empty()) {
+					anim::NkSampleClip(*clip, local, p);
+					if (premier) {
+						os = p;
+					} else {
+						anim::NkBlendPose(os, p, w / somme);
+					}
+				}
+				premier = false;
+			}
+			if (premier)
 				return;
-
-			const anim::NkAnimationClip *clip = clips->Resolve(choisi->clipHandle);
-			if (clip == nullptr)
-				return; // refus nommé, lisible par clips->DernierRefus()
-
-			anim::NkAnimationPlayer lecteur;
-			lecteur.SetClip(clip);
-			lecteur.SeekTo(choisi->GetLocalTime(time)); // pose le temps…
-			lecteur.Update(0.f);						// …et SEULE cette ligne évalue
-
-			const anim::NkAnimationState &etat = lecteur.GetState();
-			tr->localPosition = etat.position;
-			tr->localScale = etat.scale;
-			// `etat.rotation` est un NkVec4f (x, y, z, w), `NkTransform` attend un
-			// NkQuatf : on reconstruit composante par composante plutôt que de
-			// supposer que les deux types se convertissent. Ils ne se convertissent
-			// pas, et une conversion implicite qui compilerait serait pire.
-			tr->localRotation = NkQuatf(etat.rotation.x, etat.rotation.y, etat.rotation.z, etat.rotation.w);
-			// Sans ce drapeau, la pose change en mémoire et RIEN ne bouge à l'écran.
-			tr->worldDirty = true;
+			const float32 couverture = (somme > 1.f ? 1.f : somme) * piste.weight;
+			ObjetTRS cur = LireObjet(*tr);
+			MelangerObjet(cur, acc, couverture);
+			EcrireObjet(*tr, cur);
+			EcrireOs(world, piste.entity, os, couverture);
 		}
 
 	} // namespace
@@ -371,13 +466,98 @@ namespace nkentseu {
 	// NkNLATrack — DÉCLARÉ, PAS LIVRÉ
 	// =========================================================================
 	void NkNLATrack::Evaluate(float32 time, NkWorld &world) const noexcept {
-		// Ce corps existe pour que l'édition de liens réussisse, et pour que
-		// l'absence soit ÉCRITE plutôt que découverte. Le blend NLA (Replace /
-		// Add / Multiply entre clips squelettiques) demande une pile de poses
-		// qui n'existe pas encore côté Noge. Tant qu'elle n'existe pas, une
-		// piste NLA n'applique RIEN — elle ne dégrade donc jamais la pose.
+		// Sans registre, aucun clip ne se resout : rien n'est applique (la pose
+		// n'est jamais degradee). La surcharge a registre est celle qui joue.
 		(void)time;
 		(void)world;
+	}
+
+	void NkNLATrack::Evaluate(float32 time, NkWorld &world, const anim::NkClipRegistry *clips) const noexcept {
+		// (2026-10-01 soir) LIVRE. La pile de poses est celle de NKAnima
+		// (Blend/NkAnimMix.h) : les clips sont poses dans l'ordre, chacun sur ce
+		// qui est dessous, a son influence x le poids de la piste.
+		//   Replace  : fond vers le clip ;
+		//   Add      : ajoute la difference du clip a SA premiere image (additif) ;
+		//   Multiply : compose (positions et echelles multipliees, rotations
+		//              composees), a l'influence.
+		if (muted || weight <= 0.f || clips == nullptr || entity == NkEntityId::Invalid())
+			return;
+		ecs::NkTransform *tr = world.Get<ecs::NkTransform>(entity);
+		if (tr == nullptr)
+			return;
+		ObjetTRS cur = LireObjet(*tr);
+		anim::NkAnimPose os, p, ref, delta;
+		ecs::NkSkeleton *sk = world.Get<ecs::NkSkeleton>(entity);
+		if (sk != nullptr) {
+			os.bones.Resize(sk->pose.Size());
+			for (uint32 j = 0; j < (uint32)sk->pose.Size(); ++j) {
+				os.bones[j].t = sk->Pose(j).localPosition;
+				os.bones[j].r = sk->Pose(j).localRotation;
+				os.bones[j].s = sk->Pose(j).localScale;
+			}
+		}
+		bool agi = false;
+		for (uint32 i = 0; i < (uint32)this->clips.Size(); ++i) {
+			const NkNLAClip &c = this->clips[i];
+			if (c.muted || c.duration <= 0.f || time < c.startTime || time > c.startTime + c.duration)
+				continue;
+			const anim::NkAnimationClip *clip = clips->Resolve(c.clipHandle);
+			if (clip == nullptr)
+				continue;
+			// Le temps du clip : decalage, vitesse, repetitions, a rebours.
+			const float32 d = clip->duration > 1e-6f ? clip->duration : 1.f;
+			float32 local = c.clipOffset + (time - c.startTime) * c.speed;
+			if (c.repeat) {
+				const float32 tours = (float32)(c.repeatCount > 0 ? c.repeatCount : 1u);
+				local = local > d * tours ? d * tours : local;
+				local = std::fmod(local, d);
+			} else {
+				local = local < 0.f ? 0.f : (local > d ? d : local);
+			}
+			if (c.reverse)
+				local = d - local;
+			const float32 w = c.influence * weight;
+			if (w <= 0.f)
+				continue;
+			const ObjetTRS o = EchantillonObjet(*clip, local);
+			const bool aOs = !clip->boneTracks.Empty() && !os.bones.Empty();
+			if (aOs)
+				anim::NkSampleClip(*clip, local, p);
+			switch (c.blendType) {
+				case NkNLAClip::BlendType::Add: {
+					const ObjetTRS o0 = EchantillonObjet(*clip, c.reverse ? d : 0.f);
+					cur.t = {cur.t.x + (o.t.x - o0.t.x) * w, cur.t.y + (o.t.y - o0.t.y) * w, cur.t.z + (o.t.z - o0.t.z) * w};
+					cur.r = (cur.r * NlerpQ(NkQuatf::Identity(), (o0.r.Conjugate() * o.r).Normalized(), w)).Normalized();
+					auto div = [](float32 a, float32 b) { return (b > 1e-6f || b < -1e-6f) ? a / b : 1.f; };
+					cur.s = {cur.s.x * (1.f + (div(o.s.x, o0.s.x) - 1.f) * w), cur.s.y * (1.f + (div(o.s.y, o0.s.y) - 1.f) * w),
+							 cur.s.z * (1.f + (div(o.s.z, o0.s.z) - 1.f) * w)};
+					if (aOs) {
+						anim::NkSampleClip(*clip, c.reverse ? d : 0.f, ref);
+						anim::NkMakeAdditive(p, ref, delta);
+						anim::NkApplyAdditive(os, delta, w);
+					}
+					break;
+				}
+				case NkNLAClip::BlendType::Multiply: {
+					ObjetTRS m = cur;
+					m.t = {cur.t.x * o.t.x, cur.t.y * o.t.y, cur.t.z * o.t.z};
+					m.s = {cur.s.x * o.s.x, cur.s.y * o.s.y, cur.s.z * o.s.z};
+					m.r = (cur.r * o.r).Normalized();
+					MelangerObjet(cur, m, w);
+					break;
+				}
+				default:
+					MelangerObjet(cur, o, w);
+					if (aOs)
+						anim::NkBlendPose(os, p, w);
+					break;
+			}
+			agi = true;
+		}
+		if (!agi)
+			return;
+		EcrireObjet(*tr, cur);
+		EcrireOs(world, entity, os, 1.f);
 	}
 
 	// =========================================================================
@@ -435,7 +615,7 @@ namespace nkentseu {
 			tracks[i].Evaluate(time, world, clips);
 		const uint32 nn = (uint32)nlaTracks.Size();
 		for (uint32 i = 0; i < nn; ++i)
-			nlaTracks[i].Evaluate(time, world);
+			nlaTracks[i].Evaluate(time, world, clips); // (01/10 soir) les pistes NLA jouent
 		// La caméra n'est PAS appliquée ici : GetActiveCameraAt rend l'entité,
 		// et c'est au rendu de choisir quoi en faire. Écrire la caméra active
 		// dans le monde depuis une méthode `const` serait un effet de bord caché.

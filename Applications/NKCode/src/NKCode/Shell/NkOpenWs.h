@@ -1615,6 +1615,7 @@ namespace nkentseu {
 			}
 			int32 doNav = -1;
 			bool doOpen = false;
+			NkString doOpenFile; // (02/10) double-clic sur un FICHIER : il s'ouvre (son dossier ou son workspace)
 			bool clickedInRename = false;
 			bool rowHit = false; // un element a-t-il ete clique cette frame (sinon clic vide -> deselection)
 			// Champ de renommage inline (reutilise en liste comme en grille).
@@ -1661,6 +1662,11 @@ namespace nkentseu {
 						doNav = i;
 					else if (e.isJenga && e.hasWorkspace)
 						doOpen = true;
+					else if (!pickFolder && !NkCodeState::MutationNkCode("lanceur"))
+						// Un fichier QUELCONQUE (texte, source, .jenga sans workspace) : comme
+						// VS Code, il s'ouvre -- dans son workspace s'il en a un, sinon son
+						// dossier en edition simple (NkCodeDialogs::OuvrirChemin).
+						doOpenFile = (NkPath(ow->curDir) / e.name.CStr()).ToString();
 				}
 			};
 			ow->hoverIdx = -1; // recalcule chaque frame par la boucle (pour le tooltip)
@@ -2318,6 +2324,8 @@ namespace nkentseu {
 			else if (doOpen && !err && !pickFolder) {
 				dlg->DoLoad(NkPath(ow->curDir));
 			} // charge le workspace du dossier
+			else if (!doOpenFile.Empty() && dlg)
+				dlg->OuvrirChemin(doOpenFile.CStr());
 
 			return result;
 		}

@@ -50,6 +50,10 @@
 //         la vide (la scene ne joue pas) ; la fleche de remise ne parait que
 //         sur une valeur modifiee ; le verrou de l'echelle garde ses
 //         proportions ; la cloison des noms se tire
+//   (u10) (2026-10-02) l'EN-TETE des Details reste fixe -- nom, case, « +
+//         Ajouter », arbre de l'instance, recherche, pastilles -- et SEULES les
+//         cartes defilent, sous lui, dans le panneau (molette sur les cartes :
+//         elles bougent, l'en-tete non ; molette sur l'en-tete : rien ne bouge)
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -813,6 +817,72 @@ namespace nkentseu {
 				}
 				Temoin(ok, "(u9) Details : + Ajouter, arbre, pastilles, recherche, remise si modifie, verrou d'echelle, cloison",
 					   static_cast<float32>(ajouter + racine + arbre + pastille + trouve + vide + remise + verrou + cloison));
+			}
+
+			// (u10) (2026-10-02) L'EN-TETE DES DETAILS EST FIXE, SEULES LES CARTES
+			// DEFILENT (Rihen : « la ou on a l'instance, rechercher et filtre peuvent
+			// rester statiques, et les autres ont leur scroll »). Une caisse a
+			// beaucoup de composants, un panneau BAS : la molette sur les cartes les
+			// fait defiler, et le nom, « + Ajouter », l'arbre, la recherche et les
+			// pastilles ne bougent pas d'un pixel ; la molette sur l'en-tete ne fait
+			// rien defiler ; les cartes restent SOUS l'en-tete, dans le panneau.
+			// Contre-epreuve de mutation : l'ancienne disposition (arbre, recherche et
+			// pastilles DANS la zone defilable) -> ECHEC, cite dans le commit.
+			{
+				NkEditeurNouvelleScene(m);
+				NkEditeurOublierHistorique(m);
+				NkEditeurBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				ui.hauteurTiroir = 330.f; // un panneau Details BAS : les cartes debordent
+				m.selection = Par(m.scene, "Caisse");
+				m.aSelection = m.selection.IsValid();
+				if (m.aSelection) {
+					NkEditeurAjouterComposant(m, m.selection, NkComposantEditeur::NK_LUMIERE);
+					NkEditeurAjouterComposant(m, m.selection, NkComposantEditeur::NK_SOURCE);
+					NkEditeurAjouterComposant(m, m.selection, NkComposantEditeur::NK_ANCRAGE);
+				}
+				t.Fermer();
+				t.Trame();
+				t.Trame();
+				auto Pareil = [](const nkgui::NkRect &a, const nkgui::NkRect &b) {
+					return math::NkAbs(a.x - b.x) < 0.01f && math::NkAbs(a.y - b.y) < 0.01f && math::NkAbs(a.w - b.w) < 0.01f &&
+						   math::NkAbs(a.h - b.h) < 0.01f && a.w > 0.f;
+				};
+				const nkgui::NkRect entete = ui.detailsEntete, cartesZone = ui.detailsCartes, ajouter = ui.detailsAjouter,
+									recherche = ui.detailsRechercheRect, pastille = ui.detailsPastilles[3];
+				const nkgui::NkRect arbre0 = ui.detailsArbre.Empty() ? nkgui::NkRect{0.f, 0.f, 0.f, 0.f} : ui.detailsArbre[0];
+				const float32 rangee0 = ui.detailsRangees.Empty() ? 0.f : ui.detailsRangees[0].champ.y;
+				// Les cartes SOUS l'en-tete, dans le panneau ; rien ne deborde.
+				const bool range = entete.w > 0.f && cartesZone.h > 40.f && cartesZone.y >= entete.y + entete.h - 0.5f &&
+								   cartesZone.y + cartesZone.h <= ui.details.y + ui.details.h + 0.5f && recherche.y + recherche.h <= cartesZone.y &&
+								   pastille.y + pastille.h <= cartesZone.y;
+				// La molette sur L'EN-TETE (la recherche) : rien ne defile.
+				t.Ctx().input.mousePos = nkgui::NkVec2{recherche.x + recherche.w * 0.5f, recherche.y + recherche.h * 0.5f};
+				t.Ctx().input.AddWheelDeferred(-3.f);
+				t.Trame();
+				t.Trame();
+				const bool enteteSeul = !ui.detailsRangees.Empty() && math::NkAbs(ui.detailsRangees[0].champ.y - rangee0) < 0.01f;
+				// La molette sur LES CARTES : elles defilent, l'en-tete reste.
+				for (int32 k = 0; k < 3; ++k) {
+					t.Ctx().input.mousePos = nkgui::NkVec2{cartesZone.x + cartesZone.w * 0.5f, cartesZone.y + cartesZone.h * 0.5f};
+					t.Ctx().input.AddWheelDeferred(-3.f);
+					t.Trame();
+				}
+				t.Ctx().input.mousePos = nkgui::NkVec2{-100.f, -100.f};
+				t.Trame();
+				const float32 rangee1 = ui.detailsRangees.Empty() ? 0.f : ui.detailsRangees[0].champ.y;
+				const bool defile = rangee1 < rangee0 - 20.f;
+				const bool fixe = Pareil(ui.detailsEntete, entete) && Pareil(ui.detailsAjouter, ajouter) && Pareil(ui.detailsRechercheRect, recherche) &&
+								  Pareil(ui.detailsPastilles[3], pastille) && !ui.detailsArbre.Empty() && Pareil(ui.detailsArbre[0], arbre0) &&
+								  Pareil(ui.detailsCartes, cartesZone);
+				const bool ok = range && enteteSeul && defile && fixe;
+				if (!ok) {
+					std::printf("        range %d enteteSeul %d defile %d (%.1f -> %.1f) fixe %d (recherche y %.1f -> %.1f)%c", range, enteteSeul, defile,
+								static_cast<double>(rangee0), static_cast<double>(rangee1), fixe, static_cast<double>(recherche.y),
+								static_cast<double>(ui.detailsRechercheRect.y), 10);
+				}
+				Temoin(ok, "(u10) Details : l'en-tete (nom, arbre, recherche, pastilles) reste ; seules les cartes defilent",
+					   rangee0 - rangee1);
 			}
 
 			m.chemin = cheminAvant;

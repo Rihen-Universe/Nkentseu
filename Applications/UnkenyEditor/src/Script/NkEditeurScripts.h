@@ -20,6 +20,13 @@
 //   - Le compilateur : clang++ du PATH, sinon C:/msys64/ucrt64/bin (la chaine
 //     clang-mingw du depot) ; l'en-tete de la table vient du depot
 //     (Engine/Unkeny/src). Sans l'un ou l'autre, le Journal le DIT.
+//   - (01/10 soir) LE WORKSPACE JENGA DU PROJET, comme la solution qu'Unreal
+//     genere : `<projet>/<Projet>.jenga` (NkEditeurWorkspaceCpp.h), ecrit ou
+//     mis a jour des que le projet a un .cpp, sans toucher a ce que
+//     l'utilisateur y a ecrit. Un double-clic sur un script C++ ouvre NKCode
+//     SUR lui et sur le fichier ; « Construire » dans NKCode (jenga build)
+//     produit `Intermediaire/Scripts/Jenga/Scripts.dll`, que l'editeur
+//     RECHARGE A CHAUD des qu'elle a change et ne bouge plus (deux releves).
 //   - Un .nkbp du projet modifie sur le disque est RELU (la page du graphe le
 //     recompile et l'enregistre elle-meme) : pendant JEU, l'hote migre, les
 //     variables restent (elles sont dans le composant, par nom).
@@ -81,6 +88,19 @@ namespace nkentseu {
 				uint32 compilations = 0u;
 				float32 ageReleve = 99.f;
 
+				// --- Le workspace Jenga des scripts (NkEditeurWorkspaceCpp.h) -----
+				/// `<projet>/<Projet>.jenga`, pose quand le projet a des sources.
+				NkString workspace;
+				bool workspaceAssure = false; ///< deja ecrit / verifie pour ce projet
+				/// La DLL que Jenga produit (Construire dans NKCode) : son empreinte
+				/// au dernier chargement (ou a l'ouverture du projet : une DLL d'une
+				/// session precedente n'est pas chargee), et au dernier releve -- elle
+				/// n'est rechargee qu'une fois STABLE d'un releve a l'autre (l'editeur
+				/// de liens a fini d'ecrire).
+				int64 empreinteJenga = 0;
+				int64 empreinteJengaVue = 0;
+				uint32 rechargesJenga = 0u;
+
 				// --- Les Blueprints du projet ------------------------------------
 				NkVector<NkString> blueprints; ///< refs (« Contenu/Scripts/Porte.nkbp »)
 				NkVector<int64> empreintesBp;
@@ -90,13 +110,18 @@ namespace nkentseu {
 				NkVector<NkString> journal;
 				bool montrerJournal = false;
 
-				// --- La page du graphe ouverte (NkEditeurGraphe.h) ---------------
-				NkEditeurGrapheEtat graphe;
-				/// (2026-10-01) L'editeur de Blueprint s'ouvre EN PLEIN : les panneaux
-				/// de la scene se replient, et reviennent a la fermeture.
-				bool pleinEcran = true;
-				bool panneauxCaches = false;
-				bool voirPlacer = true, voirOutliner = true, voirDetails = true, voirTiroir = true;
+				// --- Les Blueprints ouverts (NkEditeurGraphe.h) : UN ONGLET CHACUN --
+				// (2026-10-02) Il n'y en avait qu'un, qui remplacait la vue sans
+				// retour possible ; chacun a desormais son onglet de document.
+				NkVector<NkEditeurGrapheEtat *> graphes;
+				/// Celui que la page montre et que Compiler / Fermer visent (nul : aucun).
+				NkEditeurGrapheEtat *courant = nullptr;
+				nk_uint64 prochainGraphe = 1;
+				/// Rendu par Graphe() quand aucun n'est ouvert (`ouvert` faux) : jamais nul.
+				NkEditeurGrapheEtat aucun;
+				NkEditeurGrapheEtat &Graphe() noexcept {
+					return courant != nullptr ? *courant : aucun;
+				}
 
 				NkEtatJeu etatPrecedent = NkEtatJeu::NK_EDITION;
 				bool demarre = false;
@@ -112,6 +137,11 @@ namespace nkentseu {
 				/// decharge, passerait avant `hote`).
 				~NkEditeurScripts() {
 					hote.Arreter();
+					for (uint32 i = 0; i < graphes.Size(); ++i) {
+						memory::NkGetDefaultAllocator().Delete(graphes[i]);
+					}
+					graphes.Clear();
+					courant = nullptr;
 				}
 		};
 
@@ -148,9 +178,46 @@ namespace nkentseu {
 		NkString NkEditeurNouveauScriptCpp(NkEditeurModele &m, const char *dossierNav);
 		/// Un nouveau Blueprint (« Debut -> Afficher "Bonjour" », compile).
 		NkString NkEditeurNouveauBlueprint(NkEditeurModele &m, const char *dossierNav);
-		/// Ouvre un fichier dans NKCode s'il est construit a cote, sinon dans
-		/// l'editeur de texte du systeme. false : rien n'a pu le lancer.
+		/// Ouvre un fichier dans l'editeur de texte du SYSTEME (l'application
+		/// associee, sinon le bloc-notes). false : rien n'a pu le lancer.
 		bool NkEditeurOuvrirTexteExterne(const char *chemin);
+
+		/// Ce qu'il faut pour lancer NKCode sur un script : l'executable, ses
+		/// arguments (« "<workspace .jenga>" "<script>" ») et son dossier de travail.
+		struct NkLancementNKCode {
+				NkString exe;	   ///< vide : NKCode introuvable
+				NkString arguments;
+				NkString dossier;  ///< le dossier de travail donne a NKCode
+				NkString workspace;
+		};
+		/// NKCode : `NK_NKCODE` s'il est pose, sinon construit dans le depot
+		/// (Build/Bin/{Release,Debug}-<Systeme>/NKCode/), sinon a cote de l'editeur
+		/// (../NKCode/). Vide si introuvable.
+		NkString NkEditeurTrouverNKCode();
+		/// Le lancement de NKCode sur `script`, ouvert SUR `workspace`.
+		NkLancementNKCode NkEditeurLancementNKCode(const char *workspace, const char *script);
+		/// Un SCRIPT C++ du projet (double-clic, Details, « + Ajouter ») : le
+		/// workspace Jenga du projet est assure, puis NKCode s'ouvre DESSUS et sur
+		/// ce fichier. Sans NKCode, le Journal dit pourquoi et quoi faire, et le
+		/// fichier s'ouvre dans l'editeur de texte du systeme. Sans effet quand
+		/// `s.ouvrirTexteExterne` est faux (bancs). false : rien n'a pu s'ouvrir.
+		bool NkEditeurOuvrirScriptCpp(NkEditeurScripts &s, NkEditeurModele &m, const char *chemin);
+		/// Assure le workspace du projet suivi (une fois par projet, ou de nouveau
+		/// si `forcer`) et rend son chemin ; le Journal dit ce qui a ete fait.
+		NkString NkEditeurScriptsAssurerWorkspace(NkEditeurScripts &s, bool forcer);
+		/// Suit la DLL que Jenga produit : rechargee a chaud quand elle a change
+		/// et ne bouge plus d'un releve a l'autre. true : un rechargement a eu lieu.
+		bool NkEditeurScriptsSuivreJenga(NkEditeurScripts &s);
+		/// Ecrit le registre des classes (`Intermediaire/Scripts/NkUnkRegistre.cpp`)
+		/// d'apres les sources, s'il a change. Le workspace Jenga le compile aussi.
+		void NkEditeurScriptsEcrireRegistre(NkEditeurScripts &s);
+
+		/// `--preuve-nkcode=DOSSIER` : la preuve DE BOUT EN BOUT, hors ecran --
+		/// l'exemple Portes, le double-clic sur PorteCpp.cpp (NKCode s'ouvre, en
+		/// sonde hors ecran, sur le workspace et construit par Jenga), le
+		/// rechargement a chaud de la DLL de Jenga, puis Jouer. Images et journal
+		/// dans DOSSIER. 0 = tout tient.
+		int32 NkEditeurPreuveNKCode(const char *dossier);
 		/// La REFERENCE d'un fichier du projet (« Contenu/Scripts/Porte.nkbp ») :
 		/// relative au projet, barres obliques. Vide si hors du projet.
 		NkString NkEditeurRefScript(NkEditeurModele &m, const char *cheminAbsolu);

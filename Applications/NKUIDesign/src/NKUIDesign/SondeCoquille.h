@@ -149,6 +149,7 @@ namespace nkuidesign {
 		const bool lu = coq.ChargerDepuisDossier("Resources/Interface/NKUIDesign");
 		uint32 ko = 0u;
 		printf("  -- interface.nkgui : %s\n", lu ? "lu" : "NON LU");
+		printf("  -- dossier         : %s\n", coq.dossier.CStr()); // (01/10) TROUVE, pas suppose
 		if (!lu) {
 			++ko;
 			printf("=== KO (ko = %u) ===\n", ko);

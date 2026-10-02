@@ -36,6 +36,7 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurAssets.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurTerminal.h"
 #include "Script/NkEditeurScriptsUi.h"
@@ -359,6 +360,20 @@ namespace nkentseu {
 					return;
 				}
 				if (NkEditeurCheminEstContenu(chemin)) {
+					// (2026-10-01, R33) Un asset qui a un ONGLET s'ouvre au RELACHEMENT, et
+					// seulement si le second appui ne devient pas un glisser (cliquer
+					// une carte puis la trainer aussitot n'ouvre rien).
+					if (NkEditeurGenreAsset(chemin) != NkGenreAsset::NK_AUCUN) {
+						// Les DEUX appuis sur la meme carte : une carte qui a glisse sous
+						// le curseur entre les deux (le Contenu a change) n'est pas un
+						// double-clic sur elle.
+						if (!(c.ui.appuiCarte == NkString(chemin))) {
+							return;
+						}
+						c.ui.assetEnAttente = NkString(chemin);
+						c.ui.assetAttente = c.ctx.input.mousePos;
+						return;
+					}
 					c.ui.contenuMenuChemin = NkString(chemin);
 					c.ui.contenuMenuDossier = false;
 					NkEditeurExecuter(c, NK_A_CONTENU_OUVRIR_ASSET);
@@ -632,6 +647,35 @@ namespace nkentseu {
 				ui.contenuListeDe = ui.contenuDossier;
 				ui.contenuListeAge = 0.f;
 				ui.contenuPerime = false;
+				// (2026-10-01) Ce que contient chaque dossier : sa carte montre une
+				// feuille et des apercus (NkContentBrowserUnreal.cpp), vide le dossier seul.
+				ui.contenuApercus.Clear();
+				NkVector<NkElementContenu> enfants;
+				for (uint32 i = 0; i < ui.contenuListe.Size(); ++i) {
+					const NkElementContenu &d = ui.contenuListe[i];
+					if (!d.dossier) {
+						continue;
+					}
+					NkEditeurInterface::NkApercuDossier a;
+					a.relatif = d.relatif;
+					NkEditeurListerContenu(c.m, d.relatif.CStr(), enfants);
+					a.contenu = static_cast<uint8>(enfants.Empty() ? editorkit::NkContenuDossier::Vide : editorkit::NkContenuDossier::Plein);
+					// Les FICHIERS d'abord (ils disent ce qu'il y a), puis les sous-dossiers.
+					for (int32 passe = 0; passe < 2; ++passe) {
+						for (uint32 k = 0; k < enfants.Size() && a.n < 4u; ++k) {
+							const NkElementContenu &f = enfants[k];
+							if (f.dossier != (passe == 1)) {
+								continue;
+							}
+							a.enfants[a.n] = f.relatif;
+							a.icones[a.n] = f.dossier ? static_cast<uint8>(editorkit::NkAssetIcone::Dossier) : f.nature.icone;
+							a.roles[a.n] = f.dossier ? static_cast<uint16>(NkRole::TypeFolder) : f.nature.role;
+							a.images[a.n] = !f.dossier && f.nature.type == NkAssetType::Texture2D;
+							++a.n;
+						}
+					}
+					ui.contenuApercus.PushBack(a);
+				}
 			}
 
 			/// Le noeud du rail d'un dossier du Contenu (sa racine a defaut).
@@ -847,7 +891,26 @@ namespace nkentseu {
 					Restaurer(ui);
 				} else if (ui.contenuProjet) {
 					for (uint32 i = 0; i < ui.contenuListe.Size(); ++i) {
-						m.entries.PushBack(EntreeDe(ui, ui.contenuListe[i]));
+						editorkit::NkAssetEntry a = EntreeDe(ui, ui.contenuListe[i]);
+						if (a.isFolder) {
+							// Plein ou vide, et ses apercus (les images : leur vraie
+							// vignette, chargee comme celles des cartes).
+							for (uint32 k = 0; k < ui.contenuApercus.Size(); ++k) {
+								const NkEditeurInterface::NkApercuDossier &ap = ui.contenuApercus[k];
+								if (!(ap.relatif == ui.contenuListe[i].relatif)) {
+									continue;
+								}
+								a.contenu = ap.contenu;
+								a.nbApercus = ap.n;
+								for (uint32 j = 0; j < ap.n && j < 4u; ++j) {
+									a.apercusIcone[j] = ap.icones[j];
+									a.apercusRole[j] = ap.roles[j];
+									a.apercusVignette[j] = ap.images[j] ? TextureDe(c, CheminNavigateur(ap.enfants[j])) : 0u;
+								}
+								break;
+							}
+						}
+						m.entries.PushBack(a);
 					}
 					Restaurer(ui);
 				} else {
@@ -1178,6 +1241,30 @@ namespace nkentseu {
 					peintre, ci, editorkit::NkPaintRect{zone.x, zone.y, zone.w, zone.h}, ui.contenu, s, hooks);
 				// Ce qu'on TRAINE : les cibles de depot hors du tiroir s'eclairent.
 				ui.contenuGlisse = res.glisserChemin;
+				// La carte sous chaque APPUI (SurDoubleClic compare le second au premier).
+				if (c.ctx.input.mouseClicked[0]) {
+					ui.appuiCarte = NkString();
+					for (uint32 k = 0; k < ui.contenu.entries.Size() && k < ui.contenuCartes.Size(); ++k) {
+						if (ui.contenuCartes[k].w > 0.f && NkEditeurDans(ui.contenuCartes[k], c.ctx.input.mousePos)) {
+							ui.appuiCarte = ui.contenu.entries[k].path;
+						}
+					}
+				}
+				// Le double-clic en attente (SurDoubleClic) : un glisser l'annule, le
+				// relachement l'ouvre.
+				if (!ui.assetEnAttente.Empty()) {
+					// La souris a BOUGE (plus de 4 px) depuis l'appui : c'est un glisser.
+					const float32 dx = c.ctx.input.mousePos.x - ui.assetAttente.x;
+					const float32 dy = c.ctx.input.mousePos.y - ui.assetAttente.y;
+					if (!res.glisserChemin.Empty() || dx * dx + dy * dy > 16.f) {
+						ui.assetEnAttente = NkString();
+					} else if (!c.ctx.input.mouseDown[0]) {
+						ui.contenuMenuChemin = ui.assetEnAttente;
+						ui.contenuMenuDossier = false;
+						ui.assetEnAttente = NkString();
+						NkEditeurExecuter(c, NK_A_CONTENU_OUVRIR_ASSET);
+					}
+				}
 				ui.boutonImporter = NkRect{res.importerX, res.importerY, res.importerW, res.importerH};
 				ui.contenuPrecedent = NkRect{res.precedentX, res.precedentY, res.precedentW, res.precedentH};
 				ui.contenuSuivant = NkRect{res.suivantX, res.suivantY, res.suivantW, res.suivantH};
@@ -1372,6 +1459,25 @@ namespace nkentseu {
 						spriteVise = e;
 					}
 				}
+				// (2026-10-01, R33 point 4) L'OUTLINER est une cible de depot, comme la
+				// vue : ce qui s'y lache nait au centre de la vue (Unreal le pose dans
+				// le niveau). Une vue remplacee par un onglet d'asset ne recoit rien.
+				const bool vueLibre = !NkEditeurAssetALaPlaceDeLaVue(ui);
+				const bool surVue = vueLibre && NkEditeurDans(ui.viseur, in.mousePos);
+				const bool surOutliner = ui.outliner.w > 0.f && NkEditeurDans(ui.outliner, in.mousePos);
+				const bool posable = !res.glisserChemin.Empty() &&
+									 (ActeurDuChemin(res.glisserChemin.CStr()) != -1 ||
+									  (NkEditeurCheminEstContenu(res.glisserChemin.CStr()) &&
+									   !NkDirectory::Exists(NkEditeurCheminContenu(c.m, res.glisserChemin.CStr()).CStr())));
+				auto Poser = [&](const NkVec2f &monde) {
+					const int32 acteur = ActeurDuChemin(res.glisserChemin.CStr());
+					if (acteur != -1) {
+						Armer(c.m, acteur);
+						NkEditeurPoser(c.m, monde);
+					} else if (posable) {
+						PoserAsset(c.m, res.glisserChemin, monde);
+					}
+				};
 				if (!res.glisserChemin.Empty()) {
 					if (in.mouseReleased[0]) {
 						// LE DEPOT DANS LA VUE : lache hors des volets du composant. Un
@@ -1383,24 +1489,24 @@ namespace nkentseu {
 							NkEditeurTextureSprite(c.m, c.m.selection, res.glisserChemin.CStr());
 						} else if (spriteVise.IsValid()) {
 							NkEditeurTextureSprite(c.m, spriteVise, res.glisserChemin.CStr());
-						} else if (NkEditeurDans(ui.viseur, in.mousePos)) {
-							const NkVec2f monde = c.m.scene.Camera().EcranVersMonde(NkVec2f(in.mousePos.x, in.mousePos.y));
-							const int32 acteur = ActeurDuChemin(res.glisserChemin.CStr());
-							if (acteur != -1) {
-								Armer(c.m, acteur);
-								NkEditeurPoser(c.m, monde);
-							} else if (NkEditeurCheminEstContenu(res.glisserChemin.CStr()) &&
-									   !NkDirectory::Exists(NkEditeurCheminContenu(c.m, res.glisserChemin.CStr()).CStr())) {
-								PoserAsset(c.m, res.glisserChemin, monde);
-							}
+						} else if (surVue) {
+							Poser(c.m.scene.Camera().EcranVersMonde(NkVec2f(in.mousePos.x, in.mousePos.y)));
+						} else if (surOutliner) {
+							Poser(c.m.scene.Camera().Centre());
 						}
 					} else {
+						// L'Outliner vise : il s'eclaire, et le fantome dit ou ca nait.
+						if (surOutliner && posable) {
+							over.AddRect(ui.outliner, c.pal.accent, 2.f, 2.f);
+						}
 						// Le fantome : ce qu'on emporte, sous le curseur -- et ce qu'il
 						// deviendra s'il vise un sprite.
 						NkString libelle = res.glisserLibelle.Empty() ? res.glisserChemin : res.glisserLibelle;
 						if (surDetails || spriteVise.IsValid()) {
 							const NkEtiquette *et = c.m.scene.Monde().Get<NkEtiquette>(surDetails ? c.m.selection : spriteVise);
 							libelle.Append(NkString::Format("  →  texture de « %s »", et != nullptr ? et->nom : "").CStr());
+						} else if (surOutliner && posable) {
+							libelle.Append("  →  dans la scène (centre de la vue)");
 						}
 						const char *lib = libelle.CStr();
 						const float32 w = renderer::NkTexteLargeur(c.police, lib) + 16.f;
@@ -1836,9 +1942,10 @@ namespace nkentseu {
 				}
 				case NK_A_CONTENU_OUVRIR_ASSET: {
 					// Une SCENE s'ouvre (la question « non enregistree » est a
-					// NkEditeurChrome, qui relit `sceneAOuvrir`). Un prefab ou une image
-					// n'a pas encore d'editeur : on dit comment le poser, on ne pose
-					// RIEN par surprise (un double-clic n'est pas un geste sur la scene).
+					// NkEditeurChrome, qui relit `sceneAOuvrir`). (2026-10-01, R33) Une
+					// texture, une police, un son, un prefab, un controleur s'ouvrent
+					// dans LEUR ONGLET (NkEditeurAssets.h) ; on ne pose RIEN par
+					// surprise (un double-clic n'est pas un geste sur la scene).
 					ui.sceneAOuvrir = NkString();
 					// (2026-10-01) Un script : le .cpp dans l'editeur de texte, le .nkbp
 					// dans la page du graphe (Script/NkEditeurScriptsUi.h).
@@ -1846,6 +1953,9 @@ namespace nkentseu {
 						break;
 					}
 					const NkNatureContenu n = NkEditeurNatureFichier(chemin);
+					if (NkEditeurOuvrirAsset(c, chemin)) {
+						break;
+					}
 					if (n.type == NkAssetType::Scene) {
 						ui.sceneAOuvrir = NkEditeurCheminContenu(m, chemin);
 					} else if (n.type == NkAssetType::Prefab || n.type == NkAssetType::Texture2D) {

@@ -30,6 +30,12 @@
 //    premier qui ne l'a pas. Ici le contexte est VIDE : la regle 2 est verifiee
 //    par la construction, pas par la relecture.
 #include "NKConverse/NkConverseClaude.h"
+// (2026-10-01) LA COUCHE DES FOURNISSEURS (panneau IA d'Unkeny, R18) : arbre JSON,
+// transport en flux (NKNetwork, ou curl sans TLS), Ollama / OpenAI / Anthropic,
+// la conversation en flux et le faux serveur des bancs. Meme epreuve : le
+// contexte est VIDE, chacun doit tirer ce qu'il utilise.
+#include "NKConverse/NkConverseChatFlux.h"
+#include "NKConverse/NkConverseFauxServeur.h"
 
 namespace nkentseu::converse {
 

@@ -19,7 +19,7 @@
 // ⚠️ CE FICHIER EST A CE CHANTIER, PAR ACCORD (01/10)
 //   Deux autres chantiers refont les Details, le Content Browser et le tiroir.
 //   Ceux-ci n'appellent qu'UNE fonction d'ici chacun, ajoutee en fin de liste :
-//   NkEditeurBlocForme / NkEditeurBlocCollision (Details), NkEditeurSectionCalques
+//   (les cartes Forme 2D et Collisionneur des Details, 2026-10-01), NkEditeurSectionCalques
 //   (Monde), NkEditeurMenuFormes / NkEditeurMenuCollisions (menus),
 //   NkEditeurActionPlacer (NkEditeurExecuter), les poignees (vue).
 //
@@ -117,11 +117,8 @@ namespace nkentseu {
 		/// Les volumes (bloquants, declencheur) de « Ajouter ici ».
 		void NkEditeurMenuVolumes(NkVector<NkEntreeMenu> &out, int32 base);
 
-		/// Les Details : la forme de `id` (rien si elle n'en a pas).
-		void NkEditeurBlocForme(NkEditeurCadre &c, ecs::NkEntityId id);
-		/// Les Details : la collision de `id` (calque, sommets, rotation, materiau,
-		/// generation, edition dans la vue). Rien sans collisionneur.
-		void NkEditeurBlocCollision(NkEditeurCadre &c, ecs::NkEntityId id);
+		// (2026-10-01, R33) NkEditeurBlocForme / NkEditeurBlocCollision sont devenus
+		// les CARTES Forme 2D et Collisionneur de NkEditeurDetails.cpp.
 		/// L'onglet Monde : les calques de collision (noms et matrice).
 		void NkEditeurSectionCalques(NkEditeurCadre &c);
 		/// La fenetre « Reglages du projet : calques de collision » (Fenetre >),

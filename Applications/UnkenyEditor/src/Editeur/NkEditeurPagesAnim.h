@@ -69,6 +69,13 @@ namespace nkentseu {
 				NkString objet;	 ///< son nom, pour l'en-tete
 				unkeny::NkProprieteAnimable propriete;
 				nkgui::NkRect rect{0.f, 0.f, 0.f, 0.f}; ///< a l'ecran (le banc y vise)
+				/// (01/10 soir) Une PISTE DE CLIPS (NLA) plutot qu'une propriete...
+				bool pisteClips = false;
+				/// ...ou, dans le choix d'un clip a poser, le clip propose (et sa duree).
+				NkString clip;
+				float32 duree = 1.f;
+				/// L'en-tete du groupe (vide = celui de l'objet).
+				NkString entete;
 		};
 
 		/// Un document ouvert. Les deux genres partagent la forme (et l'onglet).
@@ -95,6 +102,11 @@ namespace nkentseu {
 				NkVector<NkProposition> propositions;
 				nkgui::NkRect choixRect{0.f, 0.f, 0.f, 0.f};
 				float32 choixDefil = 0.f;
+				/// (01/10 soir) Le choix ouvert est celui d'un CLIP a poser sur la piste
+				/// de clips `choixPiste`, a `choixTemps`.
+				bool choixClips = false;
+				nk_uint64 choixPiste = 0;
+				float32 choixTemps = 0.f;
 
 				// --- Animateur -------------------------------------------------------
 				editorkit::NkStateGraphModel graphe;
@@ -113,10 +125,12 @@ namespace nkentseu {
 		/// L'etat des pages : un membre de NkEditeurInterface.
 		struct NkPagesAnim {
 				NkVector<NkDocAnim> docs;
-				nk_uint64 actif = 0; ///< 0 = la scene
+				/// (2026-10-02) Le PREMIER PLAN n'est plus ici : il est dans la barre
+				/// unique des documents (NkEditeurDocuments.h) ; NkEditeurDocAnimActif le lit.
 				nk_uint64 prochainId = 1;
 				/// Releves a la derniere trame (le banc y vise) : un rectangle par
-				/// document, dans l'ordre de `docs`, et leur croix.
+				/// document, dans l'ordre de la barre, et leur croix (la barre unique
+				/// les remplit, NkEditeurDessinerOngletsDocuments).
 				NkVector<nkgui::NkRect> onglets;
 				NkVector<nkgui::NkRect> croix;
 				nkgui::NkRect page{0.f, 0.f, 0.f, 0.f};
@@ -152,8 +166,12 @@ namespace nkentseu {
 		/// selection. Chemin vide : un clip neuf pour la selection.
 		bool NkEditeurOuvrirAnimation(NkEditeurModele &m, NkEditeurInterface &ui, const char *chemin);
 		bool NkEditeurOuvrirAnimation(NkEditeurCadre &c, const char *chemin);
-		/// Ferme un document (l'apercu rend l'entite). Faux s'il n'existe pas.
+		/// Ferme un document par la barre (NkEditeurFermerDocument : s'il etait
+		/// devant, son voisin de gauche passe devant). Faux s'il n'existe pas.
 		bool NkEditeurFermerDocAnim(NkEditeurModele &m, NkEditeurInterface &ui, nk_uint64 id);
+		/// Retire le document (l'apercu rend l'entite), SANS toucher au premier
+		/// plan : la barre l'a deja fait passer derriere (NkEditeurDocuments.cpp).
+		bool NkEditeurDetruireDocAnim(NkEditeurModele &m, NkEditeurInterface &ui, nk_uint64 id);
 		/// Le document au premier plan, ou nul (la scene).
 		NkDocAnim *NkEditeurDocAnimActif(NkEditeurInterface &ui);
 		bool NkEditeurPageAnimOuverte(const NkEditeurInterface &ui) noexcept;
@@ -162,9 +180,8 @@ namespace nkentseu {
 		bool NkEditeurEnregistrerDocAnim(NkEditeurModele &m, NkDocAnim &d);
 
 		// --- Les appels des fichiers partages (une ligne chacun) ---------------
-		/// Les onglets des documents, a droite de celui de la scene
-		/// (NkEditeurDessinerOnglets) ; un clic sur l'onglet de la scene la ramene.
-		void NkEditeurDessinerOngletsAnim(NkEditeurCadre &c);
+		// (2026-10-02) Les ONGLETS des documents sont dans la barre unique
+		// (NkEditeurDocuments.h) : NkEditeurDessinerOngletsAnim n'existe plus.
 		/// La page du document actif dans le corps (NkEditeurDessinerTrame). Faux
 		/// si c'est la scene : le corps habituel se dessine.
 		bool NkEditeurDessinerPageAnim(NkEditeurCadre &c);
@@ -200,8 +217,16 @@ namespace nkentseu {
 		void NkGrapheDepuisMachine(const anim::NkAnimStateMachine &m, editorkit::NkStateGraphModel &g,
 								   NkVector<nk_uint64> &noeudDeEtat);
 		/// La machine d'un graphe (une machine NEUVE). Faux si le graphe n'a aucun etat.
+		/// (01/10 soir) `racine` : la couche a compiler (0 = la base ; une couche du
+		/// graphe est une sous-machine cachee, `layerRoot`).
 		bool NkMachineDepuisGraphe(const editorkit::NkStateGraphModel &g, anim::NkAnimStateMachine &m,
-								   NkVector<nk_uint64> &noeudDeEtat);
+								   NkVector<nk_uint64> &noeudDeEtat, nk_uint64 racine = 0);
+		/// (01/10 soir) Le graphe d'un CONTROLEUR (base, couches, arbres, courbes), et
+		/// l'inverse (le controleur NEUF d'un graphe ; faux si la base n'a aucun etat).
+		void NkGrapheDepuisControleur(const anim::NkAnimController &ctl, editorkit::NkStateGraphModel &g,
+									  NkVector<nk_uint64> &noeudDeEtat);
+		bool NkControleurDepuisGraphe(const editorkit::NkStateGraphModel &g, anim::NkAnimController &ctl,
+									  NkVector<nk_uint64> &noeudDeEtat);
 		/// Les animations proposees au graphe : les .nkanim du Contenu (leur nom).
 		void NkEditeurAnimationsDuContenu(NkEditeurModele &m, NkVector<NkString> &noms);
 

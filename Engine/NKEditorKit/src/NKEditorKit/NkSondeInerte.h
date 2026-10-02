@@ -182,10 +182,22 @@ namespace nkentseu {
 		///    on le DIT au journal au lieu de laisser croire que la fenetre est
 		///    discrete. *Un reglage affiche qui ne change rien est pire qu'un
 		///    reglage absent.*
+		///
+		/// (01/10) `NK_SONDE_HORS_ECRAN` (avec `NK_SONDE`) : la fenetre NAIT hors de
+		///    l'ecran (-20000, -20000), non centree. Une sonde lancee pendant que
+		///    Rodolf travaille ne doit meme pas se montrer : son image vient de la
+		///    liste d'affichage (NK_AI_IMAGE), pas de l'ecran. ⚠️ L'application ne
+		///    doit pas la MAXIMISER ensuite (Windows la ramenerait sur un moniteur) :
+		///    NKCode ne maximise que sans `window.cfg` -- la sonde lui en donne un.
 		inline bool NkSondePoserFenetreDiscrete(NkWindowConfig &wc) {
 			if (!NkSondeActive())
 				return false;
 			wc.noActivate = true;
+			if (std::getenv("NK_SONDE_HORS_ECRAN") != nullptr) {
+				wc.centered = false;
+				wc.x = -20000;
+				wc.y = -20000;
+			}
 #if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(_WIN32)
 			return true;
 #else

@@ -139,6 +139,8 @@ elle, la seule correspondance type ↔ extension.
 
 `.nkproj` (projet) · `.nkscene` (scène) · `.nkcase` · `.nkb` (binaire compilé).
 Ceux-là sont du JSON ou un binaire propre, **pas** le format asset ci-dessus.
+⚠️ Les extensions de projet et de scène de la famille sont redécidées au **§ 6**
+(01/10/2026).
 
 ## 3. Le point de passage unique
 
@@ -218,3 +220,78 @@ Ce qui est **obligatoire**, en revanche :
    navigateur qui le retrouve, pas une convention de nom de dossier.
 3. Une **destination par défaut** est proposée à l'import (le dossier courant
    du navigateur), jamais imposée.
+
+## 6. Les extensions de la famille : projets et scènes (décision du 1er octobre 2026)
+
+> Rihen, 01/10/2026 : *« avoir deux applications qui portent le même nom pour les
+> projets n'est pas forcément la meilleure chose, sauf si ces dernières partagent les
+> mêmes ressources ; exemple : les scènes de NKCraft sont les mêmes, avec les nuances
+> pour chacune des applications NkAnimaEditor, Nogee, NKCraft, NKScena et PV3DE. »*
+> Il a validé l'analyse ci-dessous le jour même.
+
+### Le constat (mesuré dans le code le 01/10)
+
+`.nkscene` porte aujourd'hui **quatre** sens : la scène 2D d'Unkeny (JSON
+`unkeny.scene`), la scène 3D de NKCraft (avec sa géométrie sœur `.nkgeo`), la scène 3D
+de NogeDemo (JSON), et le « document de scène » de Genia (la spécification d'une
+créature avant sa géométrie, `Tools/Genia/FORMAT_SCENE.md`). Les projets ont, eux,
+une extension par application : `.nk3dm` (NKCraft, § 5), `.nkproj` (Nogee),
+`.nkprojet` (UnkenyEditor, alors que la décision Q4 du document 01 des scripts dit
+`.nkunk`).
+
+### La règle
+
+**Une extension = un seul sens.** Deux applications partagent une extension
+**seulement si elles lisent le même fichier de la même façon** — c'est-à-dire quand
+elles partagent les ressources. C'est aussi ce que demande le système : une extension
+ouvre une application par défaut.
+
+### La table
+
+| nature | extension | lu et écrit par | remplace (lu pour toujours) |
+| --- | --- | --- | --- |
+| projet 2D (un dossier de jeu Unkeny) | **`.nkunk`** | UnkenyEditor, UnkenyPlayer | `.nkprojet` |
+| projet 3D (un dossier de la famille Noge) | **`.nknoge`** | Nogee, NKCraft, NkAnimaEditor, NKScena, PV3DE | `.nkproj` (Nogee), `.nk3dm` (NKCraft) |
+| scène 2D | **`.nkscene2d`** | Unkeny | `.nkscene` au format `unkeny.scene` |
+| scène 3D | **`.nkscene3d`** | les cinq applications 3D | `.nkscene` de NKCraft et de NogeDemo |
+| géométrie d'une scène ou d'un maillage | `.nkgeo` (inchangé) | NKCraft, Noge | — |
+| document de scène de Genia | **à renommer** (proposition : `.nkspec`, à confirmer par Rihen) | NKCraft / Genia | `.nkscene` de `Tools/Genia/` |
+| séquence | `.nkseq` (inchangé) | NKScena | — |
+| cas clinique | `.nkcase` (inchangé) | PV3DE | — |
+| interface | `.nkgui` (inchangé) | toutes | — |
+| assets (§ 2) | inchangés | toutes | — |
+
+Un projet porte le nom du **moteur**, pas de l'application : un même jeu 3D s'ouvre
+dans Nogee, NKCraft, NkAnimaEditor, NKScena ou PV3DE, parce qu'ils partagent ses
+ressources. Ceci remplace, pour la famille 3D, l'arbitrage du 5 août (§ 5 : « un
+projet = un `.nk3dm` ») ; les règles d'import et de chemins relatifs du § 5 restent.
+
+### Les nuances de chaque application
+
+1. Une scène 3D a une partie **commune** (entités, hiérarchie, transformations,
+   maillages, matériaux, lumières, caméras) et des **sections nommées par
+   application** : `nkcraft` (historique de modélisation), `nkanimaeditor` (rigs,
+   clips en cours), `nkscena` (plans, pistes), `pv3de` (paramètres du cas), `nogee`
+   (jeu, scripts).
+2. **Une application garde intactes les sections qu'elle ne connaît pas.** Un banc
+   le prouve : aller-retour NKCraft → Nogee → NKCraft sans rien perdre.
+3. Les préférences propres à une application vivent dans un sous-dossier caché du
+   projet (`.nkcraft/`, `.nogee/`…), jamais dans le fichier partagé.
+4. Le champ `format` du JSON reste la vérité (§ 1) ; l'en-tête note aussi
+   l'**application d'origine**.
+
+### Le double-clic
+
+`.nkunk` et `.nkscene2d` ouvrent UnkenyEditor. Pour `.nknoge` et `.nkscene3d`,
+partagés, le **lanceur de la famille** ouvre l'application d'origine notée dans
+l'en-tête, et « Ouvrir avec… » propose les autres.
+
+### La bascule, sans rien casser
+
+- Les anciennes extensions restent **lues pour toujours** (reconnues à leur contenu).
+- Les nouvelles ne sont écrites qu'à l'enregistrement.
+- Une application à la fois, chacune avec son banc ; Unkeny d'abord (`.nkunk`,
+  `.nkscene2d`), puis la scène 3D partagée, puis les projets 3D.
+- À faire dans NKSerialization : le type `Scene` (18) devient la scène 2D
+  (`.nkscene2d`) et un type `Scene3D` est ajouté pour `.nkscene3d`, dans le point de
+  passage unique du § 3.

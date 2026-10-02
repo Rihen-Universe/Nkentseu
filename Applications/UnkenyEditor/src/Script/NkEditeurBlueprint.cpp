@@ -2306,6 +2306,7 @@ namespace nkentseu {
 				in.mouseClicked[0] = in.mouseClicked[1] = in.mouseClicked[2] = false;
 				in.wheel = 0.f;
 			}
+			e.saisie = clavier;
 			return clavier || surEditeur;
 		}
 

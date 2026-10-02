@@ -29,6 +29,8 @@
 #include "NKCode/Shell/NkAppIcons.h"
 #include "NKCode/Shell/NkAppCommands.h"
 #include "NKCode/Shell/NkOpenWindows.h" // registre des fenetres ouvertes (restauration au lancement)
+#include "NKCode/Shell/NkOuvrirArgument.h" // (01/10) un dossier, un .jenga ou un FICHIER en argument
+#include "NKCode/Shell/NkCodeBanc.h"		 // (02/10) `NKCode --selftest`, sans fenetre
 #include "NKCode/Project/NkLogSink.h"
 #include "NKImage/NKImage.h"
 #include "NKPlatform/NkEnv.h" // env::GetEnvVar (variables d'environnement maison)
@@ -113,6 +115,24 @@ static void NkCrochetsPanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int
 		sSortie = c ? (int32)std::atoi(c) : -1;
 	}
 	++sImage;
+	// (2026-10-01) NK_CAPTURE_FENETRE=<n>:<fichier.png> : la FENETRE ENTIERE a
+	// l'image n, par le relecteur du dorsal NKCanvas (CaptureNext : textures,
+	// logos et icones compris -- ce que la rasterisation des listes ne voit
+	// pas). Avec NK_FENETRE_CACHEE=1, aucune fenetre ne surgit a l'ecran.
+	{
+		static int32 sCapture = -2;
+		static char sCheminCapture[256] = {0};
+		if (sCapture == -2) {
+			const char *v = std::getenv("NK_CAPTURE_FENETRE");
+			sCapture = v ? NkLireImage(v, sCheminCapture, sizeof(sCheminCapture), 60) : -1;
+		}
+		if (sImage == sCapture && sh && sh->Renderer()) {
+			const bool arme = sh->Renderer()->CaptureNext(sCheminCapture);
+			printf("[nkcode] CAPTURE FENETRE image=%d -> %s (%s)\n", (int)sImage, sCheminCapture,
+				   arme ? "armee" : "REFUSEE par le dorsal");
+			fflush(stdout);
+		}
+	}
 	{
 		// (Q9) NK_EVENEMENTS : rejoue par les rappels de la coquille
 		static editorkit::NkEditorScriptEvenements sScript;
@@ -213,6 +233,15 @@ static void NkCrochetsPanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int
 
 int nkmain(const NkEntryState &state) {
 	(void)state;
+	// (2026-10-01) --ressources : ou sont les donnees livrees (data/), SANS
+	// fenetre -- le temoin d'un lancement depuis n'importe quel dossier.
+	for (usize i = 1; i < state.args.Size(); ++i)
+		if (state.args[i] == "--ressources")
+			return nkcode::NkCodeVerifierDonnees();
+	// (02/10) LE BANC, AVANT TOUTE FENETRE : `NKCode --selftest` (Shell/NkCodeBanc.h).
+	for (usize ai = 1; ai < state.args.Size(); ++ai)
+		if (state.args[ai] == "--selftest")
+			return nkcode::NkCodeLancerBanc();
 
 	// ── Dossier de l'EXECUTABLE, calcule EN PREMIER ──────────────────────────
 	// Demande a l'OS (GetModuleFileNameW / /proc/self/exe / _NSGetExecutablePath),
@@ -225,6 +254,16 @@ int nkmain(const NkEntryState &state) {
 		if (exeDir.Empty() && state.args.Size() > 0)
 			exeDir = NkPath(state.args[0].CStr()).GetParent().ToString(); // repli
 		nkcode::NkOpenWsState::ExeDir() = exeDir;
+	}
+
+	// (2026-10-01) LA PHOTO DU LANCEUR (accueil partage), sans fenetre ni GPU :
+	// --capture-lanceur=FICHIER.png [--theme-lanceur=clair]
+	{
+		bool clair = false;
+		const NkString capture =
+			editorkit::NkLanceurCaptureDemandee((int32)state.args.Size(), state.args.Data(), &clair);
+		if (!capture.Empty())
+			return nkcode::NkHomeLanceurCapturer(capture, clair);
 	}
 
 	nkcode::InstallLogSink(); // capture les logs NKLogger -> panneau OUTPUT
@@ -308,6 +347,7 @@ int nkmain(const NkEntryState &state) {
 	gPanneauxIA[2] = &codexPanel;
 	gPanneauxIA[3] = &nkaiPanel;
 	if (std::getenv("NK_AI_IMAGE") || std::getenv("NK_AI_PANNEAU") || std::getenv("NK_AGENT_EXIT") ||
+		std::getenv("NK_CAPTURE_FENETRE") ||
 		std::getenv("NK_TERM_TAPER"))
 		shell->SetApresImage(&NkCrochetsPanneauIA, shell.Get());
 	static ScaffoldPanel pEngine("Moteur", NkEditorDockSide::NK_RIGHT, "Maquette - roadmap #17", sc::kEngine, 1);
@@ -405,18 +445,31 @@ int nkmain(const NkEntryState &state) {
 												 "non exploitable -> repli sur le `jenga` du PATH"));
 		}
 	}
-	// Argument : un dossier de workspace -> ouvre directement (cas "nouvelle fenetre").
-	// C'est AUSSI le chemin d'entree de l'explorateur de fichiers : le menu
-	// contextuel « Ouvrir avec NKCode » lance simplement `NKCode.exe <dossier>`.
+	// Arguments : `NKCode.exe [<workspace>] [<fichier>]` (Shell/NkOuvrirArgument.h).
+	// <workspace> : un dossier (cas « nouvelle fenetre », et le menu contextuel
+	// « Ouvrir avec NKCode » de l'explorateur), un .jenga, ou un FICHIER -- NKCode
+	// ouvre alors le workspace qui le contient, et le fichier dedans. C'est ainsi
+	// qu'UnkenyEditor ouvre un script C++ : `NKCode.exe "<Projet>.jenga" "<script>"`.
+	// (01/10) Un fichier etait pris pour un dossier : « Aucun workspace ».
 	bool g_openedArg = false;
 	NkString g_openedPath; // chemin REELLEMENT ouvert -> inscrit dans le registre
-	for (usize ai = 1; ai < state.args.Size(); ++ai) {
-		const char *a = state.args[ai].CStr();
-		if (a && a[0] && a[0] != '-') {
-			g_dialogs.DoLoad(NkPath(a));
+	{
+		NkVector<NkString> positionnels;
+		for (usize ai = 1; ai < state.args.Size(); ++ai) {
+			const char *a = state.args[ai].CStr();
+			if (a && a[0] && a[0] != '-')
+				positionnels.PushBack(state.args[ai]);
+		}
+		if (!positionnels.Empty()) {
+			const nkcode::NkArgOuverture o = g_dialogs.OuvrirChemin(
+				positionnels[0].CStr(), positionnels.Size() > 1u ? positionnels[1].CStr() : nullptr);
+			printf("[nkcode] argument : workspace « %s »%s%s%s\n", o.dossier.CStr(), o.jenga.Empty() ? "" : " (",
+				   o.jenga.CStr(), o.jenga.Empty() ? "" : ")");
+			if (!o.fichier.Empty())
+				printf("[nkcode] argument : fichier ouvert « %s »\n", o.fichier.CStr());
+			fflush(stdout);
 			g_openedArg = true;
-			g_openedPath = a;
-			break;
+			g_openedPath = o.jenga.Empty() ? o.dossier : o.jenga;
 		}
 	}
 	const NkString g_startupMode = nkcode::NkOpenWsState::ReadNkSetting("openStartup");
@@ -429,7 +482,9 @@ int nkmain(const NkEntryState &state) {
 	if (!g_openedArg && nkcode::StrEq(g_startupMode.CStr(), "2")) {
 		NkVector<NkString> prev = nkcode::NkOpenWindowsTakeStale(g_regHome);
 		if (!prev.Empty()) {
-			g_dialogs.DoLoad(NkPath(prev[0].CStr()));
+			// Une entree peut etre un .jenga (le registre garde ce qui a ete ouvert).
+			const nkcode::NkArgOuverture o = nkcode::NkResoudreArgument(prev[0].CStr(), nullptr);
+			g_dialogs.DoLoad(NkPath(o.dossier.CStr()), o.jenga.Empty() ? nullptr : o.jenga.CStr());
 			g_openedArg = true;
 			g_openedPath = prev[0];
 			for (usize i = 1; i < prev.Size(); ++i)
@@ -442,7 +497,10 @@ int nkmain(const NkEntryState &state) {
 		for (usize i = 0; i < g_state.recents.Size(); ++i) {
 			const char *rp = g_state.recents[i].CStr();
 			if (rp && rp[0] && (NkDirectory::Exists(rp) || NkFile::Exists(rp))) {
-				g_dialogs.DoLoad(NkPath(rp));
+				// Les recents sont des .jenga (LoadFolder les y inscrit) : un .jenga
+				// n'est pas un dossier -- le resoudre, comme un argument.
+				const nkcode::NkArgOuverture o = nkcode::NkResoudreArgument(rp, nullptr);
+				g_dialogs.DoLoad(NkPath(o.dossier.CStr()), o.jenga.Empty() ? nullptr : o.jenga.CStr());
 				g_openedPath = rp;
 				break;
 			}

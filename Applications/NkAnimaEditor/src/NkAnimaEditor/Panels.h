@@ -8,6 +8,7 @@
 #include "AnimBridge.h"
 #include "NKEditorKit/NkScreenCountersView.h" // (26/09) les compteurs, la MEME vue que NKCraft
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
+#include "Frise/NkAnimaFrise.h" // (01/10 soir) la frise partagee
 #include <cmath>
 #include <cstdio>
 #include <cstdlib> // getenv : mesure (a3) de la geometrie, sous variable d'environnement
@@ -24,123 +25,13 @@ namespace nkanima {
 			}
 
 			void OnUI(NkEditorFrameContext &ec) override {
-				auto &ctx = ec.Ui();
-				if (!AnimLoaded()) {
-					ec.Text("(aucun clip charge)");
-					return;
-				}
-
-				AnimUpdate(ec.dt); // avance la lecture si en cours
-
-				// Barre d'outils (une seule ligne via SameLine)
-				bool bPlay = ec.Button(AnimIsPlaying() ? "Pause" : "Play");
-				ctx.SameLine();
-				bool bIns = ec.Button("Inserer cle");
-				ctx.SameLine();
-				bool bDel = ec.Button("Supprimer");
-				ctx.SameLine();
-				bool bUn = ec.Button("Annuler");
-				ctx.SameLine();
-				bool bRe = ec.Button("Refaire");
-				if (bPlay)
-					AnimSetPlaying(!AnimIsPlaying());
-				if (bIns)
-					AnimInsertKeyAtCursor();
-				if (bDel)
-					AnimDeleteSelected();
-				if (bUn)
-					AnimUndo();
-				if (bRe)
-					AnimRedo();
-				char info[112];
-				float32 t = AnimCursor(), dur = AnimDuration();
-				std::snprintf(info, sizeof(info), "t=%.3fs / %.2fs  frame %d  cles=%u", (double)t, (double)dur,
-							  (int)(t * AnimFps() + 0.5f), AnimKeyCount());
-				ec.Text(info);
-				ec.Separator();
-
-				// Zone timeline
-				const NkRect area = ctx.NextItemRect(900.f, 64.f);
-				auto &dl = ctx.DL();
-				dl.AddRectFilled(area, NkColor{22, 22, 25, 255}, 4.f);
-				dl.AddRect(area, NkColor{40, 42, 48, 255}, 1.f);
-				if (dur <= 1e-4f)
-					return;
-
-				const float32 pad = 8.f;
-				const float32 x0 = area.x + pad, x1 = area.x + area.w - pad;
-				const float32 ymid = area.y + area.h * 0.5f;
-				auto timeToX = [&](float32 tt) { return x0 + (x1 - x0) * (tt / dur); };
-				auto xToTime = [&](float32 xx) {
-					float32 a = (xx - x0) / (x1 - x0);
-					if (a < 0)
-						a = 0;
-					if (a > 1)
-						a = 1;
-					return a * dur;
-				};
-
-				for (int32 s = 0; (float32)s <= dur + 1e-3f; ++s) {
-					float32 gx = timeToX((float32)s);
-					dl.AddLine({gx, area.y + area.h - 14.f}, {gx, area.y + area.h - 4.f}, NkColor{50, 52, 60, 200},
-							   1.f);
-				}
-				dl.AddLine({x0, ymid}, {x1, ymid}, NkColor{32, 34, 40, 255}, 1.f);
-
-				NkVector<float32> keys;
-				AnimGetKeyTimes(keys);
-				for (uint32 i = 0; i < (uint32)keys.Size(); ++i) {
-					float32 kx = timeToX(keys[i]);
-					bool sel = AnimIsSelected(keys[i]);
-					dl.AddCircleFilled({kx, ymid}, 5.f, sel ? NkColor{0, 212, 255, 255} : NkColor{0, 150, 185, 255});
-				}
-
-				float32 px = timeToX(AnimCursor());
-				dl.AddLine({px, area.y + 2.f}, {px, area.y + area.h - 2.f}, NkColor{0, 212, 255, 255}, 2.f);
-				dl.AddCircleFilled({px, area.y + 6.f}, 4.f, NkColor{0, 212, 255, 255});
-
-				// Interaction souris
-				const NkVec2 m = ctx.input.mousePos;
-				if (ctx.IsHovered(area) && ctx.input.mouseClicked[0]) {
-					int32 hit = -1;
-					float32 best = 9.f;
-					for (uint32 i = 0; i < (uint32)keys.Size(); ++i) {
-						float32 d = timeToX(keys[i]) - m.x;
-						if (d < 0)
-							d = -d;
-						if (d < best) {
-							best = d;
-							hit = (int32)i;
-						}
-					}
-					if (hit >= 0) {
-						AnimSelectKey(keys[(uint32)hit]);
-						mDragKey = keys[(uint32)hit];
-						mDragging = true;
-					} else {
-						AnimClearSelection();
-						AnimSeek(xToTime(m.x));
-						mScrubbing = true;
-					}
-				}
-				if (ctx.input.mouseDown[0]) {
-					if (mScrubbing)
-						AnimSeek(xToTime(m.x));
-				} else {
-					if (mDragging && mDragKey >= 0.f) {
-						float32 nt = xToTime(m.x);
-						if (std::fabs(nt - mDragKey) > 1e-4f)
-							AnimMoveKey(mDragKey, nt);
-					}
-					mDragging = false;
-					mScrubbing = false;
-					mDragKey = -1.f;
-				}
+				// (2026-10-01 soir) LA FRISE PARTAGEE de NKEditorKit (Frise/NkAnimaFrise.cpp),
+				// la meme que la page Animation d'UnkenyEditor (facon Sequencer d'UE5) :
+				// la piste des poses-cles, l'arbre des os et leurs courbes, le transport.
+				// Toutes les fonctions de l'ancienne rangee de ronds y sont (lecture,
+				// inserer, supprimer, annuler, refaire, frotter, glisser une cle, boucle).
+				NkAnimaDessinerFrise(ec);
 			}
-
-		private:
-			bool mScrubbing = false, mDragging = false;
-			float32 mDragKey = -1.f;
 	};
 
 	// ── Preview : squelette 2D à la pose courante ────────────────────────────────
@@ -151,62 +42,70 @@ namespace nkanima {
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
-				ec.Text("Apercu squelette 2D — Pose Mode : clic = os, drag = manipuler, Enregistrer = cle");
-				// Barre : Mode Pose (toggle) + choix outil (Drag IK / Rotation FK) + Enregistrer.
-				bool bMode = ec.Button(AnimInPoseEdit() ? "Mode Pose: ON" : "Mode Pose: OFF");
-				ctx.SameLine();
-				bool bIK = ec.Button(mTool == 0 ? "[ Drag IK ]" : "Drag IK");
-				ctx.SameLine();
-				bool bFK = ec.Button(mTool == 1 ? "[ Rotation FK ]" : "Rotation FK");
-				ctx.SameLine();
-				bool bTR = ec.Button(mTool == 2 ? "[ Translation FK ]" : "Translation FK");
-				ctx.SameLine();
-				bool bRec = ec.Button("Enregistrer pose");
-				ctx.SameLine();
-				bool bRag = ec.Button(AnimPhysicsEnabled() ? "[ Ragdoll: ON ]" : "Ragdoll: OFF");
-				if (bMode) {
-					if (AnimInPoseEdit())
-						AnimEndPoseEdit();
-					else
-						AnimBeginPoseEdit();
+				// (2026-10-01, R32) LA ZONE IMPOSEE : la nouvelle face d'UE5 (NkAnimaFace)
+				// pose la vue dans SON viseur et porte ces commandes dans sa barre
+				// d'outils, sa barre de vue et ses menus. Sans zone imposee, le panneau
+				// est celui de l'ancienne coquille, a l'identique.
+				const bool impose = zoneImposee.w > 0.f && zoneImposee.h > 0.f;
+				if (!impose) {
+					ec.Text("Apercu squelette 2D — Pose Mode : clic = os, drag = manipuler, Enregistrer = cle");
+					// Barre : Mode Pose (toggle) + choix outil (Drag IK / Rotation FK) + Enregistrer.
+					bool bMode = ec.Button(AnimInPoseEdit() ? "Mode Pose: ON" : "Mode Pose: OFF");
+					ctx.SameLine();
+					bool bIK = ec.Button(mTool == 0 ? "[ Drag IK ]" : "Drag IK");
+					ctx.SameLine();
+					bool bFK = ec.Button(mTool == 1 ? "[ Rotation FK ]" : "Rotation FK");
+					ctx.SameLine();
+					bool bTR = ec.Button(mTool == 2 ? "[ Translation FK ]" : "Translation FK");
+					ctx.SameLine();
+					bool bRec = ec.Button("Enregistrer pose");
+					ctx.SameLine();
+					bool bRag = ec.Button(AnimPhysicsEnabled() ? "[ Ragdoll: ON ]" : "Ragdoll: OFF");
+					if (bMode) {
+						if (AnimInPoseEdit())
+							AnimEndPoseEdit();
+						else
+							AnimBeginPoseEdit();
+					}
+					if (bIK)
+						mTool = 0;
+					if (bFK)
+						mTool = 1;
+					if (bTR)
+						mTool = 2;
+					if (bRec)
+						AnimCommitPoseKey();
+					if (bRag)
+						AnimSetPhysics(!AnimPhysicsEnabled()); // couplage NKPhysics : le perso devient un ragdoll
+
+					// 2e ligne : modes d'affichage du viewport (façon Blender).
+					const NkAnimViewMode vm = Anim3DViewMode();
+					ec.Text("Vue:");
+					ctx.SameLine();
+					bool vSol = ec.Button(vm == NkAnimViewMode::SOLIDE ? "[ Solide ]" : "Solide");
+					ctx.SameLine();
+					bool vRen = ec.Button(vm == NkAnimViewMode::RENDU ? "[ Rendu ]" : "Rendu");
+					ctx.SameLine();
+					bool vWir = ec.Button(vm == NkAnimViewMode::FILAIRE ? "[ Filaire ]" : "Filaire");
+					ctx.SameLine();
+					bool vCom = ec.Button(AnimShowCOM() ? "[ COM ]" : "COM");
+					if (vSol)
+						Anim3DSetViewMode(NkAnimViewMode::SOLIDE);
+					if (vRen)
+						Anim3DSetViewMode(NkAnimViewMode::RENDU);
+					if (vWir)
+						Anim3DSetViewMode(NkAnimViewMode::FILAIRE);
+					if (vCom)
+						AnimSetShowCOM(!AnimShowCOM());
+					// Le régime est AFFICHÉ, pas supposé : un COM uniforme ressemble à un
+					// COM anthropométrique, et sans ce libellé l'approximation serait
+					// invisible et permanente.
+					if (AnimShowCOM())
+						ec.Text(AnimCOMRegimeLabel());
+
 				}
-				if (bIK)
-					mTool = 0;
-				if (bFK)
-					mTool = 1;
-				if (bTR)
-					mTool = 2;
-				if (bRec)
-					AnimCommitPoseKey();
-				if (bRag)
-					AnimSetPhysics(!AnimPhysicsEnabled()); // couplage NKPhysics : le perso devient un ragdoll
 
-				// 2e ligne : modes d'affichage du viewport (façon Blender).
-				const NkAnimViewMode vm = Anim3DViewMode();
-				ec.Text("Vue:");
-				ctx.SameLine();
-				bool vSol = ec.Button(vm == NkAnimViewMode::SOLIDE ? "[ Solide ]" : "Solide");
-				ctx.SameLine();
-				bool vRen = ec.Button(vm == NkAnimViewMode::RENDU ? "[ Rendu ]" : "Rendu");
-				ctx.SameLine();
-				bool vWir = ec.Button(vm == NkAnimViewMode::FILAIRE ? "[ Filaire ]" : "Filaire");
-				ctx.SameLine();
-				bool vCom = ec.Button(AnimShowCOM() ? "[ COM ]" : "COM");
-				if (vSol)
-					Anim3DSetViewMode(NkAnimViewMode::SOLIDE);
-				if (vRen)
-					Anim3DSetViewMode(NkAnimViewMode::RENDU);
-				if (vWir)
-					Anim3DSetViewMode(NkAnimViewMode::FILAIRE);
-				if (vCom)
-					AnimSetShowCOM(!AnimShowCOM());
-				// Le régime est AFFICHÉ, pas supposé : un COM uniforme ressemble à un
-				// COM anthropométrique, et sans ce libellé l'approximation serait
-				// invisible et permanente.
-				if (AnimShowCOM())
-					ec.Text(AnimCOMRegimeLabel());
-
-				const NkRect area = ctx.NextItemRect(560.f, 420.f);
+				const NkRect area = impose ? zoneImposee : ctx.NextItemRect(560.f, 420.f);
 
 				// ── MESURE (a3) : la geometrie du viewport, sur PLUSIEURS images ─
 				// Le canal chrome demande que rien d'autre ne bouge apres
@@ -234,9 +133,24 @@ namespace nkanima {
 				// (origine bas-gauche des render targets GL). Le squelette 2D reste dessiné
 				// par-dessus en mode édition (repère de manipulation).
 				const bool has3D = AnimLoaded() && Anim3DReady();
-				if (has3D)
-					dl.AddImage(ANIM_VIEWPORT_TEXID, area, NkVec2{0.f, 1.f}, NkVec2{1.f, 0.f},
-								NkColor{255, 255, 255, 255});
+				if (has3D) {
+					// La cible est en 16:9 (AnimBridge, 1280 x 720) : dans une zone
+					// imposee d'un autre rapport, on RECADRE au lieu d'etirer.
+					NkVec2 uv0{0.f, 1.f}, uv1{1.f, 0.f};
+					if (impose && area.h > 1.f) {
+						const float32 rapport = area.w / area.h, source = 16.f / 9.f;
+						if (rapport < source) {
+							const float32 f = rapport / source;
+							uv0.x = 0.5f - f * 0.5f;
+							uv1.x = 0.5f + f * 0.5f;
+						} else {
+							const float32 f = source / rapport;
+							uv0.y = 0.5f + f * 0.5f;
+							uv1.y = 0.5f - f * 0.5f;
+						}
+					}
+					dl.AddImage(ANIM_VIEWPORT_TEXID, area, uv0, uv1, NkColor{255, 255, 255, 255});
+				}
 				dl.AddRect(area, AnimInPoseEdit() ? NkColor{0, 212, 255, 255} : NkColor{40, 42, 48, 255}, 1.f);
 
 				// ── (26/09) LES COMPTEURS DE RENDU, EN HAUT A DROITE DE LA VUE ──
@@ -449,6 +363,22 @@ namespace nkanima {
 				} else {
 					mDragging = mRotating = mTranslating = false;
 				}
+			}
+
+			/// (2026-10-01, R32) La zone ou peindre la vue, posee par la face d'UE5
+			/// (NkAnimaFace) ; vide = le panneau de l'ancienne coquille.
+			NkRect zoneImposee{0.f, 0.f, 0.f, 0.f};
+			int32 Outil() const noexcept {
+				return mTool;
+			}
+			void PoserOutil(int32 o) noexcept {
+				mTool = o < 0 ? 0 : (o > 2 ? 2 : o);
+			}
+			int32 OsChoisi() const noexcept {
+				return mSel;
+			}
+			void ChoisirOs(int32 j) noexcept {
+				mSel = j;
 			}
 
 		private:

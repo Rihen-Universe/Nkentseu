@@ -11,6 +11,8 @@
 #include "NKPlatform/NkEnv.h"
 #include "NKContainers/String/NkFormat.h"
 #include "NKCode/Shell/NkHome.h"
+#include "NKCode/Shell/NkAppData.h" // NkCodeData : data/ quel que soit le dossier de lancement
+#include "NKLogger/NkLog.h"
 
 namespace nkentseu {
 	namespace nkcode {
@@ -142,15 +144,15 @@ namespace nkentseu {
 						ovrDirS = "Applications/NKCode/data/textures/";
 				}
 				const char *ovrDir = ovrDirS.CStr();
-				// Candidat relatif a l'EXECUTABLE (distribution : l'utilisateur peut
-				// lancer NKCode.exe depuis n'importe quel dossier -> les chemins
-				// relatifs au CWD ne trouvent rien).
-				const NkString edT = NkPath::GetExecutableDirectory().ToString();
-				const NkString exeTex = edT.Empty() ? NkString("data/textures/") : (edT + "/data/textures/");
+				// Le dossier des textures livrees, cherche UNE fois (NkAppData.h) :
+				// dossier courant, dossier de l'EXECUTABLE (paquet), puis en remontant
+				// jusqu'au depot. Sans la remontee, NKCode lance depuis Build/Bin/...
+				// n'avait ni icones ni logo (un carre bleu a sa place).
+				const NkString texDir = NkCodeDataDir("textures");
+				logger.Info("[NKCode] textures (logo, icones) : {0}\n", texDir.Empty() ? "(introuvables)" : texDir.CStr());
 				auto loadTex = [&](const char *base, int32 tw, int32 th, int32 *outW = nullptr, int32 *outH = nullptr,
 								   bool trim = true, bool box = true) -> uint32 {
-					const char *dirs[] = {ovrDir, "Applications/NKCode/data/textures/", "data/textures/",
-										  "NKCode/data/textures/", exeTex.CStr(), ""};
+					const char *dirs[] = {ovrDir, texDir.CStr(), ""};
 					auto put = [&](NkImage &img) -> uint32 { // rogne (option) puis upload
 						NkImage t;
 						if (trim)
@@ -403,15 +405,12 @@ namespace nkentseu {
 					applyManifest(NkString(".cpp=Cpp\n.cc=Cpp\n.h=Header\n.hpp=Header\n.c=C\n.py=Python\n.rs=Rust\n.zig=Zig\n."
 										   "jenga=Jenga\n.md=Markdown\n.txt=Texte\n.json=Json\n.png=Image\n.jpg=Image\n.zip="
 										   "Archive\n.exe=Binaire\n.dll=Binaire\n"));
-					// 2) manifeste livre (dernier candidat = a cote de l'EXECUTABLE, pour
-					// une distribution lancee depuis un autre dossier) ;
+					// 2) manifeste livre (NkAppData.h : dossier courant, a cote de
+					// l'EXECUTABLE, puis en remontant jusqu'au depot) ;
 					// 3) override utilisateur (applique en dernier -> gagne).
-					const NkString exeMan = edT.Empty() ? NkString("data/icons.cfg") : (edT + "/data/icons.cfg");
-					for (const char *mp : {"Applications/NKCode/data/icons.cfg", "data/icons.cfg", exeMan.CStr()})
-						if (NkFile::Exists(mp)) {
-							applyManifest(NkFile::ReadAllText(NkPath(mp)));
-							break;
-						}
+					const NkString man = NkCodeData("icons.cfg");
+					if (!man.Empty())
+						applyManifest(NkFile::ReadAllText(NkPath(man.CStr())));
 					{
 						const NkString uman = NkString(ovrDir) + "icons.cfg";
 						if (NkFile::Exists(uman.CStr()))

@@ -1024,7 +1024,49 @@ namespace nkentseu {
 					else if (survol)
 						p.Fill(c, rHover, rd);
 					const NkPaintRect zi{c.x + thumb * 0.1f, c.y + thumb * 0.06f, thumb * 0.8f, thumb * 0.8f};
-					Silhouette(p, zi, IconeDe(e), s.folderTint, e.contenu, e.couleur);
+					// (2026-10-01, Rihen) UN DOSSIER PLEIN SE DISTINGUE D'UN VIDE : une
+					// FEUILLE claire depasse du dossier (sa teinte, eclaircie : la couleur
+					// choisie reste), et les APERCUS de son contenu y sont poses (2 a 4,
+					// vignettes ou silhouettes). Petite vignette : la feuille seule. Vide :
+					// le dossier seul, comme avant.
+					const bool plein = e.contenu == (uint8)NkContenuDossier::Plein || e.nbApercus > 0;
+					if (plein) {
+						const float32 S = zi.w;
+						const uint32 vif = e.couleur ? e.couleur : p.ColorOf(s.folderTint);
+						const NkPaintRect feuille{zi.x + S * 0.17f, zi.y + S * 0.01f, S * 0.66f, S * 0.62f};
+						p.FillColor(feuille, NkTeinter(vif, 0.86f), S * 0.04f);
+						p.OutlineSharp(feuille, s.border);
+						// La bande visible de la feuille : au-dessus du rabat arriere du
+						// dossier, que l'on dessine plus bas (cf. `zf`).
+						const float32 bande = S * 0.24f;
+						const int32 n = e.nbApercus > 4 ? 4 : (int32)e.nbApercus;
+						if (n > 0 && S >= 40.f) {
+							const float32 marge = S * 0.03f;
+							float32 cote = (feuille.w - marge * (float32)(n + 1)) / (float32)n;
+							cote = cote > bande - marge * 2.f ? bande - marge * 2.f : cote;
+							const float32 total = cote * (float32)n + marge * (float32)(n - 1);
+							float32 x = feuille.x + (feuille.w - total) * 0.5f;
+							for (int32 k = 0; k < n; ++k) {
+								const NkPaintRect r{x, feuille.y + marge * 1.5f, cote, cote};
+								NkAssetEntry mini;
+								mini.thumbnail = e.apercusVignette[k];
+								if (!DrawVignette(p, r, mini, -1, NkContentBrowserHooks()))
+									Silhouette(p, r, (NkAssetIcone)e.apercusIcone[k], e.apercusRole[k]);
+								x += cote + marge;
+							}
+						} else if (n == 0 || S < 40.f) {
+							// Trois lignes : la feuille ECRITE, lisible meme en tout petit.
+							const uint32 encre = NkTeinter(vif, -0.25f);
+							for (int32 k = 0; k < 3; ++k)
+								p.FillColor({feuille.x + S * 0.1f, feuille.y + S * (0.07f + 0.07f * (float32)k), feuille.w * (k == 2 ? 0.45f : 0.7f), S * 0.025f}, encre,
+											S * 0.01f);
+						}
+						// Le dossier, un peu plus bas et plus petit : la feuille depasse.
+						const NkPaintRect zf{zi.x + S * 0.06f, zi.y + S * 0.14f, S * 0.88f, S * 0.86f};
+						Silhouette(p, zf, IconeDe(e), s.folderTint, e.contenu, e.couleur);
+					} else {
+						Silhouette(p, zi, IconeDe(e), s.folderTint, e.contenu, e.couleur);
+					}
 					const NkPaintRect rn{c.x + pad * 0.25f, c.y + thumb * 0.9f, c.w - pad * 0.5f, 2.f * lh};
 					if (m.renomme == idx) {
 						res.renommeX = rn.x;

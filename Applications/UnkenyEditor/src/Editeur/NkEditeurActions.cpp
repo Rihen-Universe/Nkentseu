@@ -6,12 +6,14 @@
 // =============================================================================
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurPlacer.h"
 #include "Editeur/NkEditeurViseur.h"
 
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkPath.h"
 #include "Unkeny/Partie/NkUnkenyPartie.h"
+#include "Unkeny/Script/NkUnkenyScript.h"
 
 #include <cstdio>
 #include <cstring>
@@ -93,6 +95,11 @@ namespace nkentseu {
 		void NkEditeurJouer(NkEditeurModele &m) {
 			if (!m.photo.valide) {
 				m.scene.Photographier(m.photo); // ce que « Arreter » rendra
+				// (2026-10-01, PIE) La camera de l'editeur, rendue a l'arret ; le jeu
+				// part de la meme vue, et la vue est AU JEU (pas ejectee).
+				m.cameraAvantJeu = m.scene.Camera();
+				m.cameraAvantJeuValide = true;
+				m.ejecte = false;
 				// Les effets repartent de leur graine : ce qu'on voit en jeu ne
 				// depend pas de la duree de l'apercu en edition.
 				m.scene.Effets().Vider();
@@ -111,6 +118,12 @@ namespace nkentseu {
 				m.scene.Restaurer(m.photo);
 				Aligner(m);
 			}
+			// (2026-10-01, PIE) La vue revient la ou l'editeur l'avait laissee.
+			if (m.cameraAvantJeuValide) {
+				m.scene.Camera() = m.cameraAvantJeu;
+				m.cameraAvantJeuValide = false;
+			}
+			m.ejecte = false;
 			m.photo.valide = false;
 			m.etat = NkEtatJeu::NK_EDITION;
 			// Les identifiants d'entite ont change (Restaurer) : une selection
@@ -124,9 +137,32 @@ namespace nkentseu {
 			m.pinceau = ecs::NkEntityId::Invalid();
 		}
 
+		bool NkEditeurVueAuJeu(const NkEditeurModele &m) noexcept {
+			return m.etat != NkEtatJeu::NK_EDITION && !m.ejecte;
+		}
+
+		bool NkEditeurEjecter(NkEditeurModele &m) {
+			if (m.etat == NkEtatJeu::NK_EDITION) {
+				return false;
+			}
+			if (!m.ejecte) {
+				m.cameraJeu = m.scene.Camera();
+				m.ejecte = true;
+				NkEditeurAnnoncer(m, "Éjecté : caméra libre de l'éditeur (le jeu continue) — F8 pour revenir au jeu");
+			} else {
+				m.scene.Camera() = m.cameraJeu;
+				m.ejecte = false;
+				NkEditeurAnnoncer(m, "Retour au jeu : la vue suit la caméra du jeu");
+			}
+			return true;
+		}
+
 		void NkEditeurUnPas(NkEditeurModele &m) {
 			if (!m.photo.valide) {
 				m.scene.Photographier(m.photo);
+				m.cameraAvantJeu = m.scene.Camera();
+				m.cameraAvantJeuValide = true;
+				m.ejecte = false;
 			}
 			m.etat = NkEtatJeu::NK_PAUSE;
 			m.scene.Pas(m.scene.Config().pasFixe);
@@ -134,11 +170,23 @@ namespace nkentseu {
 
 		void NkEditeurAvancer(NkEditeurModele &m, float32 dt) {
 			m.messageAge += dt;
+			// (2026-10-01, R34) Les effets ne TOURNENT qu'en jeu ; en edition, seuls
+			// ceux qui ont « Aperçu en édition » (NkEffets2D::edition).
+			m.scene.Effets().edition = m.etat != NkEtatJeu::NK_JEU;
 			if (m.etat == NkEtatJeu::NK_JEU) {
 				// LA trame du jeu, celle que joue aussi le joueur autonome
 				// (Unkeny/Partie) : jouer dans l'editeur, c'est le jeu. Elle garde
 				// dt > 0 et le plafond de trame, et Pas propage la hierarchie.
-				NkAvancerPartie(m.scene, dt);
+				// Ejectee, la vue garde sa camera LIBRE ; le jeu avance avec la sienne.
+				if (m.ejecte) {
+					const NkVue2D libre = m.scene.Camera();
+					m.scene.Camera() = m.cameraJeu;
+					NkAvancerPartie(m.scene, dt);
+					m.cameraJeu = m.scene.Camera();
+					m.scene.Camera() = libre;
+				} else {
+					NkAvancerPartie(m.scene, dt);
+				}
 			} else {
 				// En EDITION rien ne fait Pas : deplacer un parent au gizmo doit
 				// pourtant emporter ses enfants a l'ecran, a cette trame.
@@ -1148,13 +1196,19 @@ namespace nkentseu {
 				case NkComposantEditeur::NK_CORPS_MOU:
 					return "Corps mou";
 				case NkComposantEditeur::NK_SOURCE:
-					return "Source sonore";
+					return "Son";
 				case NkComposantEditeur::NK_ANIMATION:
 					return "Animation";
 				case NkComposantEditeur::NK_LUMIERE:
-					return "Lumière 2D";
+					return "Lumière";
 				case NkComposantEditeur::NK_EMETTEUR:
-					return "Émetteur de particules";
+					return "Émetteur";
+				case NkComposantEditeur::NK_FORME:
+					return "Forme 2D";
+				case NkComposantEditeur::NK_ANIMATEUR:
+					return "Animateur";
+				case NkComposantEditeur::NK_ANCRAGE:
+					return "Ancrage à l'écran";
 				default:
 					return "";
 			}
@@ -1179,6 +1233,12 @@ namespace nkentseu {
 					return w.Has<NkLumiere2D>(id);
 				case NkComposantEditeur::NK_EMETTEUR:
 					return w.Has<NkEmetteur2D>(id);
+				case NkComposantEditeur::NK_FORME:
+					return w.Has<NkRenduForme2D>(id);
+				case NkComposantEditeur::NK_ANIMATEUR:
+					return w.Has<NkAnimateur2D>(id);
+				case NkComposantEditeur::NK_ANCRAGE:
+					return w.Has<NkAncrageEcran2D>(id);
 				default:
 					return false;
 			}
@@ -1252,9 +1312,48 @@ namespace nkentseu {
 					return NkEditeurAjouterLumiere(m, id, NkTypeLumiere2D::NK_PONCTUELLE);
 				case NkComposantEditeur::NK_EMETTEUR:
 					return NkEditeurAjouterEffet(m, id, NkPresetEffet2D::NK_FEU);
+				case NkComposantEditeur::NK_FORME:
+					// Un rectangle : le genre se change dans sa carte (Rendu).
+					return NkEditeurAjouterForme(m, id, NkGenreForme2D::NK_RECTANGLE);
+				case NkComposantEditeur::NK_ANIMATEUR:
+					// Le modele toujours present ; le menu en propose d'autres
+					// (NkEditeurAjouterAnimateur, les .nkanimctl du Contenu).
+					return NkEditeurAjouterAnimateur(m, id, "plateforme", nullptr);
+				case NkComposantEditeur::NK_ANCRAGE: {
+					NkAncrageEcran2D a;
+					w.Add<NkAncrageEcran2D>(id, a);
+					return true;
+				}
 				default:
 					return false;
 			}
+		}
+
+		bool NkEditeurAjouterAnimateur(NkEditeurModele &m, ecs::NkEntityId id, const char *modele, const char *fichier) {
+			ecs::NkWorld &w = m.scene.Monde();
+			if (!w.IsAlive(id) || modele == nullptr || modele[0] == '\0') {
+				return false;
+			}
+			// Un .nkanimctl du Contenu : lu et enregistre sous son nom avant tout.
+			if (fichier != nullptr && fichier[0] != '\0' && !NkChargerModeleAnimateur(modele, fichier)) {
+				NkEditeurAnnoncer(m, NkString::Format("Contrôleur illisible : %s", fichier).CStr());
+				return false;
+			}
+			// L'animateur choisit le CLIP d'une animation de sprites : sans elle, il
+			// tournerait a vide. On l'ajoute avec lui.
+			if (!w.Has<NkAnimSprite2D>(id)) {
+				NkAnimSprite2D a;
+				a.nbClips = 1;
+				w.Add<NkAnimSprite2D>(id, a);
+			}
+			const NkAnimateur2D a = NkCreerAnimateur2D(modele);
+			if (w.Has<NkAnimateur2D>(id)) {
+				w.Set<NkAnimateur2D>(id, a);
+			} else {
+				w.Add<NkAnimateur2D>(id, a);
+			}
+			NkEditeurAnnoncer(m, NkString::Format("Animateur ajouté : %s", modele).CStr());
+			return true;
 		}
 
 		bool NkEditeurRetirerComposant(NkEditeurModele &m, ecs::NkEntityId id, NkComposantEditeur c) {
@@ -1289,6 +1388,16 @@ namespace nkentseu {
 					// disparaitre d'un coup les flammeches deja en l'air.
 					w.Remove<NkEmetteur2D>(id);
 					return true;
+				case NkComposantEditeur::NK_FORME:
+					// Le collisionneur reste : il ne suit plus rien, il se regle a la main.
+					w.Remove<NkRenduForme2D>(id);
+					return true;
+				case NkComposantEditeur::NK_ANIMATEUR:
+					w.Remove<NkAnimateur2D>(id);
+					return true;
+				case NkComposantEditeur::NK_ANCRAGE:
+					w.Remove<NkAncrageEcran2D>(id);
+					return true;
 				default:
 					return false;
 			}
@@ -1310,6 +1419,18 @@ namespace nkentseu {
 				sortie = NkComposantEditeur::NK_EMETTEUR;
 				return true;
 			}
+			if (c == NkCarteEditeur::NK_ANIMATEUR) {
+				sortie = NkComposantEditeur::NK_ANIMATEUR;
+				return true;
+			}
+			if (c == NkCarteEditeur::NK_FORME) {
+				sortie = NkComposantEditeur::NK_FORME;
+				return true;
+			}
+			if (c == NkCarteEditeur::NK_ANCRAGE) {
+				sortie = NkComposantEditeur::NK_ANCRAGE;
+				return true;
+			}
 			return false;
 		}
 
@@ -1321,6 +1442,8 @@ namespace nkentseu {
 					return "Animateur";
 				case NkCarteEditeur::NK_HIERARCHIE:
 					return "Hiérarchie";
+				case NkCarteEditeur::NK_SCRIPTS:
+					return "Scripts";
 				default: {
 					NkComposantEditeur comp;
 					return NkComposantDeCarte(c, comp) ? NkComposantEditeurNom(comp) : "";
@@ -1340,6 +1463,8 @@ namespace nkentseu {
 					return w.Has<NkAnimateur2D>(id);
 				case NkCarteEditeur::NK_HIERARCHIE:
 					return true;
+				case NkCarteEditeur::NK_SCRIPTS:
+					return w.Has<unkeny::NkScript2D>(id);
 				default: {
 					NkComposantEditeur comp;
 					return NkComposantDeCarte(c, comp) && NkEditeurAUnComposant(m, id, comp);
@@ -1350,7 +1475,8 @@ namespace nkentseu {
 		bool NkEditeurCarteSeCopie(NkCarteEditeur c) noexcept {
 			return c == NkCarteEditeur::NK_TRANSFORM || c == NkCarteEditeur::NK_SPRITE || c == NkCarteEditeur::NK_COLLISIONNEUR ||
 				   c == NkCarteEditeur::NK_CORPS || c == NkCarteEditeur::NK_SOURCE || c == NkCarteEditeur::NK_ANIMATION ||
-				   c == NkCarteEditeur::NK_LUMIERE || c == NkCarteEditeur::NK_EMETTEUR;
+				   c == NkCarteEditeur::NK_LUMIERE || c == NkCarteEditeur::NK_EMETTEUR || c == NkCarteEditeur::NK_FORME ||
+				   c == NkCarteEditeur::NK_ANCRAGE;
 		}
 
 		namespace {
@@ -1466,6 +1592,19 @@ namespace nkentseu {
 				case NkCarteEditeur::NK_EMETTEUR:
 					// Un emetteur se remet a SA recette (graine et etat gardes).
 					return NkEditeurAppliquerPreset(m, id, w.Get<NkEmetteur2D>(id)->preset);
+				case NkCarteEditeur::NK_FORME: {
+					// La forme par defaut de SON genre, a SA taille et visible comme avant.
+					NkRenduForme2D *f = w.Get<NkRenduForme2D>(id);
+					NkRenduForme2D d = NkFormeParDefaut(f->genre);
+					d.taille = f->taille;
+					d.visible = f->visible;
+					*f = d;
+					NkEditeurFormeChangee(m, id);
+					return true;
+				}
+				case NkCarteEditeur::NK_ANCRAGE:
+					*w.Get<NkAncrageEcran2D>(id) = NkAncrageEcran2D();
+					return true;
 				default:
 					return false;
 			}
@@ -1507,6 +1646,10 @@ namespace nkentseu {
 					return CopierOctets<NkLumiere2D>(w, id, c, pp);
 				case NkCarteEditeur::NK_EMETTEUR:
 					return CopierOctets<NkEmetteur2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_FORME:
+					return CopierOctets<NkRenduForme2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_ANCRAGE:
+					return CopierOctets<NkAncrageEcran2D>(w, id, c, pp);
 				default:
 					return false;
 			}
@@ -1610,13 +1753,32 @@ namespace nkentseu {
 					m.scene.Effets().Rejouer(id.Pack());
 					return true;
 				}
+				case NkCarteEditeur::NK_FORME: {
+					NkRenduForme2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					*w.Get<NkRenduForme2D>(id) = v;
+					NkEditeurFormeChangee(m, id);
+					return true;
+				}
+				case NkCarteEditeur::NK_ANCRAGE: {
+					NkAncrageEcran2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					*w.Get<NkAncrageEcran2D>(id) = v;
+					return true;
+				}
 				default:
 					return false;
 			}
 		}
 
 		bool NkEditeurCarteAUneCase(NkCarteEditeur c) noexcept {
-			return c != NkCarteEditeur::NK_TRANSFORM && c != NkCarteEditeur::NK_HIERARCHIE && c < NkCarteEditeur::NK_COUNT;
+			// L'ancrage n'a rien a eteindre : il se retire (menu « ⋮ »).
+			return c != NkCarteEditeur::NK_TRANSFORM && c != NkCarteEditeur::NK_HIERARCHIE && c != NkCarteEditeur::NK_ANCRAGE &&
+				   c < NkCarteEditeur::NK_COUNT;
 		}
 
 		bool NkEditeurCarteActive(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c) {
@@ -1645,6 +1807,10 @@ namespace nkentseu {
 				case NkCarteEditeur::NK_EMETTEUR: {
 					const NkEmetteur2D *s = w.Get<NkEmetteur2D>(id);
 					return s != nullptr && s->actif;
+				}
+				case NkCarteEditeur::NK_FORME: {
+					const NkRenduForme2D *s = w.Get<NkRenduForme2D>(id);
+					return s != nullptr && s->visible;
 				}
 				case NkCarteEditeur::NK_COLLISIONNEUR:
 				case NkCarteEditeur::NK_CORPS:
@@ -1680,6 +1846,9 @@ namespace nkentseu {
 					return true;
 				case NkCarteEditeur::NK_EMETTEUR:
 					w.Get<NkEmetteur2D>(id)->actif = actif;
+					return true;
+				case NkCarteEditeur::NK_FORME:
+					w.Get<NkRenduForme2D>(id)->visible = actif;
 					return true;
 				default:
 					break;
@@ -1821,6 +1990,8 @@ namespace nkentseu {
 		void NkEditeurOublierHistorique(NkEditeurModele &m) {
 			m.historique.annuler.Clear();
 			m.historique.refaire.Clear();
+			m.historique.annulerFichiers.Clear();
+			m.historique.refaireFichiers.Clear();
 		}
 
 		void NkEditeurRetenir(NkEditeurModele &m) {
@@ -1830,11 +2001,19 @@ namespace nkentseu {
 			NkHistoriqueEditeur &h = m.historique;
 			NkScene::NkPhoto photo;
 			m.scene.Photographier(photo);
+			// (2026-10-01) Les fichiers suivent leur photo, INDICE POUR INDICE : un
+			// historique d'avant le journal des fichiers est remis d'equerre ici.
+			while (h.annulerFichiers.Size() < h.annuler.Size()) {
+				h.annulerFichiers.PushBack(NkVector<NkFichierRetenu>());
+			}
 			if (h.annuler.Size() >= h.maximum && h.annuler.Size() > 0u) {
 				h.annuler.RemoveAt(0);
+				h.annulerFichiers.RemoveAt(0);
 			}
 			h.annuler.PushBack(photo);
+			h.annulerFichiers.PushBack(NkVector<NkFichierRetenu>());
 			h.refaire.Clear();
+			h.refaireFichiers.Clear();
 		}
 
 		namespace {
@@ -1847,7 +2026,30 @@ namespace nkentseu {
 				m.selection = e;
 			}
 
+			/// Rend aux fichiers l'etat retenu, et rend celui d'AVANT ce retour (ce
+			/// que le geste inverse rendra). Un fichier qui n'existait pas est efface.
+			NkVector<NkFichierRetenu> RendreFichiers(const NkVector<NkFichierRetenu> &retenus) {
+				NkVector<NkFichierRetenu> maintenant;
+				for (usize i = 0; i < retenus.Size(); ++i) {
+					const NkFichierRetenu &f = retenus[i];
+					NkFichierRetenu actuel;
+					actuel.chemin = f.chemin;
+					actuel.existait = NkFile::Exists(f.chemin.CStr());
+					if (actuel.existait) {
+						actuel.octets = NkFile::ReadAllBytes(f.chemin.CStr());
+					}
+					maintenant.PushBack(actuel);
+					if (f.existait) {
+						NkFile::WriteAllBytes(f.chemin.CStr(), f.octets);
+					} else if (actuel.existait) {
+						NkFile::Delete(f.chemin.CStr());
+					}
+				}
+				return maintenant;
+			}
+
 			bool Basculer(NkEditeurModele &m, NkVector<NkScene::NkPhoto> &depuis, NkVector<NkScene::NkPhoto> &vers,
+						  NkVector<NkVector<NkFichierRetenu>> &fDepuis, NkVector<NkVector<NkFichierRetenu>> &fVers,
 						  const char *rien, const char *fait) {
 				if (m.etat != NkEtatJeu::NK_EDITION) {
 					NkEditeurAnnoncer(m, "En jeu, Arreter rend la scene d'avant : l'historique est celui de l'edition");
@@ -1857,23 +2059,54 @@ namespace nkentseu {
 					NkEditeurAnnoncer(m, rien);
 					return false;
 				}
+				// Les fichiers d'abord remis d'equerre avec leurs photos (meme indice).
+				while (fDepuis.Size() < depuis.Size()) {
+					fDepuis.PushBack(NkVector<NkFichierRetenu>());
+				}
+				while (fVers.Size() < vers.Size()) {
+					fVers.PushBack(NkVector<NkFichierRetenu>());
+				}
 				NkScene::NkPhoto maintenant;
 				m.scene.Photographier(maintenant);
 				vers.PushBack(maintenant);
 				const NkScene::NkPhoto photo = depuis[depuis.Size() - 1u];
 				depuis.PopBack();
+				const NkVector<NkFichierRetenu> retenus = fDepuis[fDepuis.Size() - 1u];
+				fDepuis.PopBack();
+				fVers.PushBack(RendreFichiers(retenus));
 				RendrePhoto(m, photo);
 				NkEditeurAnnoncer(m, fait);
 				return true;
 			}
 		} // namespace
 
+		// =====================================================================
+		// LE JOURNAL DES FICHIERS (2026-10-01, IA R18)
+		// =====================================================================
+		void NkEditeurRetenirFichier(NkEditeurModele &m, const char *chemin) {
+			NkHistoriqueEditeur &h = m.historique;
+			if (h.annulerFichiers.Size() != h.annuler.Size() || h.annuler.Empty())
+				return; // pas de photo pour porter le fichier : rien a defaire
+			NkVector<NkFichierRetenu> &l = h.annulerFichiers[h.annulerFichiers.Size() - 1u];
+			for (usize i = 0; i < l.Size(); ++i)
+				if (l[i].chemin == chemin)
+					return; // deja retenu dans ce geste : on garde l'etat le plus ANCIEN
+			NkFichierRetenu f;
+			f.chemin = NkString(chemin);
+			f.existait = NkFile::Exists(chemin);
+			if (f.existait)
+				f.octets = NkFile::ReadAllBytes(chemin);
+			l.PushBack(f);
+		}
+
 		bool NkEditeurAnnuler(NkEditeurModele &m) {
-			return Basculer(m, m.historique.annuler, m.historique.refaire, "Rien a annuler", "Annule");
+			return Basculer(m, m.historique.annuler, m.historique.refaire, m.historique.annulerFichiers, m.historique.refaireFichiers,
+							"Rien a annuler", "Annule");
 		}
 
 		bool NkEditeurRefaire(NkEditeurModele &m) {
-			return Basculer(m, m.historique.refaire, m.historique.annuler, "Rien a retablir", "Retabli");
+			return Basculer(m, m.historique.refaire, m.historique.annuler, m.historique.refaireFichiers, m.historique.annulerFichiers,
+							"Rien a retablir", "Retabli");
 		}
 
 		bool NkEditeurActiverEntite(NkEditeurModele &m, ecs::NkEntityId id, bool actif) {

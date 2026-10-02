@@ -684,6 +684,9 @@ namespace nkentseu {
 			// (2026-10-01) Les clips de PROPRIETES apres les images : une piste
 			// « Sprite.image » ou « Sprite.couleur » a le dernier mot.
 			NkAvancerClipsProprietes(*this, deltaTime);
+			// (2026-10-01 soir) Le MELANGE des animateurs (fondus, arbres, couches)
+			// apres les clips de proprietes : la pose melangee a le dernier mot.
+			NkMelangerAnimateurs(*this, deltaTime);
 			// Les particules VISUELLES apres la synchro : elles naissent la ou le
 			// corps est a cette trame. Une scene sans emetteur n'y paie qu'un test.
 			mEffets.Avancer(*this, deltaTime);

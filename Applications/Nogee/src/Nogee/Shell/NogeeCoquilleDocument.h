@@ -43,6 +43,7 @@
 
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKGui/Doc/NkGuiCoquille.h"
+#include "NKFileSystem/NkPath.h" // LocateResource : le dossier, quel que soit le dossier de lancement
 
 namespace nogee {
 
@@ -63,8 +64,12 @@ namespace nogee {
 			NkBandeDocument panneau;
 			NkString dossier;
 
+			/// (2026-10-01) Le dossier est TROUVE, pas suppose : dossier courant,
+			/// puis a cote de l'exe, puis en remontant (NkPath::LocateResource).
+			/// Introuvable : le chemin donne reste tel quel (refus inchange).
 			bool ChargerDepuisDossier(const char *d) noexcept {
-				dossier = NkString(d);
+				const NkString trouve = nkentseu::NkPath::LocateResource(d);
+				dossier = trouve.Empty() ? NkString(d) : trouve;
 				const bool a = barreEtat.ChargerDepuisFichier(Joindre("BarreEtat.nkgui").CStr());
 				const bool b = panneau.ChargerDepuisFichier(Joindre("PanneauScene.nkgui").CStr());
 				return a && b;

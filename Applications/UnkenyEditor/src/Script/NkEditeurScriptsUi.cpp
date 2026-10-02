@@ -1,7 +1,8 @@
 // -----------------------------------------------------------------------------
 // FICHIER: UnkenyEditor/Script/NkEditeurScriptsUi.cpp
-// DESCRIPTION: Le bloc « Scripts » des Details, les creations du navigateur, et
-//              l'ouverture d'un script par double-clic.
+// DESCRIPTION: Ce que montre la carte « Scripts » des Details (statut, variables,
+//              ajouter, ouvrir), les creations du navigateur, et l'ouverture
+//              d'un script par double-clic.
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -61,320 +62,163 @@ namespace nkentseu {
 				}
 				return NkString(NK_SCRIPTS_DOSSIER);
 			}
-			/// Une variable que la definition d'un script DECLARE.
-			struct VarDeclaree {
-					NkString nom;
-					unkeny::NkTypeVarScript type = unkeny::NkTypeVarScript::NK_REEL;
-					NkVec2f defaut{0.f, 0.f};
-					NkString texte; ///< (2026-10-01) le defaut d'un texte
-					NkString infobulle;
-			};
-			void Declarees(const unkeny::NkDefinitionScript *d, NkVector<VarDeclaree> &sortie) {
-				if (d == nullptr) {
-					return;
-				}
-				if (d->classe != nullptr) {
-					for (uint32 i = 0; i < d->classe->nbVariables; ++i) {
-						VarDeclaree v;
-						v.nom = d->classe->variables[i].nom;
-						v.type = static_cast<unkeny::NkTypeVarScript>(d->classe->variables[i].type);
-						v.defaut = NkVec2f(d->classe->variables[i].x, d->classe->variables[i].y);
-						sortie.PushBack(v);
-					}
-				} else if (d->programme != nullptr) {
-					const unkeny::NkModuleBp &m = d->programme->module;
-					for (uint32 i = 0; i < m.variables.Size(); ++i) {
-						const unkeny::NkVariableBp &x = m.variables[i];
-						if (!x.exposee) {
-							continue;
-						}
-						VarDeclaree v;
-						v.nom = x.nom;
-						v.defaut = NkVec2f(x.defaut.x, x.defaut.y);
-						if (x.type == unkeny::NkTypeBp::NK_ENTIER) {
-							v.type = unkeny::NkTypeVarScript::NK_ENTIER;
-							v.defaut = NkVec2f(static_cast<float32>(x.defaut.i), 0.f);
-						} else if (x.type == unkeny::NkTypeBp::NK_BOOLEEN) {
-							v.type = unkeny::NkTypeVarScript::NK_BOOLEEN;
-							v.defaut = NkVec2f(x.defaut.i != 0 ? 1.f : 0.f, 0.f);
-						} else if (x.type == unkeny::NkTypeBp::NK_VEC2) {
-							v.type = unkeny::NkTypeVarScript::NK_VEC2;
-						} else if (x.type == unkeny::NkTypeBp::NK_COULEUR) {
-							// (2026-10-01) les variables de l'editeur de Blueprint a la UE5.
-							v.type = unkeny::NkTypeVarScript::NK_COULEUR;
-							v.defaut = unkeny::NkCouleurVersVar(static_cast<uint32>(x.defaut.i));
-						} else if (x.type == unkeny::NkTypeBp::NK_TEXTE) {
-							v.type = unkeny::NkTypeVarScript::NK_TEXTE;
-							const int32 c = x.defaut.i;
-							v.texte = c >= 0 && static_cast<uint32>(c) < m.constantes.Size() ? m.constantes[static_cast<uint32>(c)].texte : NkString();
-						} else if (x.type == unkeny::NkTypeBp::NK_ENTITE) {
-							v.type = unkeny::NkTypeVarScript::NK_ENTITE;
-						}
-						sortie.PushBack(v);
-					}
-				}
-			}
-
-			const char *Statut(NkEditeurScripts &s, ecs::NkEntityId id, uint32 k, const char *ref, NkString &detail) {
-				const unkeny::NkDefinitionScript *d = s.registre.Definition(s.registre.Trouver(ref));
-				if (d == nullptr) {
-					detail = std::strncmp(ref, unkeny::NK_SCRIPT_PREFIXE_CPP, 4) == 0 ? "classe C++ pas (encore) compilée"
-																						: "Blueprint introuvable dans le projet";
-					return "inconnu";
-				}
-				if (!d->erreur.Empty()) {
-					detail = d->erreur;
-					return "refusé";
-				}
-				if (s.hote.EnFaute(id, k)) {
-					detail = "voir le Journal ; Arrêter puis Jouer le relance";
-					return "EN FAUTE";
-				}
-				return d->genre == unkeny::NkGenreScript::NK_CPP ? "C++" : "Blueprint";
-			}
 		} // namespace
 
-		void NkEditeurBlocScript(NkEditeurCadre &c, ecs::NkEntityId id) {
-			if (c.m.scripts == nullptr) {
+		// =====================================================================
+		// CE QUE MONTRE LA CARTE « SCRIPTS » (dessinee par NkEditeurDetails.cpp)
+		// =====================================================================
+		void NkEditeurVariablesScript(NkEditeurScripts &s, const unkeny::NkScript2D &sc, uint32 k,
+									  NkVector<NkVariableScriptMontree> &sortie) {
+			sortie.Clear();
+			// Celles que la DEFINITION declare (classe C++ ou module Blueprint), avec
+			// leur defaut : une valeur n'est ecrite dans l'entite que si on la change.
+			const unkeny::NkDefinitionScript *d = k < sc.nombre ? s.registre.Definition(s.registre.Trouver(sc.refs[k])) : nullptr;
+			if (d != nullptr && d->classe != nullptr) {
+				for (uint32 i = 0; i < d->classe->nbVariables; ++i) {
+					NkVariableScriptMontree v;
+					v.nom = d->classe->variables[i].nom;
+					v.type = static_cast<unkeny::NkTypeVarScript>(d->classe->variables[i].type);
+					v.defaut = NkVec2f(d->classe->variables[i].x, d->classe->variables[i].y);
+					sortie.PushBack(v);
+				}
+			} else if (d != nullptr && d->programme != nullptr) {
+				const unkeny::NkModuleBp &mod = d->programme->module;
+				for (uint32 i = 0; i < mod.variables.Size(); ++i) {
+					const unkeny::NkVariableBp &x = mod.variables[i];
+					if (!x.exposee) {
+						continue;
+					}
+					NkVariableScriptMontree v;
+					v.nom = x.nom;
+					v.defaut = NkVec2f(x.defaut.x, x.defaut.y);
+					if (x.type == unkeny::NkTypeBp::NK_ENTIER) {
+						v.type = unkeny::NkTypeVarScript::NK_ENTIER;
+						v.defaut = NkVec2f(static_cast<float32>(x.defaut.i), 0.f);
+					} else if (x.type == unkeny::NkTypeBp::NK_BOOLEEN) {
+						v.type = unkeny::NkTypeVarScript::NK_BOOLEEN;
+						v.defaut = NkVec2f(x.defaut.i != 0 ? 1.f : 0.f, 0.f);
+					} else if (x.type == unkeny::NkTypeBp::NK_VEC2) {
+						v.type = unkeny::NkTypeVarScript::NK_VEC2;
+					} else if (x.type == unkeny::NkTypeBp::NK_COULEUR) {
+						// (2026-10-01) les variables de l'editeur de Blueprint a la UE5.
+						v.type = unkeny::NkTypeVarScript::NK_COULEUR;
+						v.defaut = unkeny::NkCouleurVersVar(static_cast<uint32>(x.defaut.i));
+					} else if (x.type == unkeny::NkTypeBp::NK_TEXTE) {
+						v.type = unkeny::NkTypeVarScript::NK_TEXTE;
+						const int32 c = x.defaut.i;
+						v.texte = c >= 0 && static_cast<uint32>(c) < mod.constantes.Size() ? mod.constantes[static_cast<uint32>(c)].texte : NkString();
+					} else if (x.type == unkeny::NkTypeBp::NK_ENTITE) {
+						v.type = unkeny::NkTypeVarScript::NK_ENTITE;
+					}
+					sortie.PushBack(v);
+				}
+			}
+			// Puis celles du composant que la definition ne connait plus (gardees, sauvees).
+			for (uint32 v = 0; v < unkeny::NK_UNKENY_SCRIPT_VARS_MAX; ++v) {
+				const unkeny::NkVarScript &x = sc.vars[v];
+				if (x.nom[0] == '\0' || x.script != k) {
+					continue;
+				}
+				bool connue = false;
+				for (uint32 q = 0; q < sortie.Size(); ++q) {
+					connue = connue || sortie[q].nom == x.nom;
+				}
+				if (!connue) {
+					NkVariableScriptMontree d2;
+					d2.nom = x.nom;
+					d2.type = static_cast<unkeny::NkTypeVarScript>(x.type);
+					sortie.PushBack(d2);
+				}
+			}
+		}
+
+		const char *NkEditeurStatutScript(NkEditeurScripts &s, ecs::NkEntityId id, uint32 k, const char *ref, NkString &detail) {
+			detail = NkString();
+			const unkeny::NkDefinitionScript *d = s.registre.Definition(s.registre.Trouver(ref));
+			if (d == nullptr) {
+				detail = std::strncmp(ref, unkeny::NK_SCRIPT_PREFIXE_CPP, 4) == 0 ? "classe C++ pas (encore) compilée"
+																					: "Blueprint introuvable dans le projet";
+				return "inconnu";
+			}
+			if (!d->erreur.Empty()) {
+				detail = d->erreur;
+				return "refusé";
+			}
+			if (s.hote.EnFaute(id, k)) {
+				detail = "voir le Journal ; Arrêter puis Jouer le relance";
+				return "EN FAUTE";
+			}
+			return d->genre == unkeny::NkGenreScript::NK_CPP ? "C++" : "Blueprint";
+		}
+
+		void NkEditeurScriptsAAjouter(NkEditeurModele &m, ecs::NkEntityId id, NkVector<NkString> &sortie) {
+			sortie.Clear();
+			if (m.scripts == nullptr || !m.scene.Monde().IsAlive(id)) {
+				return;
+			}
+			NkVector<NkString> proposes;
+			NkEditeurScriptsProposes(*m.scripts, proposes);
+			const unkeny::NkScript2D *sc = m.scene.Monde().Get<unkeny::NkScript2D>(id);
+			for (uint32 i = 0; i < proposes.Size(); ++i) {
+				if (sc == nullptr || unkeny::NkScriptTrouver(*sc, proposes[i].CStr()) < 0) {
+					sortie.PushBack(proposes[i]);
+				}
+			}
+		}
+
+		bool NkEditeurAjouterScript(NkEditeurModele &m, ecs::NkEntityId id, const char *ref) {
+			if (m.scripts == nullptr || ref == nullptr || !m.scene.Monde().IsAlive(id)) {
+				return false;
+			}
+			NkEditeurScripts &s = *m.scripts;
+			NkEditeurRetenir(m);
+			if (!m.scene.Monde().Has<unkeny::NkScript2D>(id)) {
+				m.scene.Monde().Add<unkeny::NkScript2D>(id, unkeny::NkScript2D());
+			}
+			unkeny::NkScript2D *sc = m.scene.Monde().Get<unkeny::NkScript2D>(id);
+			if (sc == nullptr || unkeny::NkScriptAjouter(*sc, ref) < 0) {
+				NkEditeurAnnoncer(m, "Script : plus de place (4 au plus) ou nom trop long");
+				return false;
+			}
+			// Les variables exposees d'une classe C++ prennent leur defaut.
+			const unkeny::NkDefinitionScript *d = s.registre.Definition(s.registre.Trouver(ref));
+			if (d != nullptr && d->classe != nullptr) {
+				for (uint32 v = 0; v < d->classe->nbVariables; ++v) {
+					const NkUnkVariableV1 &x = d->classe->variables[v];
+					unkeny::NkScriptPoserVariable(*sc, static_cast<uint32>(sc->nombre - 1u), x.nom, static_cast<unkeny::NkTypeVarScript>(x.type),
+												  NkVec2f(x.x, x.y));
+				}
+			}
+			NkEditeurAnnoncer(m, NkString::Format("Script ajouté : %s", ref).CStr());
+			return true;
+		}
+
+		void NkEditeurOuvrirScript(NkEditeurCadre &c, const char *ref) {
+			if (c.m.scripts == nullptr || ref == nullptr) {
 				return;
 			}
 			NkEditeurScripts &s = *c.m.scripts;
-			NkEditeurModele &m = c.m;
-			nkgui::NkGuiContext &ctx = c.ctx;
-			ctx.PushId("scripts");
-			nkgui::Separator(ctx);
-			nkgui::Text(ctx, "Scripts (exécutés dans cet ordre)");
-			unkeny::NkScript2D *sc = m.scene.Monde().Get<unkeny::NkScript2D>(id);
-			if (sc == nullptr || sc->nombre == 0u) {
-				nkgui::TextWrapped(ctx, "Aucun script. Ajoutez un Blueprint ou une classe C++ ci-dessous ; "
-										"créez-en un par « Contenu > + Ajouter > Script C++ / Blueprint ».");
+			if (std::strncmp(ref, unkeny::NK_SCRIPT_PREFIXE_CPP, 4) == 0) {
+				const NkString source = SourceDe(s, ref);
+				if (source.Empty()) {
+					NkEditeurAnnoncer(c.m, NkString::Format("%s : source introuvable dans le Contenu", ref).CStr());
+				} else if (!NkEditeurOuvrirScriptCpp(s, c.m, source.CStr())) {
+					NkEditeurAnnoncer(c.m, NkString::Format("%s : aucun éditeur n'a pu l'ouvrir (voir le Journal)", ref).CStr());
+				}
+				return;
 			}
-			for (uint32 k = 0; sc != nullptr && k < sc->nombre; ++k) {
-				ctx.PushId(sc->refs[k]);
-				NkString detail;
-				const char *statut = Statut(s, id, k, sc->refs[k], detail);
-				nkgui::Text(ctx, NkString::Format("%u. %s  [%s]", static_cast<unsigned>(k + 1u), sc->refs[k], statut).CStr());
-				if (!detail.Empty()) {
-					nkgui::TextWrapped(ctx, detail.CStr());
-				}
-				bool actif = sc->actifs[k];
-				if (nkgui::Checkbox(ctx, "actif", actif)) {
-					NkEditeurRetenir(m);
-					sc = m.scene.Monde().Get<unkeny::NkScript2D>(id);
-					if (sc == nullptr) {
-						ctx.PopId();
-						break;
-					}
-					sc->actifs[k] = actif;
-				}
-				ctx.SameLine();
-				int32 geste = 0;
-				ctx.BeginDisabled(k == 0u);
-				if (nkgui::Button(ctx, "Monter")) {
-					geste = 1;
-				}
-				ctx.EndDisabled();
-				ctx.SameLine();
-				ctx.BeginDisabled(k + 1u >= sc->nombre);
-				if (nkgui::Button(ctx, "Descendre")) {
-					geste = 2;
-				}
-				ctx.EndDisabled();
-				ctx.SameLine();
-				if (nkgui::Button(ctx, "Ouvrir")) {
-					geste = 3;
-				}
-				ctx.SameLine();
-				if (nkgui::Button(ctx, "Retirer")) {
-					geste = 4;
-				}
-				// Les VARIABLES de ce script (sauvees par nom, modifiables en jeu) : celles
-				// que la DEFINITION declare (classe C++ ou module Blueprint), avec leur
-				// defaut tant que le composant ne les porte pas -- une valeur n'est
-				// ecrite dans l'entite que si on la change -- puis celles du composant
-				// que la definition ne connait plus (gardees, sauvees).
-				NkVector<VarDeclaree> decl;
-				Declarees(s.registre.Definition(s.registre.Trouver(sc->refs[k])), decl);
-				for (uint32 v = 0; v < unkeny::NK_UNKENY_SCRIPT_VARS_MAX; ++v) {
-					const unkeny::NkVarScript &x = sc->vars[v];
-					bool connue = false;
-					for (uint32 q = 0; q < decl.Size(); ++q) {
-						connue = connue || decl[q].nom == x.nom;
-					}
-					if (x.nom[0] != '\0' && x.script == k && !connue) {
-						VarDeclaree d;
-						d.nom = x.nom;
-						d.type = static_cast<unkeny::NkTypeVarScript>(x.type);
-						decl.PushBack(d);
-					}
-				}
-				for (uint32 q = 0; q < decl.Size() && geste == 0; ++q) {
-					const VarDeclaree &d = decl[q];
-					const unkeny::NkVarScript *x = unkeny::NkScriptVariable(*sc, k, d.nom.CStr());
-					NkVec2f val = x != nullptr ? x->valeur : d.defaut;
-					bool change = false;
-					ctx.PushId(d.nom.CStr());
-					switch (d.type) {
-						case unkeny::NkTypeVarScript::NK_ENTIER: {
-							int32 i = static_cast<int32>(val.x);
-							if (nkgui::DragInt(ctx, d.nom.CStr(), i)) {
-								val.x = static_cast<float32>(i);
-								change = true;
-							}
-							break;
-						}
-						case unkeny::NkTypeVarScript::NK_BOOLEEN: {
-							bool b = val.x != 0.f;
-							if (nkgui::Checkbox(ctx, d.nom.CStr(), b)) {
-								val.x = b ? 1.f : 0.f;
-								change = true;
-							}
-							break;
-						}
-						case unkeny::NkTypeVarScript::NK_VEC2: {
-							change = nkgui::DragFloat(ctx, NkString::Format("%s.x", d.nom.CStr()).CStr(), val.x, 0.05f) || change;
-							change = nkgui::DragFloat(ctx, NkString::Format("%s.y", d.nom.CStr()).CStr(), val.y, 0.05f) || change;
-							break;
-						}
-						case unkeny::NkTypeVarScript::NK_COULEUR: {
-							// Une COULEUR par instance : le nuancier de NKGui.
-							const uint32 rvba = unkeny::NkCouleurDeVar(val);
-							const NkColor c0(rvba);
-							float32 col[4] = {static_cast<float32>(c0.r) / 255.f, static_cast<float32>(c0.g) / 255.f, static_cast<float32>(c0.b) / 255.f,
-											  static_cast<float32>(c0.a) / 255.f};
-							if (nkgui::ColorEdit4(ctx, d.nom.CStr(), col)) {
-								auto o = [](float32 v) {
-									return static_cast<uint32>((v < 0.f ? 0.f : (v > 1.f ? 1.f : v)) * 255.f + 0.5f);
-								};
-								val = unkeny::NkCouleurVersVar((o(col[0]) << 24) | (o(col[1]) << 16) | (o(col[2]) << 8) | o(col[3]));
-								change = true;
-							}
-							break;
-						}
-						case unkeny::NkTypeVarScript::NK_TEXTE:
-						case unkeny::NkTypeVarScript::NK_ENTITE: {
-							// Un TEXTE (ou le NOM d'une entite) par instance : un champ, et
-							// pour une entite, la liste des entites de la scene.
-							static char tampon[unkeny::NK_UNKENY_VAR_TEXTE_MAX] = {};
-							static NkString proprietaire;
-							const NkString cle = NkString::Format("%u:%u:%s", static_cast<unsigned>(id.Pack() & 0xFFFFFFFFu), static_cast<unsigned>(k), d.nom.CStr());
-							const char *actuel = x != nullptr ? x->texte : d.texte.CStr();
-							if (!(proprietaire == cle)) {
-								proprietaire = cle;
-								std::snprintf(tampon, sizeof(tampon), "%s", actuel);
-							}
-							if (d.type == unkeny::NkTypeVarScript::NK_ENTITE) {
-								if (nkgui::BeginCombo(ctx, d.nom.CStr(), actuel[0] != '\0' ? actuel : "(aucune)", 8)) {
-									if (nkgui::Selectable(ctx, "(aucune)", actuel[0] == '\0')) {
-										std::snprintf(tampon, sizeof(tampon), "%s", "");
-										change = true;
-										ctx.ClosePopup();
-									}
-									m.scene.Monde().Query<NkEtiquette>().ForEach([&](ecs::NkEntityId, NkEtiquette &et) {
-										if (nkgui::Selectable(ctx, et.nom, std::strcmp(et.nom, actuel) == 0)) {
-											std::snprintf(tampon, sizeof(tampon), "%s", et.nom);
-											change = true;
-											ctx.ClosePopup();
-										}
-									});
-									nkgui::EndCombo(ctx);
-								}
-							} else if (nkgui::InputText(ctx, d.nom.CStr(), tampon, static_cast<int32>(sizeof(tampon)))) {
-								change = true;
-							}
-							if (change) {
-								unkeny::NkScriptPoserTexte(*sc, k, d.nom.CStr(), d.type, tampon);
-								change = false; // deja pose (le texte n'est pas dans `val`)
-							}
-							break;
-						}
-						default:
-							change = nkgui::DragFloat(ctx, d.nom.CStr(), val.x, 0.05f);
-							break;
-					}
-					ctx.PopId();
-					if (change) {
-						unkeny::NkScriptPoserVariable(*sc, k, d.nom.CStr(), d.type, val);
-					}
-				}
-				ctx.PopId();
-				if (geste == 1 || geste == 2) {
-					NkEditeurRetenir(m);
-					sc = m.scene.Monde().Get<unkeny::NkScript2D>(id);
-					if (sc != nullptr) {
-						unkeny::NkScriptEchanger(*sc, k, geste == 1 ? k - 1u : k + 1u);
-					}
-					break;
-				}
-				if (geste == 3) {
-					const NkString ref(sc->refs[k]);
-					if (std::strncmp(ref.CStr(), unkeny::NK_SCRIPT_PREFIXE_CPP, 4) == 0) {
-						const NkString source = SourceDe(s, ref.CStr());
-						if (source.Empty() || (s.ouvrirTexteExterne && !NkEditeurOuvrirTexteExterne(source.CStr()))) {
-							NkEditeurAnnoncer(m, NkString::Format("%s : source introuvable dans le Contenu", ref.CStr()).CStr());
-						}
-					} else {
-						NkEditeurOuvrirGraphe(s, m, (s.projet + ref).CStr());
-					}
-					break;
-				}
-				if (geste == 4) {
-					NkEditeurRetenir(m);
-					sc = m.scene.Monde().Get<unkeny::NkScript2D>(id);
-					if (sc != nullptr) {
-						unkeny::NkScriptRetirer(*sc, k);
-					}
-					break;
-				}
-			}
-			// ── Ajouter un script : les Blueprints du projet et les classes C++ ──
-			NkVector<NkString> proposes;
-			NkEditeurScriptsProposes(s, proposes);
-			nkgui::Text(ctx, "Ajouter un script :");
-			uint32 montres = 0;
-			for (uint32 i = 0; i < proposes.Size(); ++i) {
-				sc = m.scene.Monde().Get<unkeny::NkScript2D>(id);
-				if (sc != nullptr && unkeny::NkScriptTrouver(*sc, proposes[i].CStr()) >= 0) {
-					continue; // deja sur l'entite
-				}
-				++montres;
-				ctx.PushId(proposes[i].CStr());
-				if (nkgui::Button(ctx, NkString::Format("+ %s", proposes[i].CStr()).CStr())) {
-					NkEditeurRetenir(m);
-					if (!m.scene.Monde().Has<unkeny::NkScript2D>(id)) {
-						m.scene.Monde().Add<unkeny::NkScript2D>(id, unkeny::NkScript2D());
-					}
-					sc = m.scene.Monde().Get<unkeny::NkScript2D>(id);
-					if (sc == nullptr || unkeny::NkScriptAjouter(*sc, proposes[i].CStr()) < 0) {
-						NkEditeurAnnoncer(m, "Script : plus de place (4 au plus) ou nom trop long");
-					} else {
-						// Les variables exposees d'une classe C++ prennent leur defaut.
-						const unkeny::NkDefinitionScript *d = s.registre.Definition(s.registre.Trouver(proposes[i].CStr()));
-						if (d != nullptr && d->classe != nullptr) {
-							for (uint32 v = 0; v < d->classe->nbVariables; ++v) {
-								const NkUnkVariableV1 &x = d->classe->variables[v];
-								unkeny::NkScriptPoserVariable(*sc, static_cast<uint32>(sc->nombre - 1u), x.nom,
-															  static_cast<unkeny::NkTypeVarScript>(x.type), NkVec2f(x.x, x.y));
-							}
-						}
-						NkEditeurAnnoncer(m, NkString::Format("Script ajouté : %s", proposes[i].CStr()).CStr());
-					}
-				}
-				ctx.PopId();
-			}
-			if (montres == 0u) {
-				nkgui::TextWrapped(ctx, proposes.Empty() ? "Aucun script dans le projet : Contenu > + Ajouter > Script C++ ou Blueprint."
-														 : "Tous les scripts du projet sont déjà sur cette entité.");
-			}
-			// L'etat de la compilation C++.
+			NkEditeurOuvrirGraphe(s, c.m, (s.projet + ref).CStr(), &c.ui);
+		}
+
+		NkString NkEditeurEtatCompilationScripts(NkEditeurScripts &s) {
 			if (s.etat == NkEtatCompilation::NK_EN_COURS) {
-				nkgui::Text(ctx, "C++ : compilation en cours…");
-			} else if (s.etat == NkEtatCompilation::NK_ECHOUEE) {
-				nkgui::TextWrapped(ctx, NkString::Format("C++ : la dernière compilation a échoué (%u erreur(s), voir le Journal)",
-														 static_cast<unsigned>(s.erreurs.Size()))
-											.CStr());
+				return NkString("C++ : compilation en cours…");
 			}
-			ctx.PopId();
+			if (s.etat == NkEtatCompilation::NK_ECHOUEE) {
+				return NkString::Format("C++ : la dernière compilation a échoué (%u erreur(s), voir le Journal)",
+										static_cast<unsigned>(s.erreurs.Size()));
+			}
+			return NkString();
 		}
 
 		void NkEditeurActionScript(NkEditeurCadre &c, int32 action) {
@@ -388,10 +232,11 @@ namespace nkentseu {
 					const NkString cree = NkEditeurNouveauScriptCpp(m, DossierDeCreation(c.ui).CStr());
 					if (!cree.Empty()) {
 						c.ui.contenuPerime = true;
-						if (s.ouvrirTexteExterne) {
-							NkEditeurOuvrirTexteExterne(NkEditeurCheminContenu(m, cree.CStr()).CStr());
-						}
 						s.ageReleve = 99.f; // compile tout de suite (le releve le voit)
+						// Le workspace Jenga du projet est (re)assure, puis NKCode s'ouvre
+						// dessus et sur le modele (sans effet dans un banc).
+						s.workspaceAssure = false;
+						NkEditeurOuvrirScriptCpp(s, m, NkEditeurCheminContenu(m, cree.CStr()).CStr());
 					}
 					break;
 				}
@@ -399,7 +244,7 @@ namespace nkentseu {
 					const NkString cree = NkEditeurNouveauBlueprint(m, DossierDeCreation(c.ui).CStr());
 					if (!cree.Empty()) {
 						c.ui.contenuPerime = true;
-						NkEditeurOuvrirGraphe(s, m, NkEditeurCheminContenu(m, cree.CStr()).CStr());
+						NkEditeurOuvrirGraphe(s, m, NkEditeurCheminContenu(m, cree.CStr()).CStr(), &c.ui);
 						s.ageReleve = 99.f;
 					}
 					break;
@@ -408,8 +253,15 @@ namespace nkentseu {
 					NkEditeurScriptsReleverCpp(s, m);
 					NkEditeurScriptsCompiler(s, m);
 					break;
-				default:
+				default: {
+					// « Ajouter un composant > Script : ... » (2026-10-02) : la liste
+					// relevee quand le menu s'est peint (NkEditeurInterface::scriptsProposes).
+					const int32 k = action - NK_A_SCRIPT - NK_SCRIPT_AJOUTER;
+					if (k >= 0 && k < 90 && static_cast<uint32>(k) < c.ui.scriptsProposes.Size() && m.aSelection) {
+						NkEditeurAjouterScript(m, m.selection, c.ui.scriptsProposes[static_cast<uint32>(k)].CStr());
+					}
 					break;
+				}
 			}
 		}
 
@@ -419,12 +271,14 @@ namespace nkentseu {
 			}
 			const NkString abs = NkEditeurCheminContenu(c.m, cheminNav);
 			if (FinitPar(cheminNav, ".nkbp")) {
-				NkEditeurOuvrirGraphe(*c.m.scripts, c.m, abs.CStr());
+				NkEditeurOuvrirGraphe(*c.m.scripts, c.m, abs.CStr(), &c.ui);
 				return true;
 			}
 			if (FinitPar(cheminNav, ".cpp") || FinitPar(cheminNav, ".h") || FinitPar(cheminNav, ".hpp")) {
-				if (c.m.scripts->ouvrirTexteExterne && !NkEditeurOuvrirTexteExterne(abs.CStr())) {
-					NkEditeurAnnoncer(c.m, "Aucun éditeur de texte n'a pu être lancé pour ce script");
+				// NKCode SUR le workspace Jenga du projet (sinon l'editeur du systeme ;
+				// le Journal dit pourquoi et quoi faire).
+				if (!NkEditeurOuvrirScriptCpp(*c.m.scripts, c.m, abs.CStr())) {
+					NkEditeurAnnoncer(c.m, "Aucun éditeur n'a pu être lancé pour ce script (voir le Journal)");
 				}
 				return true;
 			}

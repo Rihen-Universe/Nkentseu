@@ -258,6 +258,13 @@ namespace nkentseu {
 				NkString indication; ///< ce qu'un fil vide dit de ce que l'assistant sait faire
 				/// Ou DECLARER une IA de plus. Affiche par « Ajouter une IA… ».
 				NkString declaration;
+				/// (01/10, Unkeny, R18) L'HOTE A UNE FENETRE DE REGLAGES
+				/// (NkAiReglagesVue.h : adresse, modele liste par le serveur, cle
+				/// rangee HORS du depot, « Tester la connexion »). « Ajouter une IA… »
+				/// la lui DEMANDE (`NkAiSorties::ajouterIa`) et ferme le menu, au lieu
+				/// d'ouvrir la note « declarer, sans cle ». Faux (le defaut) : le
+				/// comportement d'avant, a l'identique, pour NKCode et NKCraft.
+				bool reglagesParHote = false;
 				/// Le menu « + ». Vide = le « + » rend `NkAiSorties::plus` a l'hote.
 				NkVector<NkAiEntreeDesc> entreesPlus;
 
@@ -1570,8 +1577,9 @@ namespace nkentseu {
 							{
 								LigneMenu l;
 								l.quoi = QAjouterIa;
-								l.texte = NkString("Ajouter une IA…");
-								l.detail = NkString("declarer, sans cle");
+								l.texte = NkString(reglagesParHote ? "Réglages des fournisseurs…" : "Ajouter une IA…");
+								l.detail = NkString(reglagesParHote ? "Ollama, OpenAI, Claude : adresse, modèle, clé hors du dépôt"
+																	: "declarer, sans cle");
 								l.deuxLignes = true;
 								mLignes.PushBack(l);
 							}
@@ -2851,8 +2859,12 @@ namespace nkentseu {
 							mMenu = NkAiMenu::Fournisseurs;
 							return;
 						case QAjouterIa:
-							mMenu = NkAiMenu::AjouterIa;
 							out.ajouterIa = true;
+							if (reglagesParHote) {
+								FermerMenus(); // la fenetre de l'hote s'ouvre a la place
+								return;
+							}
+							mMenu = NkAiMenu::AjouterIa;
 							return;
 						case QModele: {
 							const int32 fi = mMenuFournisseur;

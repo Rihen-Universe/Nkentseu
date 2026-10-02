@@ -10,6 +10,7 @@
 #include "NKRenderer/Mesh/NkFBXLoader.h" // routage .fbx (chantier FBX, 2026-08-17)
 // ── Viewport 3D : moteur de rendu complet (TU isolé) ────────────────────────
 #include "NKRenderer/NkRenderer.h"
+#include "NKRenderer/Core/NkRendererResourcePath.h" // (01/10) AnimCheminRessource
 #include "NKRenderer/Core/NkRendererConfig.h"
 #include "NKRenderer/Core/NkCamera.h"
 #include "NKRenderer/Core/NkSceneContext.h"
@@ -106,6 +107,10 @@ namespace nkanima {
 				float32 radius3d = 2.f;
 				float32 camYaw = 0.6f, camPitch = 0.12f, camZoom = 1.f;
 
+				// ── (2026-10-02) Apercu du controleur (graphe d'etats partage) ──
+				NkVector<NkMat4f> apercuSkin;
+				bool apercu = false;
+
 				// ── Ragdoll physique (couplage NKPhysics) ───────────────────────
 				nkentseu::physics::NkPhysicsWorld physWorld{nkentseu::physics::NkPhysicsConfig{{0.f, -9.81f, 0.f}}};
 				NkRagdollBridge ragdoll;
@@ -150,6 +155,10 @@ namespace nkanima {
 					g.topo.PushBack(j);
 		}
 	} // namespace
+
+	nkentseu::NkString AnimCheminRessource(const char *relatif) {
+		return nkentseu::renderer::NkRendererResolvePath(nkentseu::NkString(relatif ? relatif : ""));
+	}
 
 	bool AnimInit(const char *modelPath) {
 		// Routage par extension (insensible a la casse — meme critere que
@@ -400,7 +409,8 @@ namespace nkanima {
 		uint32 jc = (uint32)g.clip.jointInverseBind.Size();
 		outPos.Resize(jc);
 		outParent.Resize(jc);
-		const auto &skin = g.player.GetState().boneMatrices;
+		// (02/10) l'apercu du controleur remplace la pose du lecteur
+		const auto &skin = g.apercu ? g.apercuSkin : g.player.GetState().boneMatrices;
 		for (uint32 j = 0; j < jc; ++j) {
 			NkMat4f gl;
 			if (g.editMode && j < (uint32)g.worldEdit.Size()) // pose de travail éditée
@@ -732,6 +742,11 @@ namespace nkanima {
 			// rend dans le viewport, échantillonnable par l'UI.
 			if (auto *texLib = g.r3->GetTextures())
 				g.r3->SetFinalColorTarget(texLib->GetRHIHandle(g.rt->GetColorResult()));
+			// (2026-10-01) LA TAILLE DE RENDU EST CELLE DE LA CIBLE, pas de la fenetre :
+			// sans l'override, le graphe rendait a la taille de la FENETRE dans cette
+			// cible de 1280 x 720, et l'image n'en remplissait qu'un coin (le meme
+			// correctif que NKCraft, NkMatPreview3D.h / NkViewport3D.cpp).
+			g.r3->SetRenderSizeOverride(1280, 720);
 
 			// Mesh skinné + matériaux glTF (calque DemoIKChar).
 			auto *meshSys = g.r3->GetMeshSystem();
@@ -883,7 +898,7 @@ namespace nkanima {
 			for (uint32 j = 0; j < jc; ++j)
 				g.skin3d[j] = g.worldEdit[j] * g.invBind[j];
 		} else {
-			const auto &bm = g.player.GetState().boneMatrices;
+			const auto &bm = g.apercu ? g.apercuSkin : g.player.GetState().boneMatrices; // (02/10) apercu du controleur
 			for (uint32 j = 0; j < jc; ++j)
 				g.skin3d[j] = (j < (uint32)bm.Size()) ? bm[j] : NkMat4f::Identity();
 		}
@@ -1154,6 +1169,130 @@ namespace nkanima {
 			return "COM anthropometrique — equilibre indetermine : aucun appui au sol";
 		}
 		return "COM uniforme (approximatif) — equilibre indetermine : aucun appui detecte";
+	}
+
+	// ── (2026-10-01 soir) LA FRISE PARTAGEE ──────────────────────────────────────
+	bool AnimCanUndo() {
+		return g.editor.CanUndo();
+	}
+
+	bool AnimCanRedo() {
+		return g.editor.CanRedo();
+	}
+
+	void AnimDeleteKeyAt(float32 t) {
+		g.editor.DeletePoseKeyAt(t);
+	}
+
+	void AnimCopyPoseKey(float32 from, float32 to) {
+		if (!g.loaded)
+			return;
+		const uint32 nb = (uint32)g.clip.boneTracks.Size();
+		NkVector<NkMat4f> pose;
+		pose.Resize(nb);
+		for (uint32 b = 0; b < nb; ++b)
+			pose[b] = g.clip.boneTracks[b].Evaluate(from);
+		const float32 avant = g.editor.GetCursor();
+		g.editor.SetCursor(to);
+		g.editor.InsertPoseKey(pose);
+		g.editor.SetCursor(avant);
+	}
+
+	uint8 AnimKeyInterp(float32 t) {
+		for (uint32 b = 0; b < (uint32)g.clip.boneTracks.Size(); ++b) {
+			const int32 k = g.clip.boneTracks[b].FindKeyAtTime(t, 1e-3f);
+			if (k >= 0)
+				return (uint8)g.clip.boneTracks[b].GetKey((uint32)k).interp;
+		}
+		return 255;
+	}
+
+	void AnimSetKeyInterp(float32 t, uint8 interp) {
+		if (interp > (uint8)anim::NkInterpMode::NK_BACK)
+			return;
+		for (uint32 b = 0; b < (uint32)g.clip.boneTracks.Size(); ++b) {
+			const int32 k = g.clip.boneTracks[b].FindKeyAtTime(t, 1e-3f);
+			if (k >= 0)
+				g.clip.boneTracks[b].SetKeyInterp((uint32)k, (anim::NkInterpMode)interp);
+		}
+	}
+
+	const void *AnimClipOpaque() {
+		return g.loaded ? &g.clip : nullptr;
+	}
+
+	const char *AnimClipNom() {
+		return g.clip.name.Empty() ? "Clip" : g.clip.name.CStr();
+	}
+
+	void AnimPoserApercu(const NkVector<NkMat4f> &skin) {
+		g.apercuSkin = skin;
+		g.apercu = !skin.Empty();
+	}
+
+	void AnimFinApercu() {
+		g.apercu = false;
+	}
+
+	bool AnimApercuActif() {
+		return g.apercu;
+	}
+
+	uint32 AnimBoneCount() {
+		return (uint32)g.clip.boneTracks.Size();
+	}
+
+	const char *AnimJointName(uint32 j) {
+		return j < (uint32)g.clip.jointNames.Size() ? g.clip.jointNames[j].CStr() : "";
+	}
+
+	int32 AnimJointParent(uint32 j) {
+		return j < (uint32)g.clip.jointParent.Size() ? g.clip.jointParent[j] : -1;
+	}
+
+	bool AnimSampleJointLocal(uint32 j, float32 t, float32 pos[3], float32 rotDeg[3], float32 scale[3]) {
+		if (j >= (uint32)g.clip.boneTracks.Size())
+			return false;
+		const anim::NkAnimationTrack<NkMat4f> &tr = g.clip.boneTracks[j];
+		const uint32 n = tr.KeyCount();
+		if (n == 0)
+			return false;
+		// Le geste du lecteur (SampleBoneLocalSlerp) : TRS lineaire, rotation NLERP.
+		NkMat4f m = tr.GetKey(0).value;
+		if (n > 1 && t > tr.GetKey(0).time) {
+			if (t >= tr.GetKey(n - 1).time) {
+				m = tr.GetKey(n - 1).value;
+			} else {
+				uint32 hi = 1;
+				while (hi < n && tr.GetKey(hi).time <= t)
+					++hi;
+				const float32 d = tr.GetKey(hi).time - tr.GetKey(hi - 1).time;
+				const float32 a = d > 1e-6f ? (t - tr.GetKey(hi - 1).time) / d : 0.f;
+				m = tr.GetKey(hi - 1).interp == anim::NkInterpMode::NK_STEP
+						? tr.GetKey(hi - 1).value
+						: anim::NkBlendLocalTRS(tr.GetKey(hi - 1).value, tr.GetKey(hi).value, a);
+			}
+		}
+		NkVec3f tt, ss;
+		NkMat4f r;
+		m.DecomposeTRS(tt, r, ss);
+		const NkQuatf q = NkQuatf(r).Normalized();
+		pos[0] = tt.x;
+		pos[1] = tt.y;
+		pos[2] = tt.z;
+		scale[0] = ss.x;
+		scale[1] = ss.y;
+		scale[2] = ss.z;
+		// Euler X, Y, Z en degres (la lecture des courbes d'UE5 et de Blender).
+		const float32 k = 57.29578f;
+		const float32 sx = 2.f * (q.w * q.x + q.y * q.z), cx = 1.f - 2.f * (q.x * q.x + q.y * q.y);
+		float32 sy = 2.f * (q.w * q.y - q.z * q.x);
+		sy = sy > 1.f ? 1.f : (sy < -1.f ? -1.f : sy);
+		const float32 sz = 2.f * (q.w * q.z + q.x * q.y), cz = 1.f - 2.f * (q.y * q.y + q.z * q.z);
+		rotDeg[0] = std::atan2(sx, cx) * k;
+		rotDeg[1] = std::asin(sy) * k;
+		rotDeg[2] = std::atan2(sz, cz) * k;
+		return true;
 	}
 
 } // namespace nkanima

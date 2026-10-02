@@ -90,6 +90,45 @@ namespace nkentseu {
 		}
 
 		void NkEditeurImagesDuContenu(NkEditeurModele &m, NkVector<NkString> &sortie, uint32 maxi) {
+			NkEditeurAssetsDuContenu(m, NkAssetType::Texture2D, sortie, maxi);
+		}
+
+		NkString NkEditeurNomControleur(const char *cheminNav) {
+			const char *nom = cheminNav;
+			for (const char *p = cheminNav; p != nullptr && *p != '\0'; ++p) {
+				if (*p == '/' || *p == '\\') {
+					nom = p + 1;
+				}
+			}
+			NkString n(nom != nullptr ? nom : "");
+			const usize point = n.RFind('.');
+			if (point != NkString::npos && point > 0u) {
+				n = NkString(n.SubStr(0, point));
+			}
+			if (n.Length() >= static_cast<usize>(NK_UNKENY_ANIM_MODELE_MAX)) {
+				n = NkString(n.SubStr(0, static_cast<usize>(NK_UNKENY_ANIM_MODELE_MAX - 1)));
+			}
+			return n;
+		}
+
+		bool NkEditeurAjouterControleur(NkEditeurModele &m, ecs::NkEntityId id, const char *cheminNav) {
+			const NkString nom = NkEditeurNomControleur(cheminNav);
+			const NkString disque = NkEditeurCheminContenu(m, cheminNav);
+			return !nom.Empty() && NkEditeurAjouterAnimateur(m, id, nom.CStr(), disque.CStr());
+		}
+
+		bool NkEditeurRetrouverControleur(NkEditeurModele &m, const char *modele) {
+			NkVector<NkString> ctl;
+			NkEditeurAssetsDuContenu(m, NkAssetType::AnimationController, ctl, 200u);
+			for (uint32 k = 0; k < ctl.Size(); ++k) {
+				if (NkEditeurNomControleur(ctl[k].CStr()) == NkString(modele)) {
+					return NkChargerModeleAnimateur(modele, NkEditeurCheminContenu(m, ctl[k].CStr()).CStr());
+				}
+			}
+			return false;
+		}
+
+		void NkEditeurAssetsDuContenu(NkEditeurModele &m, NkAssetType type, NkVector<NkString> &sortie, uint32 maxi) {
 			sortie.Clear();
 			NkVector<NkString> dossiers;
 			dossiers.PushBack(NkString()); // la racine d'abord
@@ -103,7 +142,7 @@ namespace nkentseu {
 				NkEditeurListerContenu(m, dossiers[d].CStr(), elements);
 				for (uint32 i = 0; i < elements.Size() && sortie.Size() < maxi; ++i) {
 					const NkElementContenu &e = elements[i];
-					if (!e.dossier && e.nature.type == NkAssetType::Texture2D) {
+					if (!e.dossier && e.nature.type == type) {
 						NkString nav(NK_CONTENU_RACINE);
 						nav.Append('/');
 						nav.Append(e.relatif);

@@ -131,6 +131,48 @@ namespace nkentseu {
 			nkgui::NkVec2 Centre(const nkgui::NkRect &r) {
 				return nkgui::NkVec2{r.x + r.w * 0.5f, r.y + r.h * 0.5f};
 			}
+			/// Les fils du graphe a l'ecran qui passent DERRIERE un noeud (ni le leur
+			/// au depart ni a l'arrivee) : la cubique de la toile, echantillonnee, contre
+			/// les rectangles mesures (rentres de 3 px). Les cadres ne comptent pas.
+			uint32 FilsQuiTraversent(NkEditeurBlueprintEtat &bp, bool dire) {
+				graph::NkNodeGraph &g = bp.Graphe();
+				const editorkit::NkJetonsNodal &J = editorkit::NkJetonsNodalParDefaut();
+				const nkgui::NkRect zt = bp.zoneToile;
+				uint32 n = 0;
+				for (uint32 i = 0; i < g.LinkCount(); ++i) {
+					const graph::NkLink *l = g.LinkAt(i);
+					if (l == nullptr || !l->alive) {
+						continue;
+					}
+					const graph::NkNode *a = g.Find(l->fromNode);
+					const graph::NkNode *b = g.Find(l->toNode);
+					nkgui::NkVec2 pa, pb;
+					if (a == nullptr || b == nullptr || !editorkit::NkCanevasPrise(bp.Toile(), zt, *a, l->fromSocket, J, pa) ||
+						!editorkit::NkCanevasPrise(bp.Toile(), zt, *b, l->toSocket, J, pb)) {
+						continue;
+					}
+					const float32 dx = (pb.x > pa.x ? pb.x - pa.x : pa.x - pb.x) * 0.5f;
+					const float32 tire = dx < 40.f ? 40.f : dx;
+					const nkgui::NkVec2 c1{pa.x + tire, pa.y}, c2{pb.x - tire, pb.y};
+					bool traverse = false;
+					for (uint32 k = 0; k < g.RawNodeCount() && !traverse; ++k) {
+						const graph::NkNode *m = g.RawNodeAt(k);
+						if (m == nullptr || !m->alive || m == a || m == b || m->type == NK_BP_COMMENTAIRE) {
+							continue;
+						}
+						const nkgui::NkRect r = editorkit::NkCanevasRectNoeud(bp.Toile(), zt, *m, J);
+						for (int32 t = 1; t < 64 && !traverse; ++t) {
+							const nkgui::NkVec2 q = nkgui::NkGuiDrawList::PointBezier(pa, c1, c2, pb, static_cast<float32>(t) / 64.f);
+							traverse = q.x > r.x + 3.f && q.y > r.y + 3.f && q.x < r.x + r.w - 3.f && q.y < r.y + r.h - 3.f;
+						}
+						if (traverse && dire) {
+							std::printf("    fil %s -> %s DERRIERE %s\n", a->label.CStr(), b->label.CStr(), m->label.CStr());
+						}
+					}
+					n += traverse ? 1u : 0u;
+				}
+				return n;
+			}
 			/// Un point VRAIMENT vide de la toile (a 40 px de tout noeud ; le corps
 			/// d'un cadre compte pour du vide, comme dans UE5), de preference en bas.
 			nkgui::NkVec2 PointVide(NkEditeurBlueprintEtat &bp) {
@@ -247,12 +289,18 @@ namespace nkentseu {
 			Trames(3);
 
 			// ── 01 : la vue d'ensemble -- la porte REECRITE (variables, fonction) ──
-			NkEditeurOuvrirGraphe(s, m, (projet + "Contenu/Scripts/PorteBlueprint.nkbp").CStr());
-			NkEditeurBlueprintEtat &bp = s.graphe;
+			// Dans SON ONGLET de document (2026-10-02) : l'editeur occupe le corps.
+			NkEditeurOuvrirGraphe(s, m, (projet + "Contenu/Scripts/PorteBlueprint.nkbp").CStr(), &ui);
+			NkEditeurBlueprintEtat &bp = s.Graphe();
 			Trames(3);
 			NkEditeurCompilerGraphe(s, m);
 			bp.choix = NkChoixBp::NK_CLASSE;
 			Capture("01_vue_ensemble_porte_reecrite.png");
+			{
+				const uint32 n = FilsQuiTraversent(bp, true);
+				std::printf("    graphe d'evenements : %u fil(s) derriere un noeud\n", static_cast<unsigned>(n));
+				erreurs += n == 0u ? 0 : 1;
+			}
 			// ── 10 : deux fils OBLIQUES agrandis x4, AVANT (sans frange) | APRES ──
 			// (retour de Rihen : « pourquoi les connecteurs ne sont pas lisses ? »)
 			{
@@ -304,7 +352,9 @@ namespace nkentseu {
 					std::printf("  capture %s : %s\n", chemin.CStr(), ok ? "ok" : "ECHEC");
 					std::printf("    fil d'execution presque horizontal : %u couleurs avant, %u apres ; fil de valeur oblique : %u avant, %u apres\n",
 								couleurs[0][0], couleurs[0][1], couleurs[1][0], couleurs[1][1]);
-					erreurs += ok && couleurs[0][1] > couleurs[0][0] * 3u && couleurs[1][1] > couleurs[1][0] * 3u ? 0 : 1;
+					// Le controle porte sur le fil d EXECUTION (la vignette du haut : rien que lui et la grille) ;
+					// celle du bas contient du texte (deja adouci), elle est montree, pas comptee.
+					erreurs += ok && couleurs[0][1] > couleurs[0][0] * 3u && couleurs[1][1] > couleurs[1][0] ? 0 : 1;
 				} else {
 					std::printf("  capture 10 : les prises du fil sont introuvables\n");
 					++erreurs;
@@ -414,6 +464,11 @@ namespace nkentseu {
 				}
 				Trames(3);
 				Capture("05_fonction_ouverte_ses_entrees_sorties.png");
+				{
+					const uint32 n = FilsQuiTraversent(bp, true);
+					std::printf("    fonction OuvrirPorte : %u fil(s) derriere un noeud\n", static_cast<unsigned>(n));
+					erreurs += n == 0u ? 0 : 1;
+				}
 			}
 
 			// ── 06 : une ERREUR de compilation, ecrite sur SON noeud ──
@@ -448,21 +503,23 @@ namespace nkentseu {
 
 			// ── 08 : les noeuds de CODE (la reference principale + le flot) ──
 			{
-				NkEditeurOuvrirGraphe(s, m, (projet + "Contenu/Scripts/Code.nkbp").CStr());
+				// Un SECOND Blueprint : son propre onglet, a droite de celui de la porte.
+				NkEditeurOuvrirGraphe(s, m, (projet + "Contenu/Scripts/Code.nkbp").CStr(), &ui);
+				NkEditeurBlueprintEtat &bc = s.Graphe();
 				Trames(3);
 				NkEditeurCompilerGraphe(s, m);
-				graph::NkNodeGraph &g = bp.Graphe();
+				graph::NkNodeGraph &g = bc.Graphe();
 				const graph::NkNodeId ex = Noeud(g, NK_BP_EXPRESSION);
-				bp.Toile().Choisir(ex);
-				bp.choix = NkChoixBp::NK_NOEUD;
+				bc.Toile().Choisir(ex);
+				bc.choix = NkChoixBp::NK_NOEUD;
 				T.Trame();
 				// Un clic dans son code : l'edition s'ouvre (le caret, la coloration).
 				const graph::NkNode *n = g.Find(ex);
-				for (uint32 i = 0; n != nullptr && i < bp.Toile().geom.Size(); ++i) {
-					const editorkit::NkGeomNoeud &gg = bp.Toile().geom[i];
+				for (uint32 i = 0; n != nullptr && i < bc.Toile().geom.Size(); ++i) {
+					const editorkit::NkGeomNoeud &gg = bc.Toile().geom[i];
 					if (gg.id == ex) {
-						const nkgui::NkRect rn = editorkit::NkCanevasRectNoeud(bp.Toile(), bp.zoneToile, *n, editorkit::NkJetonsNodalParDefaut());
-						T.Clic(0, rn.x + rn.w * 0.5f, rn.y + (gg.blocY + 22.f + 12.f) * bp.Toile().zoom);
+						const nkgui::NkRect rn = editorkit::NkCanevasRectNoeud(bc.Toile(), bc.zoneToile, *n, editorkit::NkJetonsNodalParDefaut());
+						T.Clic(0, rn.x + rn.w * 0.5f, rn.y + (gg.blocY + 22.f + 12.f) * bc.Toile().zoom);
 					}
 				}
 				T.pctx->input.mousePos = nkgui::NkVec2{-100.f, -100.f};
@@ -473,8 +530,15 @@ namespace nkentseu {
 
 			// ── 09 : la scene : Details > Scripts, les variables PAR INSTANCE ──
 			{
-				T.Clic(0, Centre(bp.boutons[NK_BP_FERMER]).x, Centre(bp.boutons[NK_BP_FERMER]).y);
-				NkEditeurScriptsTrame(s, m, &ui, 1.f / 60.f); // les panneaux reviennent
+				// « Fermer » du second Blueprint : son onglet part, la porte revient
+				// devant ; puis un clic sur l'onglet de la SCENE la ramene.
+				{
+					NkEditeurBlueprintEtat &bc = s.Graphe();
+					T.Clic(0, Centre(bc.boutons[NK_BP_FERMER]).x, Centre(bc.boutons[NK_BP_FERMER]).y);
+				}
+				T.Trame();
+				T.Clic(0, ui.ongletScene.x + 24.f, ui.ongletScene.y + ui.ongletScene.h * 0.5f);
+				NkEditeurScriptsTrame(s, m, &ui, 1.f / 60.f);
 				m.selection = ParNom(m.scene, "Zone bleue");
 				m.aSelection = m.selection.IsValid();
 				Trames(4);

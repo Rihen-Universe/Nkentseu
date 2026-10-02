@@ -20,6 +20,11 @@ namespace nkanima {
 
 	// Cycle de vie / lecture
 	bool AnimInit(const char *modelPath); // charge + bake ; true si OK
+	/// (01/10) Un chemin de ressource (« Resources/Models/... ») resolu comme
+	/// NKRenderer resout ses shaders : tel quel, puis sous la racine trouvee en
+	/// remontant depuis l'executable. L'application se lance alors de n'importe
+	/// quel dossier. Le chemin est rendu inchange si rien ne repond.
+	nkentseu::NkString AnimCheminRessource(const char *relatif);
 	bool AnimLoaded();
 	void AnimUpdate(float32 dt); // avance le player si en lecture
 	bool AnimIsPlaying();
@@ -140,5 +145,36 @@ namespace nkanima {
 	bool AnimShowCOM();
 	// Libellé du régime courant, à afficher à côté de la sphère. Jamais nul.
 	const char *AnimCOMRegimeLabel();
+
+	// ── (2026-10-01 soir) LA FRISE PARTAGEE (Frise/NkAnimaFrise.cpp) ────────────
+	// Ce qu'il faut a la frise de NKEditorKit pour montrer les POSES-CLES et les
+	// courbes de CHAQUE OS, sans que l'UI tire NKAnima (types foundation).
+	bool AnimCanUndo();
+	bool AnimCanRedo();
+	void AnimDeleteKeyAt(float32 t);
+	// Copier / coller : la pose ECHANTILLONNEE a `from` devient une pose-cle a `to`.
+	void AnimCopyPoseKey(float32 from, float32 to);
+	// L'interpolation d'une pose-cle (celle de sa premiere piste d'os, 255 sinon),
+	// et son reglage sur toutes les pistes d'os (codes d'anim::NkInterpMode).
+	uint8 AnimKeyInterp(float32 t);
+	void AnimSetKeyInterp(float32 t, uint8 interp);
+	// Les os : nombre, nom (« » s'il n'en a pas), parent (-1 = racine), et leur
+	// transform LOCAL a `t` -- position, rotation en degres (X, Y, Z), echelle --
+	// echantillonne comme le joue le lecteur (TRS, NLERP).
+	uint32 AnimBoneCount();
+	const char *AnimJointName(uint32 j);
+	int32 AnimJointParent(uint32 j);
+	bool AnimSampleJointLocal(uint32 j, float32 t, float32 pos[3], float32 rotDeg[3], float32 scale[3]);
+
+	// ── (2026-10-02) LE GRAPHE D'ETATS PARTAGE (Frise/NkAnimaGraphe.cpp) ─────────
+	// Le clip charge, OPAQUE (un `const anim::NkAnimationClip *` pour une unite qui
+	// inclut NKAnima sans NKRenderer : Frise/NkAnimaControleur.cpp), et son nom.
+	const void *AnimClipOpaque();
+	const char *AnimClipNom();
+	// L'APERCU du controleur : des matrices de SKINNING qui remplacent la pose du
+	// lecteur dans la vue 3D (et le squelette 2D) tant qu'il est actif.
+	void AnimPoserApercu(const NkVector<nkentseu::math::NkMat4f> &skin);
+	void AnimFinApercu();
+	bool AnimApercuActif();
 
 } // namespace nkanima

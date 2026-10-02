@@ -58,15 +58,40 @@ namespace nkentseu {
 					errHint = NkString();
 					folder = f;
 					// Étape 0 : lecture réelle du .jenga.
-					if (!st->LoadFolder(f)) {
+					// Mutation de banc NK_NKCODE_MUTATION=exige-jenga : l'ancienne exigence
+					// d'un workspace (avant la PR #54) -- le temoin (o1) doit rougir.
+					if (NkCodeState::MutationNkCode("exige-jenga") && st->LoadFolder(f) && !st->HasWorkspace()) {
 						active = true;
 						error = true;
+						wsName = f.GetFileName();
 						errLine = NkT("load.err.nows");
 						return;
 					}
+					if (!st->LoadFolder(f)) {
+						// LoadFolder ne refuse QUE un chemin qui n'est pas un dossier (un
+						// dossier sans .jenga s'ouvre en edition simple) : le dire tel quel.
+						active = true;
+						error = true;
+						wsName = f.GetFileName();
+						errLine = NkPrintf(NkT("load.err.nofolder"), f.ToString().CStr());
+						return;
+					}
 					if (openJenga && *openJenga) { // sélectionne le workspace précis puis relance `jenga info`
+						// Compare sans egard aux separateurs ni a la casse : wsPaths vient
+						// de GetEntries (« \ » sous Windows), l'argument souvent de « / ».
+						auto Pareil = [](const NkString &a, const char *b) {
+							usize i = 0;
+							for (; i < a.Length() && b[i]; ++i) {
+								char x = a.CStr()[i], y = b[i];
+								x = x == '\\' ? '/' : (x >= 'A' && x <= 'Z' ? (char)(x - 'A' + 'a') : x);
+								y = y == '\\' ? '/' : (y >= 'A' && y <= 'Z' ? (char)(y - 'A' + 'a') : y);
+								if (x != y)
+									return false;
+							}
+							return i == a.Length() && b[i] == '\0';
+						};
 						for (usize i = 0; i < st->wsPaths.Size(); ++i)
-							if (st->wsPaths[i] == NkString(openJenga)) {
+							if (Pareil(st->wsPaths[i], openJenga)) {
 								st->wsIdx = (int32)i;
 								break;
 							}

@@ -63,6 +63,12 @@ namespace nkentseu {
 			}
 			s->ScanWorkspaces();
 			s->TickWatch(ec.dt);
+			// (02/10) LA CONSTRUCTION EST SUIVIE ICI, a chaque image -- comme le pont IDE
+			// ci-dessus, et pour la meme raison. Elle ne l'etait que par le panneau
+			// OUTPUT : onglet EXECUTION ou TERMINAL au premier plan, personne ne la
+			// suivait -- la barre d'etat restait sur « Construction... » une fois Jenga
+			// fini, et une commande en file ne partait jamais.
+			s->PollBuild();
 			s->LoadProjects();
 			s->PollProjects();
 			s->PollFlags();
@@ -106,11 +112,6 @@ namespace nkentseu {
 
 			u.Rect(r, NkCol::sidebar); // fond sidebar (maquette)
 			u.Rect({r.x, r.y + r.h - 1.f, r.w, 1.f}, NkCol::border);
-
-			if (!s->HasWorkspace()) {
-				u.Text(r.x + u.s(14), r.y + (r.h - u.Lh()) * 0.5f, NkT("tb.noworkspace"), NkCol::mutedFg);
-				return;
-			}
 
 			// Hauteur UNIQUE pour combos / champ recherche / boutons (= hauteur des boutons Build),
 			// centrée verticalement dans la toolbar (dont la hauteur globale ne change pas). Plus de libellés
@@ -216,6 +217,43 @@ namespace nkentseu {
 				}
 				return w;
 			};
+
+			// ── (02/10) EDITION SIMPLE : un dossier SANS workspace Jenga ────────────────
+			// Comme VS Code : le dossier s'ouvre, rien n'est une erreur. Construire et
+			// Executer restent a LEUR place, grises, et leur info-bulle dit pourquoi ; a
+			// cote, « Creer un workspace Jenga ici » (NkCodeState::CreerWorkspaceIci).
+			if (!s->HasWorkspace()) {
+				float32 x = r.x + u.s(14);
+				NkOwIco(u, 0u, "folder", {x, cyBtn - u.s(6), u.s(12), u.s(12)}, NkCol::mutedFg);
+				x += u.s(18);
+				const char *mode = NkT("tb.simple");
+				u.Text(x, r.y + (r.h - u.Lh()) * 0.5f, mode, NkCol::mutedFg);
+				x += u.TextW(mode) + u.s(18);
+				bool survolGrise = false;
+				auto grise = [&](float32 bx, const char *label, uint32 tex, const char *drawn) -> float32 {
+					const float32 w = u.s(12) + u.s(6) + u.TextW(label) + u.s(20);
+					const NkRect b = {bx, cyBtn - u.s(13), w, u.s(26)};
+					u.Panel(b, NkCol::sidebar, NkCol::border, NkR::sm * u.S);
+					NkOwIco(u, tex, drawn, {b.x + u.s(10), b.y + u.s(7), u.s(12), u.s(12)}, NkCol::mutedFg);
+					u.Text(b.x + u.s(10) + u.s(12) + u.s(6), b.y + (b.h - u.Lh()) * 0.5f, label, NkCol::mutedFg);
+					// Une SEULE info-bulle pour les deux (meme texte) : appelee par bouton,
+					// le second, non survole, l'effacait aussitot (NkTooltip suit son texte).
+					survolGrise = survolGrise || u.Hit(b);
+					if (u.Hit(b) && u.click) // un clic sur un bouton grise EXPLIQUE, il ne construit rien
+						s->status = NkString(NkCodeState::MessageSansWorkspace());
+					return w;
+				};
+				x += grise(x, NkT("tb.build"), TEX(ic ? ic->hammer : 0), "hammer") + u.s(6);
+				x += grise(x, NkT("tb.run"), TEX(ic ? ic->play : 0), "play") + u.s(14);
+				NkTooltip(ec.Ui(), survolGrise, NkT("tb.nows.tip"));
+				const char *creer = NkT("tb.createws");
+				const float32 wc = btn(x, creer, TEX(ic ? ic->jenga : 0), "plus", 1, nullptr, false);
+				const NkRect bc = {x, cyBtn - u.s(13), wc, u.s(26)};
+				NkTooltip(ec.Ui(), u.Hit(bc), NkT("tb.createws.tip"));
+				if (u.Hit(bc) && u.click)
+					s->CreerWorkspaceIci();
+				return;
+			}
 
 			// ── Données réelles ──
 			int32 nSys = 0;

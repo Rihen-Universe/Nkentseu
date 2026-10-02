@@ -55,7 +55,7 @@ namespace nkentseu {
 				if (p == nullptr || p->curve.Empty() || p->curve.KeyCount() != (uint32)t.keys.Size()) {
 					return false; // le clip a une trame de retard sur un geste : le repli
 				}
-				const math::NkVec4f v = p->curve.Evaluate(temps);
+				const math::NkVec4f v = p->Evaluate(temps); // (01/10 soir) la Courbe d'Hermite, comme le jeu
 				out[0] = v.x;
 				out[1] = v.y;
 				out[2] = v.z;
@@ -104,6 +104,13 @@ namespace nkentseu {
 				s.channel[3] = (uint16)NkRole::TextMuted;
 				s.buttonBg = (uint16)NkRole::ButtonBg;
 				s.inputBg = (uint16)NkRole::InputBg;
+				// (01/10 soir) la frise « UE5 » : plage, marqueurs, clips, tangentes.
+				s.rangeIn = (uint16)NkRole::StatusOk;
+				s.rangeOut = (uint16)NkRole::StatusErr;
+				s.marker = (uint16)NkRole::AccentSel;
+				s.clip = (uint16)NkRole::TypeAnim;
+				s.clipAlt = (uint16)NkRole::NodeActionHeader;
+				s.tangent = (uint16)NkRole::AccentSel;
 				return s;
 			}
 
@@ -128,6 +135,17 @@ namespace nkentseu {
 			void Proposer(NkEditeurModele &m, NkDocAnim &d) {
 				d.propositions.Clear();
 				d.choixDefil = 0.f;
+				d.choixClips = false;
+				// (01/10 soir) En tete : une PISTE DE CLIPS (des animations posees bout a
+				// bout, qui se chevauchent et se fondent -- le NLA de Blender).
+				{
+					NkProposition p;
+					p.pisteClips = true;
+					p.entete = "Séquence";
+					p.propriete.nom = "Clips";
+					p.propriete.libelle = "Piste de clips (animations posées, fondus)";
+					d.propositions.PushBack(p);
+				}
 				const ecs::NkEntityId racine = NkEditeurCibleDoc(m, d);
 				if (!m.scene.Monde().IsAlive(racine)) {
 					return;
@@ -162,12 +180,74 @@ namespace nkentseu {
 				}
 			}
 
+			/// (01/10 soir) Les clips a poser sur une piste de clips : ceux qu'Unkeny
+			/// connait (enregistres), et les autres animations ouvertes.
+			void ProposerClips(NkEditeurInterface &ui, NkDocAnim &d, nk_uint64 piste, float32 t) {
+				d.propositions.Clear();
+				d.choixDefil = 0.f;
+				d.choixClips = true;
+				d.choixPiste = piste;
+				d.choixTemps = t;
+				auto ajouter = [&](const NkString &nom, float32 duree) {
+					if (nom.Empty() || nom == d.nom) {
+						return; // une sequence ne se pose pas dans elle-meme
+					}
+					for (uint32 i = 0; i < (uint32)d.propositions.Size(); ++i) {
+						if (d.propositions[i].clip == nom) {
+							return;
+						}
+					}
+					NkProposition p;
+					p.entete = "Animations";
+					p.clip = nom;
+					p.duree = duree > 1e-3f ? duree : 1.f;
+					p.propriete.libelle = nom;
+					p.propriete.nom = NkString::Format("%.2f s", (double)p.duree);
+					d.propositions.PushBack(p);
+				};
+				for (uint32 i = 0; i < unkeny::NkNbClipsProprietes(); ++i) {
+					const char *n = unkeny::NkNomClipProprietes(i);
+					const anim::NkAnimationClip *c = unkeny::NkClipProprietesEnregistre(n);
+					ajouter(NkString(n), c != nullptr ? c->duration : 1.f);
+				}
+				for (uint32 i = 0; i < (uint32)ui.pagesAnim.docs.Size(); ++i) {
+					const NkDocAnim &o = ui.pagesAnim.docs[i];
+					if (o.genre == NkGenreDocAnim::NK_ANIMATION) {
+						ajouter(o.nom, o.frise.duration);
+					}
+				}
+			}
+
+			/// Pose le clip choisi sur la piste de clips (et l'enregistre s'il ne
+			/// l'etait pas : l'apercu et le jeu le retrouvent par son nom).
+			void PoserClip(NkEditeurInterface &ui, NkDocAnim &d, const NkProposition &p) {
+				if (unkeny::NkClipProprietesEnregistre(p.clip.CStr()) == nullptr) {
+					for (uint32 i = 0; i < (uint32)ui.pagesAnim.docs.Size(); ++i) {
+						NkDocAnim &o = ui.pagesAnim.docs[i];
+						if (o.nom == p.clip && o.genre == NkGenreDocAnim::NK_ANIMATION) {
+							NkClipDepuisFrise(o.frise, o.clip);
+							o.clip.name = o.nom;
+							unkeny::NkEnregistrerClipProprietes(o.nom.CStr(), o.clip);
+						}
+					}
+				}
+				const nk_uint64 id = d.frise.AddClip(d.choixPiste, p.clip, d.choixTemps, p.duree, p.duree);
+				d.frise.SelectClip(id, false);
+				d.frise.activeTrack = d.choixPiste;
+			}
+
 			/// Ajoute la piste d'une proposition, et sa premiere cle AU CURSEUR, de
 			/// la valeur que l'entite montre.
 			void AjouterPiste(NkEditeurModele &m, NkDocAnim &d, const NkProposition &p) {
 				nk_uint64 id = 1;
 				for (uint32 t = 0; t < (uint32)d.frise.tracks.Size(); ++t) {
 					id = d.frise.tracks[t].id >= id ? d.frise.tracks[t].id + 1 : id;
+				}
+				if (p.pisteClips) {
+					editorkit::NkTimelineTrack &t = d.frise.AddTrack(id, NkString(), "Clips", editorkit::NkTimelineValueKind::Clips, 1);
+					t.label = "Clips";
+					d.frise.activeTrack = id;
+					return;
 				}
 				editorkit::NkTimelineTrack &t =
 					d.frise.AddTrack(id, p.cible, p.propriete.nom, GenreFrise(p.propriete.genre), p.propriete.canaux);
@@ -194,8 +274,12 @@ namespace nkentseu {
 				const float32 w = 340.f;
 				// Les lignes : un en-tete par objet, puis ses proprietes.
 				uint32 lignes = 0;
+				auto groupeNeuf = [&](uint32 i) {
+					return i == 0 || !(d.propositions[i - 1].cible == d.propositions[i].cible) ||
+						   !(d.propositions[i - 1].entete == d.propositions[i].entete);
+				};
 				for (uint32 i = 0; i < (uint32)d.propositions.Size(); ++i) {
-					lignes += (i == 0 || !(d.propositions[i - 1].cible == d.propositions[i].cible)) ? 2u : 1u;
+					lignes += groupeNeuf(i) ? 2u : 1u;
 				}
 				const float32 hMax = c.ui.ecran.h * 0.6f;
 				const float32 h = (float32)(lignes > 0 ? lignes : 1u) * lh + 8.f;
@@ -215,13 +299,16 @@ namespace nkentseu {
 				float32 y = r.y + 4.f - d.choixDefil;
 				int32 choisie = -1;
 				if (d.propositions.Empty()) {
-					renderer::NkTexte(dl, c.police, r.x + 10.f, y + 3.f, "Aucune propriété à ajouter (entité animée ?)", c.pal.attenue);
+					renderer::NkTexte(dl, c.police, r.x + 10.f, y + 3.f,
+									  d.choixClips ? "Aucune animation à poser (enregistrez-en une)" : "Aucune propriété à ajouter (entité animée ?)",
+									  c.pal.attenue);
 				}
 				for (uint32 i = 0; i < (uint32)d.propositions.Size(); ++i) {
 					NkProposition &p = d.propositions[i];
-					if (i == 0 || !(d.propositions[i - 1].cible == p.cible)) {
-						const NkString titre = p.cible.Empty() ? NkString::Format("%s (l'entité animée)", p.objet.CStr())
-															   : NkString::Format("%s  — %s", p.objet.CStr(), p.cible.CStr());
+					if (groupeNeuf(i)) {
+						const NkString titre = !p.entete.Empty() ? p.entete
+											   : p.cible.Empty() ? NkString::Format("%s (l'entité animée)", p.objet.CStr())
+																 : NkString::Format("%s  — %s", p.objet.CStr(), p.cible.CStr());
 						dl.AddRectFilled(NkRect{r.x + 1.f, y, r.w - 2.f, lh}, c.pal.entete);
 						renderer::NkTexte(dl, c.police, r.x + 8.f, y + 3.f, titre.CStr(), c.pal.texte);
 						y += lh;
@@ -230,7 +317,9 @@ namespace nkentseu {
 					const bool survol = NkEditeurDans(p.rect, in.mousePos) && dessus;
 					if (survol) {
 						dl.AddRectFilled(p.rect, c.pal.accent);
-						if (in.mouseClicked[0]) {
+						// Le clic qui vient d'OUVRIR le choix ne choisit rien (01/10 soir : le
+						// choix des clips s'ouvre sous le « + » d'une piste, deja sous la souris).
+						if (in.mouseClicked[0] && ouvertAvant) {
 							choisie = (int32)i;
 						}
 					}
@@ -242,8 +331,13 @@ namespace nkentseu {
 				dl.PopClipRect();
 				if (choisie >= 0) {
 					const NkProposition p = d.propositions[(uint32)choisie];
-					AjouterPiste(c.m, d, p);
+					if (d.choixClips) {
+						PoserClip(c.ui, d, p);
+					} else {
+						AjouterPiste(c.m, d, p);
+					}
 					d.choix = false;
+					d.choixClips = false;
 				} else if (ouvertAvant && in.mouseClicked[0] && !dessus) {
 					d.choix = false; // un clic ailleurs ferme, comme un menu
 				}
@@ -440,9 +534,24 @@ namespace nkentseu {
 			const NkRect frise{zone.x, corpsY + apercuH, zone.w, corpsH - apercuH};
 			if (d.apercu && m.etat == NkEtatJeu::NK_EDITION && m.scene.Monde().IsAlive(cible)) {
 				// RETENIR, appliquer au curseur, dessiner, RENDRE (voir l'en-tete).
+				// (01/10 soir) La POSE melangee de NKAnima : les pistes du clip ET ses
+				// pistes de clips (NLA) ; une piste muette, ou hors du solo, n'y est pas.
+				const anim::NkClipLookup lookup = unkeny::NkRechercheClipsProprietes();
+				anim::NkAnimPose pose;
+				anim::NkSampleClip(d.clip, d.frise.cursor, pose, &lookup);
+				for (int32 i = (int32)pose.props.Size() - 1; i >= 0; --i) {
+					for (uint32 t = 0; t < (uint32)d.frise.tracks.Size(); ++t) {
+						const editorkit::NkTimelineTrack &tr = d.frise.tracks[t];
+						if (tr.object == pose.props[(uint32)i].target && tr.property == pose.props[(uint32)i].property &&
+							!d.frise.TrackActive(tr)) {
+							pose.props.Erase(pose.props.Begin() + i);
+							break;
+						}
+					}
+				}
 				d.retenues.Clear();
-				for (uint32 i = 0; i < (uint32)d.clip.propertyTracks.Size(); ++i) {
-					const anim::NkAnimationClip::NkPropertyTrack &p = d.clip.propertyTracks[i];
+				for (uint32 i = 0; i < (uint32)pose.props.Size(); ++i) {
+					const anim::NkPropValue &p = pose.props[i];
 					NkValeurRetenue v;
 					v.cible = p.target;
 					v.propriete = p.property;
@@ -450,7 +559,7 @@ namespace nkentseu {
 						d.retenues.PushBack(v);
 					}
 				}
-				unkeny::NkAppliquerClipProprietes(m.scene, cible, d.clip, d.frise.cursor);
+				unkeny::NkAppliquerPoseProprietes(m.scene, cible, pose);
 				NkEditeurDessinerApercuAnim(c, cible, apercu);
 				NkEditeurRendreApercu(m, d);
 			} else {
@@ -481,6 +590,8 @@ namespace nkentseu {
 			hooks.readLive = &LireVivant;
 			editorkit::NkGuiComponentPaint peintre(c.ctx, c.theme);
 			const editorkit::NkTimelineStyle style = StyleFrise();
+			// La racine de l'arbre des pistes porte le nom de l'entite animee.
+			d.frise.rootLabel = m.scene.Monde().IsAlive(cible) ? NomDe(m, cible) : NkString();
 			pa.frise = editorkit::NkDrawTimeline(peintre, ci, editorkit::NkPaintRect{frise.x, frise.y, frise.w, frise.h}, d.frise,
 												  style, hooks);
 			if (pa.frise.changed) {
@@ -495,12 +606,25 @@ namespace nkentseu {
 					d.choix = true;
 				}
 			}
+			// (01/10 soir) Une piste de clips demande un clip : le meme choix, en clips.
+			if (pa.frise.addClipRequested) {
+				ProposerClips(c.ui, d, pa.frise.requestTrack, pa.frise.requestTime);
+				d.choix = true;
+			}
 			const editorkit::NkPaintRect &bt = pa.frise.buttons[(uint8)editorkit::NkTimelineButton::AddTrack];
-			DessinerChoix(c, d, NkRect{bt.x, bt.y, bt.w, bt.h}, choixOuvert);
+			// Le choix des CLIPS s'ouvre sous le « + » de sa piste ; celui des pistes sous « + Piste ».
+			NkRect ancre{bt.x, bt.y, bt.w, bt.h};
+			for (uint32 k = 0; d.choixClips && k < (uint32)pa.frise.rows.Size(); ++k) {
+				if (pa.frise.rows[k].track == d.choixPiste) {
+					const editorkit::NkPaintRect &kb = pa.frise.rows[k].keyButton;
+					ancre = NkRect{kb.x, kb.y, kb.w, kb.h};
+				}
+			}
+			DessinerChoix(c, d, ancre, choixOuvert);
 			if (d.frise.tracks.Empty() && !d.choix) {
 				const NkRect aide{pa.frise.area.x, pa.frise.area.y + 30.f, pa.frise.area.w, 40.f};
 				renderer::NkTexteDansBoite(dl, c.police, aide,
-										   "« + Propriété » : une piste (position, rotation, couleur, image…). Double-clic : une clé.",
+										   "« + Piste » : une propriété (position, rotation, couleur, image…). Double-clic : une clé.",
 										   c.pal.attenue);
 			}
 		}

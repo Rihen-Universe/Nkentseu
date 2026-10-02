@@ -30,6 +30,9 @@ namespace nkentseu {
 		/// Les scripts de l'editeur (Script/NkEditeurScripts.h), possedes par
 		/// l'application ; nul dans un banc qui n'en a pas.
 		struct NkEditeurScripts;
+		/// L'IA integree (Ia/NkEditeurIA.h, R18), possedee par l'application ;
+		/// nulle dans un banc qui n'en a pas.
+		struct NkEditeurIA;
 
 		/// L'outil courant. Il decide de ce que fait un clic dans le viseur.
 		/// SAISIR et COUTEAU agissent sur la matiere : ils servent en JEU.
@@ -93,6 +96,14 @@ namespace nkentseu {
 				float32 volume = 1.f;
 		};
 
+		/// UN FICHIER RETENU par l'historique : son etat AVANT un geste (son
+		/// contenu, ou son absence). Ctrl+Z le reecrit, ou l'efface.
+		struct NkFichierRetenu {
+				NkString chemin;
+				bool existait = false;
+				NkVector<uint8> octets;
+		};
+
 		/// L'HISTORIQUE de l'editeur (2026-10-01) : Ctrl+Z / Ctrl+Y. Une PHOTO de la
 		/// scene (NkScene::NkPhoto, celle de Jouer / Arreter) prise AVANT chaque
 		/// geste qui la retient (NkEditeurRetenir) ; annuler la rend, refaire rend
@@ -103,6 +114,13 @@ namespace nkentseu {
 		struct NkHistoriqueEditeur {
 				NkVector<unkeny::NkScene::NkPhoto> annuler; ///< la plus recente a la fin
 				NkVector<unkeny::NkScene::NkPhoto> refaire;
+				/// (2026-10-01, IA R18) LES FICHIERS d'un geste, a cote de sa photo
+				/// (MEME indice que `annuler` / `refaire`) : un geste qui ecrit ou
+				/// supprime un fichier (l'IA, demain les greffons) retient son etat
+				/// d'avant par NkEditeurRetenirFichier, et Ctrl+Z le rend. Vide : un
+				/// geste de scene seul -- tous ceux d'avant ce jour.
+				NkVector<NkVector<NkFichierRetenu>> annulerFichiers;
+				NkVector<NkVector<NkFichierRetenu>> refaireFichiers;
 				uint32 maximum = 32u;
 		};
 
@@ -182,6 +200,9 @@ namespace nkentseu {
 				/// (2026-10-01) Les scripts : registre, hote, C++ a chaud, page du
 				/// graphe. Pose par NkEditeurScriptsDemarrer.
 				NkEditeurScripts *scripts = nullptr;
+				/// (2026-10-01, R18) L'IA : panneau, fournisseurs, conversation. Posee
+				/// par NkEditeurIADemarrer ; nulle = pas d'IA (la plupart des bancs).
+				NkEditeurIA *ia = nullptr;
 
 				ecs::NkEntityId selection;
 				bool aSelection = false;
@@ -195,6 +216,15 @@ namespace nkentseu {
 				/// Panoramique du viseur (clic dans le vide, ou bouton droit).
 				bool panoramique = false;
 				NkVec2f dernierPointeur{0.f, 0.f};
+				// --- JOUER DANS L'EDITEUR, comme le PIE d'Unreal (2026-10-01) ------
+				/// La camera de l'EDITEUR avant « Jouer » : « Arreter » la rend.
+				NkVue2D cameraAvantJeu;
+				bool cameraAvantJeuValide = false;
+				/// EJECTE (bouton Ejecter, F8) : en jeu, la vue redevient celle de
+				/// l'editeur (camera libre, molette, panoramique, selection) ; la
+				/// camera du JEU continue a part (`cameraJeu`) et revient au retour.
+				bool ejecte = false;
+				NkVue2D cameraJeu;
 
 				NkStatsRendu stats;
 

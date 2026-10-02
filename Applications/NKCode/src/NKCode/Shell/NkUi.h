@@ -706,9 +706,51 @@ namespace nkentseu {
 				strokeBox(x + w * 0.12f, y + h * 0.32f, w * 0.76f, h * 0.36f, 2.f);
 				rectS(x + w * 0.66f, y + h * 0.46f, w * 0.09f, h * 0.09f);
 			} else if (cmp(name, "check-circle")) {
-				strokeBox(x + w * 0.12f, y + h * 0.12f, w * 0.76f, h * 0.76f, w * 0.38f);
+				// (01/10) un ROND coche : `strokeBox` ignore son rayon et en faisait un carre.
+				dl->AddCircle({x + w * 0.5f, y + h * 0.5f}, w * 0.38f, c, th);
 				NkLine(*this, {x + w * 0.3f, y + h * 0.52f}, {x + w * 0.45f, y + h * 0.67f}, c, th);
 				NkLine(*this, {x + w * 0.45f, y + h * 0.67f}, {x + w * 0.72f, y + h * 0.35f}, c, th);
+				// ── (2026-10-01) LES NOMS QUI TOMBAIENT SUR LE CARRE DE REPLI ─────────
+				// L'ecran de chargement (circle, refresh, edit, copy, chevron-left) et le
+				// wizard (check, trash, layers) demandaient des icones que cette table ne
+				// dessinait pas : on voyait des CARRES VIDES, d'ou qu'on lance NKCode --
+				// ce n'etait pas un fichier introuvable.
+			} else if (cmp(name, "circle")) {
+				dl->AddCircle({x + w * 0.5f, y + h * 0.5f}, w * 0.38f, c, th);
+			} else if (cmp(name, "check")) {
+				NkLine(*this, {x + w * 0.18f, y + h * 0.52f}, {x + w * 0.42f, y + h * 0.76f}, c, th * 1.3f);
+				NkLine(*this, {x + w * 0.42f, y + h * 0.76f}, {x + w * 0.84f, y + h * 0.26f}, c, th * 1.3f);
+			} else if (cmp(name, "refresh")) {
+				// un arc de trois quarts de tour et sa pointe
+				NkVec2 arc[10];
+				for (int32 i = 0; i < 10; ++i) {
+					const float32 a = -1.2f + 4.4f * static_cast<float32>(i) / 9.f;
+					arc[i] = {x + w * 0.5f + math::NkCos(a) * w * 0.34f, y + h * 0.5f + math::NkSin(a) * h * 0.34f};
+				}
+				dl->AddPolyline(arc, 10, c, th);
+				NkLine(*this, arc[0], {arc[0].x - w * 0.16f, arc[0].y + h * 0.02f}, c, th);
+				NkLine(*this, arc[0], {arc[0].x + w * 0.02f, arc[0].y + h * 0.17f}, c, th);
+			} else if (cmp(name, "edit")) {
+				NkLine(*this, {x + w * 0.24f, y + h * 0.76f}, {x + w * 0.74f, y + h * 0.26f}, c, th * 1.5f);
+				NkLine(*this, {x + w * 0.14f, y + h * 0.86f}, {x + w * 0.24f, y + h * 0.76f}, c, th);
+				NkLine(*this, {x + w * 0.66f, y + h * 0.18f}, {x + w * 0.82f, y + h * 0.34f}, c, th);
+			} else if (cmp(name, "copy")) {
+				strokeBox(x + w * 0.34f, y + h * 0.34f, w * 0.52f, h * 0.52f, 2.f);
+				NkLine(*this, {x + w * 0.16f, y + h * 0.66f}, {x + w * 0.16f, y + h * 0.16f}, c, th);
+				NkLine(*this, {x + w * 0.16f, y + h * 0.16f}, {x + w * 0.66f, y + h * 0.16f}, c, th);
+			} else if (cmp(name, "chevron-left")) {
+				NkLine(*this, {x + w * 0.64f, y + h * 0.18f}, {x + w * 0.32f, y + h * 0.5f}, c, th * 1.3f);
+				NkLine(*this, {x + w * 0.32f, y + h * 0.5f}, {x + w * 0.64f, y + h * 0.82f}, c, th * 1.3f);
+			} else if (cmp(name, "trash")) {
+				rectS(x + w * 0.16f, y + h * 0.22f, w * 0.68f, th);
+				rectS(x + w * 0.40f, y + h * 0.12f, w * 0.20f, th);
+				strokeBox(x + w * 0.24f, y + h * 0.30f, w * 0.52f, h * 0.58f, 2.f);
+			} else if (cmp(name, "layers")) {
+				const NkVec2 l0[4] = {{x + w * 0.5f, y + h * 0.14f}, {x + w * 0.9f, y + h * 0.34f},
+									  {x + w * 0.5f, y + h * 0.54f}, {x + w * 0.1f, y + h * 0.34f}};
+				dl->AddPolyline(l0, 4, c, th, true);
+				NkLine(*this, {x + w * 0.1f, y + h * 0.54f}, {x + w * 0.5f, y + h * 0.74f}, c, th);
+				NkLine(*this, {x + w * 0.5f, y + h * 0.74f}, {x + w * 0.9f, y + h * 0.54f}, c, th);
 			} else if (cmp(name, "alert-triangle") || cmp(name, "alert-circle")) {
 				NkLine(*this, {x + w * 0.5f, y + h * 0.14f}, {x + w * 0.9f, y + h * 0.84f}, c, th);
 				NkLine(*this, {x + w * 0.9f, y + h * 0.84f}, {x + w * 0.1f, y + h * 0.84f}, c, th);

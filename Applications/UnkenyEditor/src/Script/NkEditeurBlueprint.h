@@ -99,7 +99,13 @@ namespace nkentseu {
 		};
 
 		struct NkEditeurBlueprintEtat {
+				/// Son identite chez l'hote (UnkenyEditor : son onglet de document,
+				/// Editeur/NkEditeurDocuments.h) ; l'editeur ne la lit pas.
+				nk_uint64 id = 0;
 				bool ouvert = false;
+				/// A la derniere trame, une SAISIE tenait le clavier (un champ, un
+				/// menu, du code) : toutes les touches sont a elle.
+				bool saisie = false;
 				NkString chemin; ///< le .nkbp, absolu
 				NkString ref;	 ///< « Contenu/Scripts/Porte.nkbp »
 				NkString nom;	 ///< « Porte »
