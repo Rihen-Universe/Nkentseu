@@ -182,15 +182,15 @@ namespace nkentseu {
 				const graph::NkNodeId debut = NkBpCreerNoeud(e, "bp.ev.debut", 0.f, 40.f);
 				const graph::NkNodeId ca = NkBpCreerNoeudCode(e, NK_BP_CODE, 300.f, 0.f);
 				NkBpPoserCodeNoeud(e, ca, "total = total + 3\nscore = $round((7 - 2) / 7 * 100, 1)\nmessage = \"score : \" + texte(score)\nafficher(message)");
-				graph::NkNodeId si = NkBpCreerNoeudCode(e, NK_BP_SI_EXPRESSION, 740.f, 0.f);
+				graph::NkNodeId si = NkBpCreerNoeudCode(e, NK_BP_SI_EXPRESSION, 910.f, 0.f);
 				NkBpCodeRetirerPrise(e, si, "a", graph::NkSocketDir::Input);
 				NkBpCodeAjouterPrise(e, si, "runtime", "reel", graph::NkSocketDir::Input);
 				NkBpPoserCodeNoeud(e, si, "runtime > -1 && total > 2");
 				NkBpPoserDefaut(e, si, "runtime", "0.5");
-				const graph::NkNodeId cg = NkBpCreerNoeudCode(e, NK_BP_CODE, 1160.f, -40.f);
+				const graph::NkNodeId cg = NkBpCreerNoeudCode(e, NK_BP_CODE, 1280.f, 0.f);
 				NkBpPoserCodeNoeud(e, cg, "afficher(\"grand\")");
-				const graph::NkNodeId ls = NkBpCreerParCle(d, e, "bp.var.get:score", 380.f, 360.f);
-				graph::NkNodeId ex = NkBpCreerNoeudCode(e, NK_BP_EXPRESSION, 620.f, 330.f);
+				const graph::NkNodeId ls = NkBpCreerParCle(d, e, "bp.var.get:score", 90.f, 300.f);
+				graph::NkNodeId ex = NkBpCreerNoeudCode(e, NK_BP_EXPRESSION, 300.f, 250.f);
 				NkBpCodeRetirerPrise(e, ex, "a", graph::NkSocketDir::Input);
 				NkBpCodeRetirerPrise(e, ex, "b", graph::NkSocketDir::Input);
 				NkBpCodeAjouterPrise(e, ex, "testsTotal", "reel", graph::NkSocketDir::Input);
@@ -198,11 +198,12 @@ namespace nkentseu {
 				NkBpPoserCodeNoeud(e, ex, "$round((testsTotal - testsFailed) / testsTotal * 100, 1)");
 				NkBpPoserDefaut(e, ex, "testsFailed", "2");
 				NkBpAjouterVariable(d, "reussite", "reel");
-				const graph::NkNodeId ed = NkBpCreerParCle(d, e, "bp.var.set:reussite", 1160.f, 200.f);
+				const graph::NkNodeId ed = NkBpCreerParCle(d, e, "bp.var.set:reussite", 680.f, 0.f);
 				e.Connect(debut, "suite", ca, "exec");
-				e.Connect(ca, "suite", si, "exec");
+				// Le flot : Debut -> Code -> Ecrire reussite -> Si (expression) -> Code.
+				e.Connect(ca, "suite", ed, "exec");
+				e.Connect(ed, "suite", si, "exec");
 				e.Connect(si, "vrai", cg, "exec");
-				e.Connect(cg, "suite", ed, "exec");
 				e.Connect(ls, "valeur", ex, "testsTotal");
 				e.Connect(ex, "résultat", ed, "valeur");
 				NkErreurBp e2;
@@ -259,7 +260,7 @@ namespace nkentseu {
 				const editorkit::NkJetonsNodal &J = editorkit::NkJetonsNodalParDefaut();
 				const graph::NkNode *ev = g.Find(Noeud(g, "bp.ev.zone_entree"));
 				const graph::NkNode *si = g.Find(Noeud(g, "bp.si"));
-				const graph::NkNode *et2 = g.Find(Noeud(g, "bp.math.et", 1));
+				const graph::NkNode *et2 = g.Find(Noeud(g, "bp.math.et", 0));
 				nkgui::NkVec2 a0, b0, a1, b1;
 				if (ev != nullptr && si != nullptr && et2 != nullptr &&
 					editorkit::NkCanevasPrise(bp.Toile(), bp.zoneToile, *ev, ev->FindSocket("suite", graph::NkSocketDir::Output), J, a0) &&

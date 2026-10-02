@@ -1837,38 +1837,37 @@ namespace nkentseu {
 			g.Connect(eff, "suite", ecr, "exec");
 			g.Connect(ecr, "suite", retour, "exec");
 
-			// Le graphe d'evenements : Zone entree -> Si (soi est la zone ET
-			// l'autre est le Joueur ET pas encore ouverte) -> OuvrirPorte(hauteur).
+			// Le graphe d'evenements : Zone entree -> Si (soi est la zone ET l'autre
+			// est le Joueur) -> Vrai -> Si (expression) « non ouverte » -> Vrai :
+			// OuvrirPorte(hauteur) ; Faux : un noeud Code ecrit « deja ouverte ».
+			// Ainsi la branche Faux du code ne parle QUE du Joueur devant une porte
+			// deja ouverte (un autre corps qui touche la zone ne dit rien).
 			graph::NkNodeGraph &e = d.graphes[0].graphe;
-			// La mise en page : le flot en haut (evenement -> Si -> appel / code),
-			// la condition dessous, calculee de gauche a droite.
+			// La mise en page : le flot en haut, la condition dessous.
 			const graph::NkNodeId ev = NkBpCreerNoeud(e, "bp.ev.zone_entree", 0.f, 0.f);
-			const graph::NkNodeId nomEst = NkBpCreerNoeud(e, "bp.natif:unkeny.entite.nom_est", 270.f, 150.f);
+			const graph::NkNodeId nomEst = NkBpCreerNoeud(e, "bp.natif:unkeny.entite.nom_est", 250.f, 150.f);
 			NkBpPoserDefaut(e, nomEst, "nom", "Joueur");
-			const graph::NkNodeId lire = NkBpCreerLireVariable(d, e, "ouverte", 300.f, 310.f);
-			const graph::NkNodeId et = NkBpCreerNoeud(e, "bp.math.et", 530.f, 90.f);
-			const graph::NkNodeId non = NkBpCreerNoeud(e, "bp.math.non", 530.f, 260.f);
-			const graph::NkNodeId et2 = NkBpCreerNoeud(e, "bp.math.et", 770.f, 170.f);
-			const graph::NkNodeId si = NkBpCreerNoeud(e, "bp.si", 1010.f, 0.f);
-			const graph::NkNodeId h = NkBpCreerLireVariable(d, e, "hauteur", 1030.f, 180.f);
-			const graph::NkNodeId appel = NkBpCreerAppel(d, e, "OuvrirPorte", 1250.f, 0.f);
+			const graph::NkNodeId et = NkBpCreerNoeud(e, "bp.math.et", 500.f, 110.f);
+			const graph::NkNodeId si = NkBpCreerNoeud(e, "bp.si", 740.f, 0.f);
+			graph::NkNodeId pasOuverte = NkBpCreerNoeudCode(e, NK_BP_SI_EXPRESSION, 970.f, 0.f);
+			NkBpCodeRetirerPrise(e, pasOuverte, "a", graph::NkSocketDir::Input);
+			NkBpPoserCodeNoeud(e, pasOuverte, "non ouverte");
+			const graph::NkNodeId h = NkBpCreerLireVariable(d, e, "hauteur", 1150.f, 250.f);
+			const graph::NkNodeId appel = NkBpCreerAppel(d, e, "OuvrirPorte", 1340.f, 0.f);
 			e.Connect(ev, "suite", si, "exec");
 			e.Connect(ev, "autre", nomEst, "entité");
 			e.Connect(ev, "soiEstLaZone", et, "a");
 			e.Connect(nomEst, "égal", et, "b");
-			e.Connect(lire, "valeur", non, "a");
-			e.Connect(et, "r", et2, "a");
-			e.Connect(non, "r", et2, "b");
-			e.Connect(et2, "r", si, "condition");
-			e.Connect(si, "vrai", appel, "exec");
+			e.Connect(et, "r", si, "condition");
+			e.Connect(si, "vrai", pasOuverte, "exec");
+			e.Connect(pasOuverte, "vrai", appel, "exec");
 			e.Connect(h, "valeur", appel, "hauteur");
-			// Le cas FAUX, ecrit en code (le noeud « Code » de la reference) : il
-			// n'est atteint que si l'on rentre dans la zone porte deja ouverte.
-			const graph::NkNodeId rien = NkBpCreerNoeudCode(e, NK_BP_CODE, 1250.f, 150.f);
+			// Le cas « deja ouverte », ecrit en code (le noeud « Code » de la reference).
+			const graph::NkNodeId rien = NkBpCreerNoeudCode(e, NK_BP_CODE, 1340.f, 140.f);
 			NkBpPoserCodeNoeud(e, rien, "afficher(\"Rien à ouvrir : \" + porte + \" est déjà ouverte\")");
-			e.Connect(si, "faux", rien, "exec");
+			e.Connect(pasOuverte, "faux", rien, "exec");
 			// Un cadre, comme on en pose dans UE5 (la charte : option A).
-			NkBpCreerCommentaire(e, "Le Joueur entre dans la zone : la porte s'ouvre une fois", -40.f, -70.f, 1660.f, 470.f);
+			NkBpCreerCommentaire(e, "Le Joueur entre dans la zone : la porte s'ouvre une fois", -40.f, -70.f, 1750.f, 420.f);
 		}
 
 	} // namespace editeur
