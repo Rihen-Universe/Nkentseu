@@ -1916,6 +1916,7 @@ namespace nkentseu {
 					if (NkGMotEgal(p, "text")) {
 						CopierTexte(d, e.texte, sizeof(e.texte));
 						e.initialise = true;
+						e.texteDit = true; // (02/10) un `Text` et un libelle le lisent
 						return true;
 					}
 					if (NkGMotEgal(p, "value")) {

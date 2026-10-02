@@ -47,8 +47,22 @@ namespace nkentseu {
 	namespace nkgui {
 
 		struct NkGuiContext;
+		struct NkGuiInput;
 
-		enum class NkGuiNavDirection : uint8 { Aucune = 0, Haut, Bas, Gauche, Droite };
+		/// ⚠️ EN AJOUT SEUL : `Suivant` / `Precedent` (02/10) viennent APRES les
+		///    quatre directions, aucune valeur existante ne bouge.
+		enum class NkGuiNavDirection : uint8 {
+			Aucune = 0,
+			Haut,
+			Bas,
+			Gauche,
+			Droite,
+			/// (02/10) Tab : le controle suivant dans l'ORDRE DE LECTURE (de haut
+			/// en bas, puis de gauche a droite), en bouclant.
+			Suivant,
+			/// (02/10) Maj+Tab : le precedent, en bouclant.
+			Precedent
+		};
 
 		struct NKENTSEU_NKGUI_CLASS_EXPORT NkGuiNavigation {
 				/// ⚠️ FAUX PAR DEFAUT : rien ne se passe tant qu'on ne l'allume pas.
@@ -63,6 +77,21 @@ namespace nkentseu {
 				int32 phase = 0;
 				/// Annulation en cours : Echap pose une image, relache la suivante.
 				bool echapPose = false;
+
+				// ── AJOUTS DU 02/10 (l'interface en jeu d'Unkeny) ───────────────
+				/// Sans voisin dans la direction demandee, passer a l'AUTRE BOUT
+				/// (le dernier bouton d'une colonne mene au premier), comme les
+				/// menus de console. Faux par defaut : la conduite d'avant.
+				bool boucler = false;
+				/// La CLE STABLE du controle focalise (sa note : l'identifiant du
+				/// document pour un widget monte d'un `.nkgui`), vide sinon. C'est
+				/// elle qu'un hote compare -- jamais le libelle, qui se traduit.
+				char focusCle[48] = {};
+				/// Un focus DEMANDE par l'hote (NkGuiNavFocaliserCle), servi a la
+				/// prochaine NkGuiNavAvancer s'il existe a l'ecran. Vide = aucun.
+				char cleDemandee[48] = {};
+				/// La demande montre-t-elle le cadre (manette en main) ?
+				bool demandeMontre = false;
 		};
 
 		/// Avance la navigation d'une image. A appeler AVANT BeginFrame.
@@ -76,6 +105,22 @@ namespace nkentseu {
 
 		/// La souris a bouge : elle reprend la main (le pointeur virtuel s'efface).
 		NKENTSEU_NKGUI_API void NkGuiNavSourisBougee(NkGuiNavigation &nav) noexcept;
+
+		/// (02/10) DONNER le focus au controle de cle stable `cle` (l'identifiant
+		/// du document) : servi a la prochaine NkGuiNavAvancer, s'il est a l'ecran
+		/// et focalisable. `montrer` : le cadre apparait tout de suite (un menu
+		/// ouvert a la manette) ; sinon il attend le premier geste. Une cle
+		/// absente laisse le focus ou il etait.
+		NKENTSEU_NKGUI_API void NkGuiNavFocaliserCle(NkGuiNavigation &nav, const char *cle, bool montrer) noexcept;
+
+		/// (02/10) Ce que le CLAVIER demande a la navigation, lu dans `in` (les
+		/// touches que l'application a deja posees) : fleches (avec repetition),
+		/// Tab / Maj+Tab, Entree (activer), Echap (annuler). Rend vrai si une
+		/// touche de navigation a ete lue. ⚠️ A appeler AVANT NkGuiNavAvancer, qui
+		/// peut poser Echap lui-meme (annuler) : le lire apres le compterait deux
+		/// fois.
+		NKENTSEU_NKGUI_API bool NkGuiNavDepuisClavier(const NkGuiInput &in, NkGuiNavDirection &direction, bool &activer,
+													  bool &annuler) noexcept;
 
 	} // namespace nkgui
 } // namespace nkentseu

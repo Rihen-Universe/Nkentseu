@@ -611,6 +611,21 @@ namespace nkentseu {
 			else if (tt > 1.f)
 				tt = 1.f;
 
+			// (02/10) LE RELEVE : un curseur qui ne se notait pas n'existait pas
+			//    pour la navigation au focus (un menu de reglages injouable a la
+			//    manette) ni pour `NkGuiIntrospectCler`, qui aurait nomme la note
+			//    D'AVANT -- le monteur cle chaque widget juste apres lui. La note
+			//    porte la LIGNE entiere et la position (0..1) en annexe.
+			{
+				char annexe[24];
+				nkentseu::NkSnprintf(annexe, sizeof(annexe), "%.3f", static_cast<double>(tt));
+				NkGuiNoter(ctx, NkGuiNature::Reglage, id, label, r,
+						   static_cast<uint16>((ctx.IsDisabled() ? NK_GUI_ETAT_GRISE : 0) |
+											   (hovered ? NK_GUI_ETAT_SURVOLE : 0) |
+											   (ctx.activeId == id ? NK_GUI_ETAT_ENFONCE : 0)),
+						   annexe);
+			}
+
 			ctx.DL().AddRectFilled(track, ctx.theme.track, 3.f);
 			ctx.DL().AddRectFilled({track.x, track.y, track.w * tt, track.h}, ctx.theme.accent, 3.f);
 			ctx.DL().AddCircleFilled({track.x + track.w * tt, track.y + track.h * 0.5f}, 7.f,

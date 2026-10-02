@@ -840,6 +840,13 @@ namespace nkentseu {
 						bool iconeDite = false;
 						char image[256] = {0};
 						bool imageDite = false;
+						/// (02/10) Le TEXTE pose par `set x.text = ...` ou par l'hote
+						/// (le HUD d'un jeu : « Score : 120 »). Un `Text` et le libelle
+						/// d'un `Button` le lisent A LA PLACE du document quand il a ete
+						/// DIT -- meme raison que `iconeDite` : `texte` sert aussi de
+						/// tampon d'edition a `TextField`, et sa seule presence ne dit
+						/// pas que quelqu'un a voulu remplacer le texte du document.
+						bool texteDit = false;
 				};
 
 				// ── P10 : LES DISPOSITIONS D'AMARRAGE DU DOCUMENT ────────────────
@@ -2976,7 +2983,8 @@ namespace nkentseu {
 
 						// ── FEUILLES ─────────────────────────────────────────
 						case NkGuiRole::Text: {
-							const NkString s = NkGTexte(w, "text", "");
+							// (02/10) Un texte DIT par l'hote ou un comportement prime.
+							const NkString s = (e && e->texteDit) ? NkString(e->texte) : NkGTexte(w, "text", "");
 							// ⚠️ UN `Text` N'A PAS DE SURFACE. Son apparence honoree est son ENCRE
 							//    (`text { color }`). Un `fill` ecrit sur lui demande un fond que NKGui
 							//    ne peint pas pour un texte : on le COMPTE plutot que de l'inventer
@@ -2992,7 +3000,8 @@ namespace nkentseu {
 							break;
 						}
 						case NkGuiRole::Button: {
-							const NkString s = NkGLibelle(w, id);
+							// (02/10) Un libelle DIT par l'hote ou un comportement prime.
+							const NkString s = (e && e->texteDit) ? NkString(e->texte) : NkGLibelle(w, id);
 							// ⚠️ UNE FEUILLE : la surcharge ne peut fuir vers personne, et elle est
 							//    RENDUE juste apres. C'est ce qui la rend sure ici et interdite sur
 							//    un conteneur.
@@ -3059,7 +3068,18 @@ namespace nkentseu {
 									e->f = vmin;
 								if (e->f > vmax)
 									e->f = vmax;
-								(void)SliderFloat(ctx, lbl, e->f, vmin, vmax);
+								// (02/10) `label` ecrit : le libelle montre, l'identite
+								// gardee (« Volume##reglages.volume ») -- une bascule de
+								// langue ne change pas l'id du curseur. Sans `label` :
+								// l'identifiant, comme avant.
+								if (NkGA(w, "label")) {
+									NkString lab = NkGLibelle(w, id);
+									lab.Append("##");
+									lab.Append(id);
+									(void)SliderFloat(ctx, lab.CStr(), e->f, vmin, vmax);
+								} else {
+									(void)SliderFloat(ctx, lbl, e->f, vmin, vmax);
+								}
 								valeurMontee = e->f;
 								aValeurMontee = true;
 							} else {
@@ -3880,8 +3900,15 @@ namespace nkentseu {
 							break;
 						}
 						case NkGuiRole::Progress: {
-							const float32 v = e ? e->f : NkGNombre(w, "value", 0.f);
-							ProgressBar(ctx, v);
+							// (02/10) La valeur ECRITE tant que personne ne l'a posee : une
+							// jauge `value = 1` (une barre de vie pleine) partait vide,
+							// parce que son entree d'etat existe toujours (cle = id).
+							const float32 v = (e && e->initialise) ? e->f : NkGNombre(w, "value", 0.f);
+							// (02/10) `overlay` (document 2 §8.1) : le texte sur la jauge ;
+							// `overlay = ""` n'en met aucun (une barre de vie dans le monde,
+							// ou « 75 % » ne se lirait pas). Absent : le pourcentage, comme avant.
+							const NkString ov = NkGTexte(w, "overlay", "");
+							ProgressBar(ctx, v, NkGA(w, "overlay") ? ov.CStr() : nullptr);
 							break;
 						}
 						case NkGuiRole::Separator: {
@@ -3918,9 +3945,32 @@ namespace nkentseu {
 							break;
 						}
 						case NkGuiRole::Image: {
-							const float32 iw = NkGNombre(w, "width", 64.f);
-							const float32 ih = NkGNombre(w, "height", 64.f);
-							Image(ctx, 0u, iw, ih);
+							float32 iw = NkGNombre(w, "width", 64.f);
+							float32 ih = NkGNombre(w, "height", 64.f);
+							// (02/10) `size = (w, h)` est la propriete du schema (document 2
+							// §8.1) ; `width`/`height` restent lus pour les fichiers d'avant.
+							{
+								float32 sw = 0.f, sh = 0.f;
+								if (LireVec2(w, "size", sw, sh) && sw > 0.f && sh > 0.f) {
+									iw = sw;
+									ih = sh;
+								}
+							}
+							// (02/10) L'IMAGE EST DESSINEE, comme celle d'`ImageButton` :
+							// `source` (ou `image`) nomme un fichier, resolu par le
+							// registre (`NkGuiImages.h`) ; `set x.image` prime. Sans
+							// source, le carre d'avant (texId 0), inchange.
+							NkString src = NkGTexte(w, "source", "");
+							if (src.Empty())
+								src = NkGTexte(w, "image", "");
+							if (e && e->imageDite)
+								src = NkString(e->image);
+							if (!src.Empty()) {
+								const NkRect rI = ctx.NextItemRect(iw, ih);
+								PeindreImage(ctx, src, rI, rap);
+							} else {
+								Image(ctx, 0u, iw, ih);
+							}
 							break;
 						}
 						case NkGuiRole::Chart: {

@@ -427,6 +427,15 @@ namespace nkentseu {
 					return (uint32)mFaits.Size();
 				}
 
+				/// (02/10) Le i-eme fait de l'image, dans l'ordre ou il s'est produit.
+				/// Un HOTE qui sert les clics lui-meme (l'interface en jeu d'Unkeny :
+				/// OnClicked vers les scripts) doit pouvoir les PARCOURIR ; demander
+				/// « ce widget a-t-il ete clique ? » a chaque identifiant du document
+				/// reviendrait a deviner ce qu'il faut demander.
+				const Fait &A(uint32 i) const noexcept {
+					return mFaits[i];
+				}
+
 			private:
 				NkVector<Fait> mFaits;
 		};
