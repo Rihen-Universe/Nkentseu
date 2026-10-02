@@ -371,6 +371,7 @@ inline void OverlayThunk(NkEditorFrameContext &ec, void *u) {
 	// (01/10) Synthese : les coins des ilots, puis les deroulants de la barre unique
 	// (au-dessus des ilots, sous les dialogues).
 	nkcode::NkSyntheseCoins(ec.Ui());
+	nkcode::NkSyntheseMenuPanneau(ec); // le menu ≡ (variante 2)
 	nkcode::NkSyntheseDeroulants(ec);
 	auto *d = static_cast<nkcode::NkCodeDialogs *>(u);
 	// Modales AVANT DrawOverlay : le picker (ouvert par un champ des

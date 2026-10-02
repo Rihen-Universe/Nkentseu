@@ -42,10 +42,29 @@ namespace nkentseu {
 				// La branche git (lue dans .git/HEAD, sans lancer git) et sa racine.
 				NkString branche, brancheRacine;
 				float32 brancheAge = 99.f;
+				NkRect boutonMenu{}; ///< le bouton ≡ de cette image (pour les sondes)
 		};
 		inline NkSyntheseEtat &NkSynthese() {
 			static NkSyntheseEtat e;
 			return e;
+		}
+
+		/// LE MENU PRINCIPAL ≡ (variante 2 de la maquette D, choix de Rihen) : un
+		/// panneau avec la recherche en tete, les onze categories en colonne, le
+		/// CONTENU de la categorie survolee a cote (les MEMES menus de NKCode : ses
+		/// sous-menus s'ouvrent dans la colonne suivante), un pied de raccourcis.
+		struct NkMenuSyntheseEtat {
+				bool ouvert = false;
+				bool justeOuvert = false;
+				int32 cat = 0;
+				NkRect ancre{};
+				/// La hauteur mesuree du contenu de chaque categorie (layout.maxY) : le
+				/// panneau prend celle de la plus longue deja vue, sans sortir de la fenetre.
+				float32 hContenu[11] = {};
+		};
+		inline NkMenuSyntheseEtat &NkMenuSynthese() {
+			static NkMenuSyntheseEtat m;
+			return m;
 		}
 
 		inline bool NkSyntheseActive() {
@@ -297,30 +316,38 @@ namespace nkentseu {
 			const float32 x0 = bar.x + u.s(puits ? 2.f : 6.f);
 			bool menuOuvert = false;
 			if (puits) {
-				ctx.menuBarX = x0;
-				NkGuiMenuBarPolitique(ctx, x0 + 28.f, -1);
+				// Le preambule de la barre de menus (mises a jour, fichier choisi au
+				// picker) tourne ici, une fois par image ; AUCUN menu sous titre : ils
+				// sont tous dans le panneau ≡ (NkSyntheseMenuPanneau).
+				const int32 av = mb ? mb->menuSeul : -1;
+				if (mb)
+					mb->menuSeul = 99;
 				DrawMainMenuBar(ec, mb);
-				menuOuvert = ctx.menuBarDebordId != NKGUI_ID_NONE && ctx.popupDepth > 0 &&
-							 ctx.popupStack[0] == ctx.menuBarDebordId;
-			}
-			if (puits) {
-				// Le puits peint « … » sur toute la hauteur : on y pose le bouton ≡ de la maquette.
-				const NkRect puits = {x0, bar.y, 28.f, bar.h};
-				u.Rect(puits, a.cadre);
-				const NkRect b = {x0, py, 28.f, ph};
-				const bool hov = u.Hit(puits);
+				if (mb)
+					mb->menuSeul = av;
+				menuOuvert = NkMenuSynthese().ouvert;
+				const NkRect b = {x0, py, 30.f, ph};
+				NkSynthese().boutonMenu = b;
+				const bool hov = u.Hit(b);
 				if (menuOuvert)
 					u.Rect(b, NkMelange(a.gouttiere, a.plein, a.clair ? 0.11f : 0.22f), u.s(8.f));
 				else if (hov)
 					u.Rect(b, a.survol, u.s(8.f));
 				NkSynPiles(u, b, menuOuvert ? a.accent : a.fg2);
 				editorkit::NkTooltip(ctx, hov && !menuOuvert, "Menu principal (Fichier, \xC3\x89" "dition, Affichage\xE2\x80\xA6)");
+				if (hov && u.click) {
+					NkMenuSyntheseEtat &M = NkMenuSynthese();
+					M.ouvert = !M.ouvert;
+					M.justeOuvert = M.ouvert;
+					M.ancre = b;
+					ctx.input.mouseClicked[0] = false;
+				}
 			}
 
 			const NkIcons *ic = s ? s->icons : nullptr;
 			auto TEX = [&](uint32 t) { return ic ? t : 0u; };
 			auto consomme = [&]() { ctx.input.mouseClicked[0] = false; };
-			float32 x = puits ? x0 + 28.f + gap : x0;
+			float32 x = puits ? x0 + 30.f + gap : x0;
 
 			// ── Workspace : X ▾ ──
 			{
@@ -503,8 +530,156 @@ namespace nkentseu {
 			// Les ecarts restent des zones de glissement de la fenetre ; les pilules
 			// ont consomme leur clic.
 			if (puits)
-				ctx.menuBarX = x0 + 28.f;
+				ctx.menuBarX = x0 + 30.f;
 			(void)home;
+		}
+
+		/// Le panneau ≡ (dessine dans l'overlay, au-dessus des ilots).
+		inline void NkSyntheseMenuPanneau(NkEditorFrameContext &ec) {
+			NkMenuSyntheseEtat &M = NkMenuSynthese();
+			NkSyntheseEtat &E = NkSynthese();
+			if (!M.ouvert || !E.mb || !NkSyntheseActive())
+				return;
+			auto &ctx = ec.Ui();
+			NkMenuBarCtx *mb = E.mb;
+			const NkApparencePalette &a = NkApparenceCourante().pal;
+			const NkUi u = NkUi::From(ec, true);
+			const float32 S = u.S;
+			const float32 colCat = 190.f * S, colItems = 360.f * S;
+			const float32 hRech = 44.f * S, hPied = 36.f * S, ligne = 30.f * S;
+			// La colonne des actions prend la hauteur dont les menus longs (Edition) ont
+			// besoin, sans sortir de la fenetre.
+			const float32 y0 = M.ancre.y + M.ancre.h + 6.f * S;
+			float32 hCats = 11.f * ligne + 12.f * S;
+			const float32 hMax = (float32)ctx.viewH - y0 - hRech - hPied - 16.f * S;
+			for (int32 k = 0; k < 11; ++k)
+				if (M.hContenu[k] + 10.f * S > hCats)
+					hCats = M.hContenu[k] + 10.f * S;
+			if (hCats > hMax)
+				hCats = hMax;
+			const NkRect P = {M.ancre.x - 4.f * S, y0, colCat + colItems, hRech + hCats + hPied};
+			ctx.PushOcclusion(P, 2);
+			// L'ombre, le fond, le contour : le panneau se DETACHE nettement (« jamais cache ni coupe »).
+			u.Rect({P.x - 2.f * S, P.y + 6.f * S, P.w + 4.f * S, P.h + 6.f * S},
+				   NkColor{0, 0, 0, (uint8)(a.clair ? 46 : 140)}, 14.f * S);
+			u.Rect(P, a.panneau, 12.f * S);
+			NkSynContour(u, P, 12.f * S,
+						 NkMelange(a.panneau, a.clair ? NkColor{15, 23, 42, 255} : NkColor{255, 255, 255, 255},
+								   a.clair ? 0.16f : 0.12f));
+			const NkVec2 m = ctx.input.mousePos;
+			const bool dans = NkGuiRectContains(P, m);
+			// ── La recherche : la palette de commandes (actions ET menus) ──
+			{
+				const NkRect r = {P.x, P.y, P.w, hRech};
+				const bool hov = NkGuiRectContains(r, m);
+				if (hov)
+					u.Rect({r.x + 4.f * S, r.y + 4.f * S, r.w - 8.f * S, r.h - 8.f * S}, a.survol, 8.f * S);
+				if (mb->dlg && mb->dlg->st && mb->dlg->st->icons && mb->dlg->st->icons->search)
+					NkDrawIcon(u, mb->dlg->st->icons->search, {r.x + 14.f * S, r.y + (hRech - 15.f * S) * 0.5f, 15.f * S, 15.f * S},
+							   a.fg3);
+				u.TextV(r.x + 38.f * S, r.y, hRech, "Rechercher une action ou un menu\xE2\x80\xA6", a.fg3);
+				const char *k = "Ctrl+P";
+				const float32 kw = u.TextW(k) * 0.86f + 10.f * S;
+				const NkRect kr = {r.x + r.w - 14.f * S - kw, r.y + (hRech - 18.f * S) * 0.5f, kw, 18.f * S};
+				u.Rect(kr, a.haut, 4.f * S);
+				u.TextV(kr.x + 5.f * S, kr.y, kr.h, k, a.fg2);
+				u.Rect({P.x, r.y + hRech - 1.f, P.w, 1.f}, a.trait);
+				if (hov && u.click && mb->shell) {
+					mb->shell->OpenCommandPalette();
+					M.ouvert = false;
+					ctx.input.mouseClicked[0] = false;
+					return;
+				}
+			}
+			// ── Les onze categories ──
+			const NkIcons *ic = (mb->dlg && mb->dlg->st) ? mb->dlg->st->icons : nullptr;
+			auto icone = [&](int32 k) -> uint32 {
+				if (!ic)
+					return 0u;
+				switch (k) {
+					case 0: return ic->newFile2;
+					case 1: return ic->editer;
+					case 2: return ic->oeilOuvert;
+					case 3: return ic->forward;
+					case 4: return ic->play;
+					case 5: return ic->bug;
+					case 6: return ic->sourceControl;
+					case 7: return ic->sparkles;
+					case 8: return ic->toolchains;
+					case 9: return ic->split;
+					default: return ic->rondI;
+				}
+			};
+			for (int32 k = 0; k < 11; ++k) {
+				const NkRect r = {P.x + 6.f * S, P.y + hRech + 6.f * S + (float32)k * ligne, colCat - 12.f * S, ligne - 2.f * S};
+				const bool hov = NkGuiRectContains(r, m);
+				if (hov && M.cat != k)
+					M.cat = k;
+				if (M.cat == k)
+					u.Rect(r, NkMelange(a.panneau, a.plein, a.clair ? 0.11f : 0.22f), 7.f * S);
+				const uint32 t = icone(k);
+				if (t)
+					NkDrawIcon(u, t, {r.x + 10.f * S, r.y + (r.h - 15.f * S) * 0.5f, 15.f * S, 15.f * S}, a.fg2);
+				u.TextV(r.x + 34.f * S, r.y, r.h, NkT(kNkMenusCles[k]), a.fg);
+				NkSynChevronDroit(u, r.x + r.w - 12.f * S, r.y + r.h * 0.5f, a.fg3);
+			}
+			u.Rect({P.x + colCat, P.y + hRech, 1.f, hCats}, a.trait);
+			// ── Le contenu de la categorie : les MEMES menus, dans un popup NKGui ──
+			{
+				const NkGuiId id = ctx.GetId("##menu-synthese");
+				const NkRect zone = {P.x + colCat + 1.f, P.y + hRech + 1.f, colItems - 2.f * S, hCats - 2.f};
+				if (M.justeOuvert || !ctx.IsPopupOpen(id))
+					if (M.justeOuvert)
+						ctx.OpenPopup(id);
+				if (BeginPopupId(ctx, id, zone, P)) {
+					const int32 av = mb->menuSeul;
+					const bool avP = mb->sansPreambule;
+					mb->menuSeul = M.cat;
+					mb->sansPreambule = true;
+					DrawMainMenuBar(ec, mb);
+					if (M.cat >= 0 && M.cat < 11)
+						M.hContenu[M.cat] = ctx.layout.maxY - zone.y;
+					mb->menuSeul = av;
+					mb->sansPreambule = avP;
+					EndPopup(ctx);
+				} else if (!M.justeOuvert)
+					M.ouvert = false; // une action choisie (la chaine de menus s'est fermee) ou un clic dehors
+			}
+			// ── Le pied : quelques raccourcis reels ──
+			{
+				const NkRect r = {P.x, P.y + hRech + hCats, P.w, hPied};
+				u.Rect({P.x, r.y, P.w, 1.f}, a.trait);
+				float32 x = r.x + 14.f * S;
+				u.TextV(x, r.y, r.h, "Raccourcis :", a.fg2);
+				x += u.TextW("Raccourcis :") + 12.f * S;
+				const char *rac[3] = {"Construire (Jenga) \xC2\xB7 Ctrl+B", "Palette \xC2\xB7 Ctrl+P", "Apparence\xE2\x80\xA6"};
+				for (int32 i = 0; i < 3; ++i) {
+					const NkRect zr = {x - 4.f * S, r.y + 6.f * S, u.TextW(rac[i]) + 8.f * S, r.h - 12.f * S};
+					const bool hov = NkGuiRectContains(zr, m);
+					u.TextV(x, r.y, r.h, rac[i], hov ? a.fg : a.fg3);
+					if (hov && u.click) {
+						if (i == 0 && mb->dlg && mb->dlg->st)
+							mb->dlg->st->DoBuildAction("build");
+						else if (i == 1 && mb->shell)
+							mb->shell->OpenCommandPalette();
+						else if (i == 2 && mb->dlg) {
+							mb->dlg->showPrefs = true;
+							if (mb->home)
+								mb->home->settings.cat = 3;
+						}
+						M.ouvert = false;
+						ctx.input.mouseClicked[0] = false;
+					}
+					x += u.TextW(rac[i]) + 18.f * S;
+				}
+			}
+			if (ctx.input.KeyPressed(NkGuiKey::Escape))
+				M.ouvert = false;
+			if (dans) {
+				ctx.input.mouseClicked[0] = false;
+				ctx.input.wheel = 0.f;
+			}
+			M.justeOuvert = false;
 		}
 
 		inline void NkSyntheseBarreTitre(NkEditorFrameContext &ec, NkMenuBarCtx *mb) {
@@ -960,6 +1135,13 @@ namespace nkentseu {
 			} else {
 				sh->SetActivityBarFn(nullptr, nullptr);
 				sh->SetStatusBarFn(nullptr, nullptr);
+				// Famille (maquette B) : la rangee de widgets aux boutons bordes, sous les
+				// menus, a cote du logo au coin -- la barre de la Synthese, sans le ≡.
+				NkCodeState *st = (home && home->dlg) ? home->dlg->st : nullptr;
+				if (e.dispo.styleFamille && st && st->HasWorkspace()) {
+					NkBarreOutilsVisible() = false; // l'IDE bat par la barre de menus
+					sh->SetToolbar(&NkSyntheseToolbarThunk, nullptr);
+				}
 			}
 		}
 

@@ -1124,6 +1124,27 @@ namespace nkentseu {
 							x += chevW + ctx.S(7.f);
 						}
 					}
+					// (01/10) Synthese (maquette D) : le nombre d'avertissements / d'erreurs du
+					// fichier, en pastille a droite du fil d'Ariane.
+					if (NkApparenceCourante().dispo.synthese) {
+						int32 nW = 0, nE = 0;
+						for (usize k = 0; k < f.doc.diags.Size(); ++k)
+							(f.doc.diags[k].sev ? nE : nW)++;
+						if (nW + nE > 0) {
+							const NkApparencePalette &ap = NkApparenceCourante().pal;
+							const NkString t = nE ? NkPrintf("%d erreur%s", nE, nE > 1 ? "s" : "")
+												  : NkPrintf("%d avertissement%s", nW, nW > 1 ? "s" : "");
+							const NkColor c = nE ? NkColor{248, 81, 73, 255}
+												 : (ap.clair ? NkColor{166, 110, 0, 255} : NkColor{224, 179, 90, 255});
+							const float32 tw = ctx.font->MeasureWidth(t.CStr());
+							const NkRect pr = {r.x + r.w - ctx.S(18.f) - tw - ctx.S(28.f), r.y + ctx.S(3.f), tw + ctx.S(28.f),
+											   h - ctx.S(6.f)};
+							dl.AddRectFilled(pr, ap.haut, ctx.S(7.f));
+							const float32 cx = pr.x + ctx.S(12.f), cy = pr.y + pr.h * 0.5f, a = ctx.S(5.f);
+							dl.AddTriangleFilled({cx, cy - a}, {cx - a, cy + a * 0.8f}, {cx + a, cy + a * 0.8f}, c);
+							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {pr.x + ctx.S(22.f), by}, t.CStr(), c);
+						}
+					}
 					return h;
 				}
 

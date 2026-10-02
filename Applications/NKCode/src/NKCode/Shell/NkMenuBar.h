@@ -38,6 +38,13 @@ namespace nkentseu {
 				// le picker (PK_File) remplit ce buffer a la confirmation (asynchrone) ;
 				// DrawMainMenuBar le poll chaque frame et ouvre le fichier.
 				char openFileBuf[512] = {};
+				/// (01/10) Le menu ≡ de la Synthese (variante 2) dessine le CONTENU d'une
+				/// seule categorie dans sa colonne : -1 = la barre normale (chaque menu
+				/// sous son titre), k = le contenu de la categorie k, sans titre.
+				int32 menuSeul = -1;
+				/// Le preambule (mises a jour, fichier choisi au picker) ne tourne
+				/// qu'une fois par image : le second passage le saute.
+				bool sansPreambule = false;
 		};
 
 		namespace menubar_detail {
@@ -177,6 +184,19 @@ namespace nkentseu {
 
 		} // namespace menubar_detail
 
+		/// (01/10) Les onze categories de la barre, dans l'ordre (menu ≡ de la Synthese).
+		static const char *const kNkMenusCles[11] = {"mb.file", "mb.edit", "mb.view", "mb.go",	   "mb.run", "mb.debug",
+													  "mb.git",	 "mb.ai",	"mb.tools", "mb.window", "mb.help"};
+		inline bool NkMenuEntrer(NkGuiContext &ctx, NkMenuBarCtx *mb, int32 k, const char *titre) {
+			if (!mb || mb->menuSeul < 0)
+				return BeginMenu(ctx, titre);
+			return mb->menuSeul == k; // le contenu seul, dans le popup courant
+		}
+		inline void NkMenuSortir(NkGuiContext &ctx, NkMenuBarCtx *mb) {
+			if (!mb || mb->menuSeul < 0)
+				EndMenu(ctx);
+		}
+
 		inline void DrawMainMenuBar(NkEditorFrameContext &ec, NkMenuBarCtx *mb) {
 			using namespace menubar_detail;
 			if (!mb || !mb->dlg || !mb->shell)
@@ -189,6 +209,7 @@ namespace nkentseu {
 			const bool hasFile = s && s->HasActive();
 			NkCodeDoc *doc = hasFile ? &s->files[s->active].doc : nullptr;
 
+			if (!mb->sansPreambule) {
 			// ── Mises a jour in-app (Phase 13) ──
 			// Verification une fois par session (curl asynchrone : ne ralentit pas le
 			// demarrage, silencieuse si la machine est hors ligne) puis pompage chaque
@@ -217,9 +238,10 @@ namespace nkentseu {
 				s->OpenPath(NkPath(mb->openFileBuf));
 				mb->openFileBuf[0] = 0;
 			}
+			} // preambule
 
 			// ── FICHIER ──────────────────────────────────────────────────────
-			if (BeginMenu(ctx, NkT("mb.file"))) {
+			if (NkMenuEntrer(ctx, mb, 0, NkT("mb.file"))) {
 				if (MenuItem(ctx, NkT("mb.file.startscreen")))
 					d->ShowStart();
 				Separator(ctx);
@@ -309,11 +331,11 @@ namespace nkentseu {
 					d->showPrefs = true; // modale PREFERENCES complete (panneau launcher)
 				if (MenuItem(ctx, NkT("mb.file.quit"), "Ctrl+Q"))
 					sh->RequestQuit(/*windowClose=*/false); // quitter (confirmation)
-				EndMenu(ctx);
+				NkMenuSortir(ctx, mb);
 			}
 
 			// ── ÉDITION ──────────────────────────────────────────────────────
-			if (BeginMenu(ctx, NkT("mb.edit"))) {
+			if (NkMenuEntrer(ctx, mb, 1, NkT("mb.edit"))) {
 				if (MenuItem(ctx, NkT("mb.edit.undo"), "Ctrl+Z", hasFile) && doc)
 					doc->Undo();
 				if (MenuItem(ctx, NkT("mb.edit.redo"), "Ctrl+Shift+Z", hasFile) && doc)
@@ -478,11 +500,11 @@ namespace nkentseu {
 						doc->InsertText("for (int i = 0; i < n; ++i) {\n}\n");
 					EndMenu(ctx);
 				}
-				EndMenu(ctx);
+				NkMenuSortir(ctx, mb);
 			}
 
 			// ── AFFICHAGE ────────────────────────────────────────────────────
-			if (BeginMenu(ctx, NkT("mb.view"))) {
+			if (NkMenuEntrer(ctx, mb, 2, NkT("mb.view"))) {
 				if (MenuItem(ctx, NkT("mb.view.palette"), "Ctrl+P"))
 					sh->OpenCommandPalette();
 				if (BeginMenu(ctx, NkT("mb.view.openview"))) {
@@ -545,11 +567,11 @@ namespace nkentseu {
 						s->status = NkString("Disposition reinitialisee (defaut)");
 					}
 				}
-				EndMenu(ctx);
+				NkMenuSortir(ctx, mb);
 			}
 
 			// ── ALLER ────────────────────────────────────────────────────────
-			if (BeginMenu(ctx, NkT("mb.go"))) {
+			if (NkMenuEntrer(ctx, mb, 3, NkT("mb.go"))) {
 				if (MenuItem(ctx, NkT("mb.go.gotofile")) && s) {
 					// meme picker maison que « Ouvrir un fichier » (disque entier).
 					mb->openFileBuf[0] = 0;
@@ -580,11 +602,11 @@ namespace nkentseu {
 					GotoProblem(*doc, true);
 				if (MenuItem(ctx, NkT("mb.go.prevproblem"), "Shift+F8", hasDiags) && doc)
 					GotoProblem(*doc, false);
-				EndMenu(ctx);
+				NkMenuSortir(ctx, mb);
 			}
 
 			// ── EXÉCUTER ─────────────────────────────────────────────────────
-			if (BeginMenu(ctx, NkT("mb.run"))) {
+			if (NkMenuEntrer(ctx, mb, 4, NkT("mb.run"))) {
 				if (MenuItem(ctx, NkT("mb.run.run"), nullptr, hasWs) && s)
 					s->DoRun();
 				MenuItem(ctx, NkT("mb.run.debug"), nullptr, false); // (a venir : debogueur, chantier dedie)
@@ -600,13 +622,13 @@ namespace nkentseu {
 				Separator(ctx);
 				if (MenuItem(ctx, NkT("mb.run.breakpoint"), "F9", hasFile) && doc)
 					doc->ToggleBreakpoint(doc->curLine);
-				EndMenu(ctx);
+				NkMenuSortir(ctx, mb);
 			}
 
 			// ── DÉBOGUER : GDB/LLDB REEL via `jenga gdb` dans le terminal integre.
 			//    Les points d'arret poses dans la gouttiere (F9) sont transmis au
 			//    debugger (--break fichier:ligne). UI in-app = chantier dedie. ──
-			if (BeginMenu(ctx, NkT("mb.debug"))) {
+			if (NkMenuEntrer(ctx, mb, 5, NkT("mb.debug"))) {
 				// Compose `jenga gdb [proj] --config Debug [--break f:l]... --build`
 				auto gdbCmd = [&](bool runNow) -> NkString {
 					NkString cmd("jenga gdb");
@@ -655,11 +677,11 @@ namespace nkentseu {
 				MenuItem(ctx, "Attach to Process", nullptr, false); // (UI in-app a venir)
 				MenuItem(ctx, "Call Stack / Variables / Watch", nullptr, false);
 				MenuItem(ctx, "GPU Debugger", nullptr, false);
-				EndMenu(ctx);
+				NkMenuSortir(ctx, mb);
 			}
 
 			// ── GIT (via le terminal integre : commandes REELLES et visibles) ─
-			if (BeginMenu(ctx, NkT("mb.git"))) {
+			if (NkMenuEntrer(ctx, mb, 6, NkT("mb.git"))) {
 				if (MenuItem(ctx, "Status", nullptr, hasWs))
 					TermCmd(s, sh, "git status");
 				if (MenuItem(ctx, "Init", nullptr, hasWs))
@@ -692,11 +714,11 @@ namespace nkentseu {
 				Separator(ctx);
 				MenuItem(ctx, "Commit (UI dediee a venir)", nullptr, false);
 				MenuItem(ctx, "Pull Request", nullptr, false);
-				EndMenu(ctx);
+				NkMenuSortir(ctx, mb);
 			}
 
 			// ── IA ───────────────────────────────────────────────────────────
-			if (BeginMenu(ctx, NkT("mb.ai"))) {
+			if (NkMenuEntrer(ctx, mb, 7, NkT("mb.ai"))) {
 				if (MenuItem(ctx, NkT("mb.ai.toggle"), "Ctrl+Shift+A")) {
 					int32 gN = 0;
 					const char *const *g = SideRightGroup(gN);
@@ -724,11 +746,11 @@ namespace nkentseu {
 					AiAsk(s, sh, "Regarde `git diff` et `git status` puis propose un message de commit clair.", false);
 				Separator(ctx);
 				MenuItem(ctx, "Training Custom Model", nullptr, false); // (a venir : NkAI)
-				EndMenu(ctx);
+				NkMenuSortir(ctx, mb);
 			}
 
 			// ── OUTILS ───────────────────────────────────────────────────────
-			if (BeginMenu(ctx, NkT("mb.tools"))) {
+			if (NkMenuEntrer(ctx, mb, 8, NkT("mb.tools"))) {
 				if (MenuItem(ctx, NkT("mb.view.theme"))) {
 					d->showPrefs = true;
 					if (mb->home)
@@ -749,11 +771,11 @@ namespace nkentseu {
 				MenuItem(ctx, "Extensions", nullptr, false); // (Phase 10)
 				MenuItem(ctx, "Package Manager", nullptr, false);
 				MenuItem(ctx, "Profiler / Memory / Network", nullptr, false);
-				EndMenu(ctx);
+				NkMenuSortir(ctx, mb);
 			}
 
 			// ── FENÊTRE ──────────────────────────────────────────────────────
-			if (BeginMenu(ctx, NkT("mb.window"))) {
+			if (NkMenuEntrer(ctx, mb, 9, NkT("mb.window"))) {
 				if (MenuItem(ctx, NkT("mb.window.newwindow"), nullptr, !mb->exePath.Empty()))
 					// SANS dossier : la nouvelle fenetre s'ouvre sur le LAUNCHER (et non
 					// dans le workspace courant) — l'utilisateur choisit quoi ouvrir.
@@ -794,11 +816,11 @@ namespace nkentseu {
 						s->status = NkString("Disposition reinitialisee (defaut)");
 					}
 				}
-				EndMenu(ctx);
+				NkMenuSortir(ctx, mb);
 			}
 
 			// ── AIDE ─────────────────────────────────────────────────────────
-			if (BeginMenu(ctx, NkT("mb.help"))) {
+			if (NkMenuEntrer(ctx, mb, 10, NkT("mb.help"))) {
 				if (MenuItem(ctx, NkT("mb.help.docs"), "F1"))
 					NkLauncher::OpenURL("https://github.com/Rihen-Universe/Nkentseu/wiki");
 				if (MenuItem(ctx, NkT("mb.help.shortcuts"))) {
@@ -852,7 +874,7 @@ namespace nkentseu {
 				}
 				if (MenuItem(ctx, NkT("mb.help.about")))
 					d->showHelp = 2; // fenetre DEDIEE in-app (produit/editeur/contact)
-				EndMenu(ctx);
+				NkMenuSortir(ctx, mb);
 			}
 		}
 

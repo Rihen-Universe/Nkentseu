@@ -223,6 +223,34 @@ static void NkCrochetsPanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int
 			fflush(stdout);
 		}
 	}
+	// (01/10) NK_REGLAGES=<image> : ouvre les Reglages sur la categorie Theme
+	// (apparence, jeu d'icones) -- le geste du menu, sans entree injectee.
+	{
+		static int32 sReglages = -2;
+		if (sReglages == -2) {
+			const char *v = std::getenv("NK_REGLAGES");
+			sReglages = v ? (int32)std::atoi(v) : -1;
+		}
+		if (sImage == sReglages) {
+			g_dialogs.showPrefs = true;
+			g_home.settings.cat = 3;
+		}
+	}
+	// (01/10) NK_MENU_SYNTHESE=<image> : ouvre le menu ≡ de la Synthese (variante 2),
+	// comme son clic -- l'etat qu'un clic ecrirait, aucune entree injectee.
+	{
+		static int32 sMenuD = -2;
+		if (sMenuD == -2) {
+			const char *v = std::getenv("NK_MENU_SYNTHESE");
+			sMenuD = v ? (int32)std::atoi(v) : -1;
+		}
+		if (sImage == sMenuD) {
+			nkcode::NkMenuSyntheseEtat &M = nkcode::NkMenuSynthese();
+			M.ouvert = true;
+			M.justeOuvert = true;
+			M.ancre = nkcode::NkSynthese().boutonMenu;
+		}
+	}
 	// (01/10) NK_BANC_APPARENCES=1 : le banc de la reversibilite (NkBancApparences.h).
 	{
 		static int32 sBanc = -2;
@@ -368,7 +396,7 @@ int nkmain(const NkEntryState &state) {
 	gPanneauxIA[2] = &codexPanel;
 	gPanneauxIA[3] = &nkaiPanel;
 	if (std::getenv("NK_AI_IMAGE") || std::getenv("NK_AI_PANNEAU") || std::getenv("NK_AGENT_EXIT") ||
-		std::getenv("NK_CAPTURE_FENETRE") || std::getenv("NK_CONSTRUIRE") || std::getenv("NK_BANC_APPARENCES") ||
+		std::getenv("NK_CAPTURE_FENETRE") || std::getenv("NK_CONSTRUIRE") || std::getenv("NK_BANC_APPARENCES") || std::getenv("NK_REGLAGES") || std::getenv("NK_MENU_SYNTHESE") ||
 		std::getenv("NK_TERM_TAPER"))
 		shell->SetApresImage(&NkCrochetsPanneauIA, shell.Get());
 	static ScaffoldPanel pEngine("Moteur", NkEditorDockSide::NK_RIGHT, "Maquette - roadmap #17", sc::kEngine, 1);
