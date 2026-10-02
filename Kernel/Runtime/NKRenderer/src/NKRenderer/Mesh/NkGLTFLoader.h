@@ -199,6 +199,10 @@ namespace nkentseu {
 				bool hasMorphs = false;
 				NkVector<NkGLTFMorphTarget> morphTargets;
 				NkVector<float32> morphDefaultWeights; // mesh.weights (0 si absent)
+				// (2026-10-02, rig 3D) Les NOMS des cibles : mesh.extras.targetNames, la
+				// convention de Blender et des exporteurs courants. VIDE si le fichier
+				// n'en donne pas (les cibles restent indexees).
+				NkVector<NkString> morphNames;
 				int32 morphNode = -1;				   // node portant le mesh morphe (cible WEIGHTS)
 
 				// ── Scene graph + animations (pour evaluer la pose a un temps t) ──

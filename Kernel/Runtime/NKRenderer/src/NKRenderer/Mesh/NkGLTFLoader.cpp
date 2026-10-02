@@ -1190,6 +1190,19 @@ namespace nkentseu {
 							out.hasMorphs = true;
 							// Poids par defaut (mesh.weights) + node porteur (cible
 							// des canaux anim WEIGHTS) : premier mesh morphe trouve.
+							// (02/10) Les noms des cibles (mesh.extras.targetNames), une fois.
+							if (out.morphNames.Empty()) {
+								const NkArchiveNode *extras = mesh->FindNode(NkStringView("extras"));
+								if (extras && extras->IsObject() && extras->object) {
+									const NkArchiveNode *tn = extras->object->FindNode(NkStringView("targetNames"));
+									if (tn && tn->IsArray()) {
+										for (nk_size ni = 0; ni < tn->array.Size() && ni < tcount; ++ni) {
+											const NkArchiveNode &e = tn->array[ni];
+											out.morphNames.PushBack((e.IsScalar() && e.value.IsString()) ? e.value.text : NkString());
+										}
+									}
+								}
+							}
 							if (out.morphDefaultWeights.Empty()) {
 								float32 wtmp[16] = {};
 								int32 nw = ObjGetFloatArray(*mesh, "weights", wtmp, 16);
