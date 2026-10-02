@@ -346,6 +346,17 @@ namespace nkentseu {
 						out.PushBack(Entree("Cadrer", NK_A_CADRER_SELECTION, "F"));
 						out.PushBack(Separateur());
 						out.PushBack(SousMenu("Ajouter un composant", NkMenuEditeur::NK_COMPOSANT));
+						// (2026-10-02, R31) Le MAILLAGE 2D : le creer depuis le sprite, ou l'editer.
+						if (m.aSelection && m.scene.Monde().IsAlive(m.selection)) {
+							const bool aMaillage = m.scene.Monde().Has<NkMaillage2D>(m.selection);
+							if (aMaillage) {
+								out.PushBack(Entree("Éditer le maillage 2D…", NK_A_MAILLAGE_EDITER));
+							} else if (m.scene.Monde().Has<NkSprite2D>(m.selection)) {
+								out.PushBack(Entree("Créer un maillage 2D depuis le sprite",
+													NK_A_MAILLAGE + static_cast<int32>(NkSourceMaillage::NK_SPRITE), "", false,
+													m.etat == NkEtatJeu::NK_EDITION));
+							}
+						}
 						// (2026-09-29) La hierarchie et les prefabs.
 						out.PushBack(Separateur());
 						out.PushBack(Entree("Créer un prefab", NK_A_CREER_PREFAB, "", false,
@@ -510,7 +521,8 @@ namespace nkentseu {
 								// (2026-10-01, R33) Chaque asset s'ouvre dans son onglet.
 								out.PushBack(Entree("Ouvrir (onglet de réglages)", NK_A_CONTENU_OUVRIR_ASSET, "double-clic"));
 							}
-							if (nature.type == NkAssetType::Prefab || nature.type == NkAssetType::Texture2D) {
+							if (nature.type == NkAssetType::Prefab || nature.type == NkAssetType::Texture2D ||
+								nature.type == NkAssetType::Mesh2D) { // (2026-10-02, R31) le maillage 2D se pose aussi
 								out.PushBack(Entree("Poser au centre de la vue", NK_A_CONTENU_POSER_ASSET));
 							}
 							out.PushBack(Separateur());
@@ -748,9 +760,22 @@ namespace nkentseu {
 						}
 						// ── Rendu ──
 						Section("Rendu", !Peut(NkComposantEditeur::NK_SPRITE) && !Peut(NkComposantEditeur::NK_FORME) &&
-											 !Peut(NkComposantEditeur::NK_LUMIERE) && !Peut(NkComposantEditeur::NK_EMETTEUR));
+											 !Peut(NkComposantEditeur::NK_LUMIERE) && !Peut(NkComposantEditeur::NK_EMETTEUR) &&
+											 !Peut(NkComposantEditeur::NK_MAILLAGE));
 						Ligne(NkComposantEditeur::NK_SPRITE, "Sprite");
 						Ligne(NkComposantEditeur::NK_FORME, "Forme 2D (rectangle, cercle, étoile…)");
+						// (2026-10-02, R31) Le MAILLAGE 2D : depuis le contour du sprite, depuis
+						// la forme, ou vide (on pose ses sommets dans sa fenetre d'edition).
+						if (Peut(NkComposantEditeur::NK_MAILLAGE)) {
+							if (w.Has<NkSprite2D>(id)) {
+								out.PushBack(Entree("Maillage 2D depuis le sprite (contour de l'image)",
+													NK_A_MAILLAGE + static_cast<int32>(NkSourceMaillage::NK_SPRITE)));
+							}
+							if (w.Has<NkRenduForme2D>(id)) {
+								out.PushBack(Entree("Maillage 2D depuis la forme", NK_A_MAILLAGE + static_cast<int32>(NkSourceMaillage::NK_FORME)));
+							}
+							out.PushBack(Entree("Maillage 2D vide (sommets à poser)", NK_A_MAILLAGE + static_cast<int32>(NkSourceMaillage::NK_VIDE)));
+						}
 						Ligne(NkComposantEditeur::NK_LUMIERE, "Lumière (ponctuelle, cône, directionnelle)");
 						Ligne(NkComposantEditeur::NK_EMETTEUR, "Émetteur (effets : feu, étincelles, fumée…)");
 						// ── Animation ──
@@ -1181,6 +1206,10 @@ namespace nkentseu {
 			}
 			// 2026-10-01 : les pages Animation et Animateur (2400-2449, NkEditeurPagesAnim.h).
 			if (NkEditeurActionAnim(c, action)) {
+				return;
+			}
+			// 2026-10-02 : le MAILLAGE 2D (2450-2499, NkEditeurMaillage.h, R31).
+			if (NkEditeurActionMaillage(c, action)) {
 				return;
 			}
 			// 2026-10-01 : l'IA integree (2500-2549, Ia/NkEditeurIA.h).

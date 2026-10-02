@@ -48,6 +48,7 @@
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurContenu.h"
 #include "Editeur/NkEditeurDocuments.h"
+#include "Editeur/NkEditeurMaillage.h"
 #include "Editeur/NkEditeurModele.h"
 #include "Editeur/NkEditeurPagesAnim.h"
 
@@ -251,7 +252,8 @@ namespace nkentseu {
 			//   2200-2299  les scripts (Script/NkEditeurScriptsUi.h)
 			//   2300-2399  « Ajouter un composant > Animateur » (R33)
 			//   2400-2449  les pages Animation et Animateur (NkEditeurPagesAnim.h)
-			//   2450-...   LIBRES
+			//   2450-2499  le MAILLAGE 2D (NkEditeurMaillage.h, 2026-10-02, R31)
+			//   2550-...   LIBRES (2500-2549 : l'IA)
 			// Les pages Animation et Animateur (2026-10-01, NkEditeurPagesAnim.h) : 2400-2449.
 			NK_A_ANIM_ANIMATION = 2400, ///< Fenetre > Animation : le clip de la selection (ou un neuf)
 			NK_A_ANIM_ANIMATEUR = 2401,	///< Fenetre > Animateur : le controleur de la selection (ou un neuf)
@@ -625,7 +627,9 @@ namespace nkentseu {
 				/// L'ORDRE des cartes (le Transform reste en tete). Monter / Descendre
 				/// le changent pour toutes les entites : NKECS ne range pas les
 				/// composants d'une entite, il n'y a pas d'ordre propre a garder.
-				uint8 ordreCartes[static_cast<uint32>(NkCarteEditeur::NK_COUNT)] = {0, 1, 2, 3, 4, 5, 6, 9, 10, 11, 7, 12, 13, 8};
+				// (2026-10-02, R31) Le MAILLAGE 2D (14) juste apres la Forme 2D (11) : la
+				// meme famille (Rendu). Les places 0..3 ne bougent pas.
+				uint8 ordreCartes[static_cast<uint32>(NkCarteEditeur::NK_COUNT)] = {0, 1, 2, 3, 4, 5, 6, 9, 10, 11, 14, 7, 12, 13, 8};
 				// (2026-10-01, R33) Forme 2D et Ancrage AJOUTES vers la fin : les places
 				// 0..3 ne bougent pas (le banc e45 de Monter / Descendre les lit).
 				int32 carteMenu = -1;			   ///< la carte dont le menu « ⋮ » est ouvert
@@ -866,6 +870,11 @@ namespace nkentseu {
 				int32 aimantGenre = 0; ///< NkGenreAimant
 				// --- Les pages Animation et Animateur (2026-10-01, NkEditeurPagesAnim.h) ---
 				NkPagesAnim pagesAnim;
+				// --- Les fenetres d'edition des MAILLAGES 2D (2026-10-02, R31, NkEditeurMaillage.h) ---
+				NkPagesMaillage pagesMaillage;
+				/// Les .nkmesh2d du Contenu proposes par la carte (« Utiliser »).
+				NkVector<NkString> maillagesProposes;
+				bool maillagesFrais = false;
 		};
 
 		/// Ce qu'une fonction de dessin recoit. Rien ne s'y recalcule.

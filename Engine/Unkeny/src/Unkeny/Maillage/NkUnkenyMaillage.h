@@ -203,6 +203,11 @@ namespace nkentseu {
 		/// Les sommets qui sont a la meme place que `s` (les doubles d'une couture),
 		/// `s` compris. Rend leur nombre.
 		uint32 NkDoublesSommet2D(const NkMaillage2D &m, uint32 s, uint8 *sortie, uint32 capacite) noexcept;
+		/// L'UV et la couleur du maillage AU POINT `p` (repere du maillage) : lues dans
+		/// le triangle qui le contient, PROLONGEES depuis le plus proche s'il est dehors.
+		/// C'est ce qui garde la texture a sa place quand on deplace un sommet en
+		/// edition (« UV collees »). Faux sans triangle.
+		bool NkMaillageEchantillonner2D(const NkMaillage2D &m, const NkVec2f &p, NkVec2f &uv, uint32 &couleur) noexcept;
 
 		// =====================================================================
 		// FABRICATION

@@ -112,6 +112,7 @@ namespace nkentseu {
 					case NkCarteEditeur::NK_LUMIERE:
 					case NkCarteEditeur::NK_EMETTEUR:
 					case NkCarteEditeur::NK_FORME:
+					case NkCarteEditeur::NK_MAILLAGE: // (2026-10-02, R31)
 						return 4;
 					case NkCarteEditeur::NK_ANIMATION:
 					case NkCarteEditeur::NK_ANIMATEUR:
@@ -241,6 +242,20 @@ namespace nkentseu {
 						dl.AddCircle(P(cx - 2.f, cy - 1.5f), 4.2f, col, 1.2f);
 						dl.AddTriangleFilled(P(cx + 1.f, cy - 1.f), P(cx + 6.5f, cy + 6.f), P(cx - 4.5f, cy + 6.f), col);
 						break;
+					case NkCarteEditeur::NK_MAILLAGE: {
+						// (2026-10-02, R31) Un maillage : des triangles et leurs sommets.
+						const NkVec2 a = P(cx - 6.f, cy + 5.f), b = P(cx + 6.f, cy + 5.f), h = P(cx - 2.f, cy - 6.f), d = P(cx + 6.f, cy - 3.f);
+						dl.AddLine(a, b, col, 1.1f);
+						dl.AddLine(b, h, col, 1.1f);
+						dl.AddLine(h, a, col, 1.1f);
+						dl.AddLine(h, d, col, 1.1f);
+						dl.AddLine(d, b, col, 1.1f);
+						dl.AddCircleFilled(a, 1.7f, col);
+						dl.AddCircleFilled(b, 1.7f, col);
+						dl.AddCircleFilled(h, 1.7f, col);
+						dl.AddCircleFilled(d, 1.7f, col);
+						break;
+					}
 					case NkCarteEditeur::NK_ANCRAGE:
 						// Un coin d'ecran et le point qui s'y accroche.
 						dl.AddRect(NkRect{cx - 6.f, cy - 5.f, 12.f, 10.f}, col, 1.2f);
@@ -1749,6 +1764,70 @@ namespace nkentseu {
 				Fin(I);
 			}
 
+			/// Le MAILLAGE 2D (2026-10-02, R31, NkEditeurMaillage.h) : ses comptes, sa
+			/// texture, sa teinte et sa couche ; la physique de CHAQUE partie (le
+			/// detail est dans sa fenetre d'edition) ; « Editer le maillage », l'asset.
+			/// La case de l'en-tete le rend visible.
+			void CarteMaillage(NkInspecteur &I) {
+				NkEditeurModele &m = I.c.m;
+				NkEditeurInterface &ui = I.c.ui;
+				NkMaillage2D *ml = m.scene.Monde().Get<NkMaillage2D>(I.id);
+				if (ml == nullptr || !Entete(I, NkCarteEditeur::NK_MAILLAGE, &ml->visible)) {
+					return;
+				}
+				Info(I, "Géométrie", NkString::Format("%u sommets, %u triangles", ml->nbSommets, ml->nbTriangles).CStr());
+				const NkString nav = NkEditeurNavDeTexture(m, ml->texId);
+				Info(I, "Texture",
+					 ml->texId == 0u ? "(couleurs de sommet)" : (nav.Empty() ? m.textures.Nom(ml->texId) : NkEditeurRelatifContenu(nav.CStr()).CStr()));
+				Teinte(I, "Teinte", ml->teinte);
+				Entier(I, "Couche", ml->couche);
+				// La physique de chaque partie, en un clic (la fenetre en dit plus).
+				static const char *const kPhys[3] = {"Aucune", "Rigide", "Molle"};
+				for (uint32 k = 0; k < ml->nbParties && k < NK_MAILLAGE2D_PARTIES_MAX; ++k) {
+					int32 v = ml->parties[k].physique;
+					const NkString lib = NkString::Format("Partie « %s »", ml->parties[k].nom);
+					I.c.ctx.PushId(NkString::Format("maillage.partie.%u", k).CStr());
+					if (Choix(I, lib.CStr(), kPhys, 3, v)) {
+						NkEditeurMaillagePhysique(m, I.id, k, static_cast<NkPhysiquePartie2D>(v));
+						ml = m.scene.Monde().Get<NkMaillage2D>(I.id);
+					}
+					I.c.ctx.PopId();
+					if (ml == nullptr) {
+						Fin(I);
+						return;
+					}
+				}
+				Case(I, "Parties en contact", ml->partiesSeTouchent);
+				if (ml->source[0] != '\0') {
+					Info(I, "Asset", ml->source);
+				}
+				const bool edition = m.etat == NkEtatJeu::NK_EDITION;
+				const int32 b = Boutons(I, "Éditer le maillage…", "Enregistrer comme asset", true, edition && ml->nbTriangles > 0u);
+				if (b == 0) {
+					NkEditeurOuvrirMaillage(m, ui, I.id);
+				} else if (b == 1) {
+					NkEditeurMaillageEnregistrerAsset(m, I.id);
+					ui.maillagesFrais = false;
+					ui.contenuPerime = true;
+				}
+				if (m.scene.Monde().Has<NkSprite2D>(I.id) &&
+					Boutons(I, "Refaire depuis le contour du sprite", nullptr, edition) == 0) {
+					NkEditeurCreerMaillage(m, I.id, NkSourceMaillage::NK_SPRITE);
+				}
+				// Les .nkmesh2d du Contenu : « Utiliser » en pose un (RETENU).
+				if (!ui.maillagesFrais) {
+					NkEditeurAssetsDuContenu(m, NkAssetType::Mesh2D, ui.maillagesProposes, 20u);
+					ui.maillagesFrais = true;
+				}
+				for (uint32 k = 0; k < ui.maillagesProposes.Size() && k < 4u; ++k) {
+					const NkString nom = NkString::Format("Utiliser : %s", NkEditeurRelatifContenu(ui.maillagesProposes[k].CStr()).CStr());
+					if (Boutons(I, nom.CStr(), nullptr, edition) == 0) {
+						NkEditeurMaillageUtiliserAsset(m, I.id, ui.maillagesProposes[k].CStr());
+					}
+				}
+				Fin(I);
+			}
+
 			/// Des boutons sur la largeur de la carte (2026-10-02 : les quatre gestes
 			/// d'un script) ; rend celui clique, ou -1.
 			int32 BoutonsN(NkInspecteur &I, const char *const *noms, const bool *actifs, int32 n) {
@@ -1977,6 +2056,9 @@ namespace nkentseu {
 						break;
 					case NkCarteEditeur::NK_SCRIPTS:
 						CarteScripts(I);
+						break;
+					case NkCarteEditeur::NK_MAILLAGE:
+						CarteMaillage(I);
 						break;
 					default:
 						break;

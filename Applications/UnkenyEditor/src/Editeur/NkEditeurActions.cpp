@@ -6,10 +6,12 @@
 // =============================================================================
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurMaillage.h"
 #include "Editeur/NkEditeurPlacer.h"
 #include "Editeur/NkEditeurViseur.h"
 
 #include "NKFileSystem/NkDirectory.h"
+#include "NKMemory/NKMemory.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkPath.h"
 #include "Unkeny/Partie/NkUnkenyPartie.h"
@@ -599,6 +601,12 @@ namespace nkentseu {
 					return false;
 				}
 			}
+			// (2026-10-02, R31) Un MAILLAGE 2D visible aussi (meme vide : sa page le montre).
+			if (const NkMaillage2D *ml = w.Get<NkMaillage2D>(id)) {
+				if (ml->visible && ml->nbTriangles > 0u) {
+					return false;
+				}
+			}
 			const NkSprite2D *s = w.Get<NkSprite2D>(id);
 			return s == nullptr || !s->visible;
 		}
@@ -666,6 +674,23 @@ namespace nkentseu {
 				c.couche = f.couche;
 				c.distance = NkDistanceRenduForme2D(t, f, monde);
 				const NkVec2f d = NkDemiBoiteForme2D(f);
+				c.aire = math::NkAbs(4.f * d.x * t.echelle.x * d.y * t.echelle.y);
+				c.centre = t.position;
+				prise.Proposer(c);
+			});
+			// (2026-10-02, R31) Les MAILLAGES 2D visibles (niveau 1, par couche, comme
+			// les sprites et les formes) : pris sur leurs TRIANGLES tels qu'on les voit
+			// (en jeu, la ou la physique tient leurs parties).
+			w.Query<NkTransform2D, NkMaillage2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t, NkMaillage2D &ml) {
+				if (!ml.visible || ml.nbTriangles == 0u || exclue(id)) {
+					return;
+				}
+				CandidatPrise c;
+				c.id = id;
+				c.niveau = 1;
+				c.couche = ml.couche;
+				c.distance = NkDistanceMaillage2D(s, t, ml, monde);
+				const NkVec2f d = NkDemiBoiteMaillage2D(ml);
 				c.aire = math::NkAbs(4.f * d.x * t.echelle.x * d.y * t.echelle.y);
 				c.centre = t.position;
 				prise.Proposer(c);
@@ -786,6 +811,20 @@ namespace nkentseu {
 			}
 			float32 hw = 0.5f, hh = 0.5f;
 			const NkCollisionneur2D *col = s.Monde().Get<NkCollisionneur2D>(m.selection);
+			// (2026-10-02, R31) Un MAILLAGE 2D : la boite de ses sommets tels qu'on les
+			// voit (en jeu, ses parties ont pu s'en aller loin de l'entite).
+			if (const NkMaillage2D *ml = s.Monde().Get<NkMaillage2D>(m.selection)) {
+				if (ml->nbSommets > 0u && ml->visible) {
+					NkVec2f w[NK_MAILLAGE2D_SOMMETS_MAX];
+					NkMaillagePositionsMonde(s, *t, *ml, w);
+					mn = mx = w[0];
+					for (uint32 i = 1; i < ml->nbSommets; ++i) {
+						mn = NkVec2f(math::NkMin(mn.x, w[i].x), math::NkMin(mn.y, w[i].y));
+						mx = NkVec2f(math::NkMax(mx.x, w[i].x), math::NkMax(mx.y, w[i].y));
+					}
+					return true;
+				}
+			}
 			if (const NkRenduForme2D *f = s.Monde().Get<NkRenduForme2D>(m.selection)) {
 				// (2026-10-01) La FORME 2D : la boite de son contour dessine.
 				const NkVec2f d = NkDemiBoiteForme2D(*f);
@@ -1043,6 +1082,11 @@ namespace nkentseu {
 				fo->epaisseurContour *= g;
 				fo->arrondi *= g;
 			}
+			// (2026-10-02, R31) Le MAILLAGE 2D : ses sommets (un miroir remet ses
+			// triangles dans le sens trigonometrique).
+			if (NkMaillage2D *ml = w.Get<NkMaillage2D>(id)) {
+				NkMaillageMettreAEchelle2D(*ml, f);
+			}
 			if (NkCollisionneur2D *col = w.Get<NkCollisionneur2D>(id)) {
 				col->decalage = NkVec2f(col->decalage.x * f.x, col->decalage.y * f.y);
 				// Polygone, chaine : chaque sommet (repere du collisionneur ; sa
@@ -1180,6 +1224,16 @@ namespace nkentseu {
 				c.corpsId = 0;
 				m.scene.AjouterCorps(e, c);
 			}
+			// (2026-10-02, R31) Le maillage 2D, sans son etat de jeu (sur le tas : 6,5 Ko).
+			if (const NkMaillage2D *s = w.Get<NkMaillage2D>(src)) {
+				NkMaillage2D *c = memory::NkGetDefaultAllocator().New<NkMaillage2D>();
+				if (c != nullptr) {
+					*c = *s;
+					NkMaillageOublierPhysique(*c);
+					w.Add<NkMaillage2D>(e, *c);
+					memory::NkGetDefaultAllocator().Delete(c);
+				}
+			}
 			m.selection = e;
 			m.aSelection = true;
 			return e;
@@ -1209,6 +1263,8 @@ namespace nkentseu {
 					return "Animateur";
 				case NkComposantEditeur::NK_ANCRAGE:
 					return "Ancrage à l'écran";
+				case NkComposantEditeur::NK_MAILLAGE:
+					return "Maillage 2D";
 				default:
 					return "";
 			}
@@ -1239,6 +1295,8 @@ namespace nkentseu {
 					return w.Has<NkAnimateur2D>(id);
 				case NkComposantEditeur::NK_ANCRAGE:
 					return w.Has<NkAncrageEcran2D>(id);
+				case NkComposantEditeur::NK_MAILLAGE:
+					return w.Has<NkMaillage2D>(id);
 				default:
 					return false;
 			}
@@ -1324,6 +1382,10 @@ namespace nkentseu {
 					w.Add<NkAncrageEcran2D>(id, a);
 					return true;
 				}
+				case NkComposantEditeur::NK_MAILLAGE:
+					// (2026-10-02, R31) Depuis le sprite s'il y en a un, sinon la forme,
+					// sinon vide (NkEditeurMaillage.h) ; le menu propose aussi chacun.
+					return NkEditeurCreerMaillage(m, id, NkSourceMaillage::NK_AUTO);
 				default:
 					return false;
 			}
@@ -1398,6 +1460,20 @@ namespace nkentseu {
 				case NkComposantEditeur::NK_ANCRAGE:
 					w.Remove<NkAncrageEcran2D>(id);
 					return true;
+				case NkComposantEditeur::NK_MAILLAGE: {
+					// Ses corps de parties partent avec lui (en jeu) ; le sprite ou la
+					// forme qu'il masquait reparait.
+					if (NkMaillage2D *ml = w.Get<NkMaillage2D>(id)) {
+						NkMaillageDetruirePhysique(m.scene, *ml, true);
+					}
+					w.Remove<NkMaillage2D>(id);
+					if (NkSprite2D *s = w.Get<NkSprite2D>(id)) {
+						s->visible = true;
+					} else if (NkRenduForme2D *f = w.Get<NkRenduForme2D>(id)) {
+						f->visible = true;
+					}
+					return true;
+				}
 				default:
 					return false;
 			}
@@ -1429,6 +1505,10 @@ namespace nkentseu {
 			}
 			if (c == NkCarteEditeur::NK_ANCRAGE) {
 				sortie = NkComposantEditeur::NK_ANCRAGE;
+				return true;
+			}
+			if (c == NkCarteEditeur::NK_MAILLAGE) {
+				sortie = NkComposantEditeur::NK_MAILLAGE;
 				return true;
 			}
 			return false;
@@ -1812,6 +1892,10 @@ namespace nkentseu {
 					const NkRenduForme2D *s = w.Get<NkRenduForme2D>(id);
 					return s != nullptr && s->visible;
 				}
+				case NkCarteEditeur::NK_MAILLAGE: {
+					const NkMaillage2D *s = w.Get<NkMaillage2D>(id);
+					return s != nullptr && s->visible;
+				}
 				case NkCarteEditeur::NK_COLLISIONNEUR:
 				case NkCarteEditeur::NK_CORPS:
 				case NkCarteEditeur::NK_SOURCE: {
@@ -1849,6 +1933,9 @@ namespace nkentseu {
 					return true;
 				case NkCarteEditeur::NK_FORME:
 					w.Get<NkRenduForme2D>(id)->visible = actif;
+					return true;
+				case NkCarteEditeur::NK_MAILLAGE:
+					w.Get<NkMaillage2D>(id)->visible = actif;
 					return true;
 				default:
 					break;

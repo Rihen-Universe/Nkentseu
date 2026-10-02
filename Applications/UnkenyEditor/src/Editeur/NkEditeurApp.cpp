@@ -21,6 +21,7 @@
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurAssets.h"
 #include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurMaillage.h"
 #include "Editeur/NkEditeurTerminal.h"
 #include "Editeur/NkEditeurProjet.h"
 #include "Editeur/NkEditeurPlacer.h"
@@ -479,6 +480,13 @@ namespace nkentseu {
 				if (args[i].StartsWith("--captures-documents=")) {
 					return NkOptional<int>(NkEditeurCapturesDocuments(NkString(args[i].SubStr(21)).CStr()));
 				}
+				// (2026-10-02, R31) Le MAILLAGE 2D seul : le moteur, puis l'editeur.
+				if (args[i] == "--banc-maillage") {
+					return NkOptional<int>(unkeny::NkUnkenyLancerBancMaillage() | NkEditeurLancerBancMaillage());
+				}
+				if (args[i].StartsWith("--captures-maillage=")) {
+					return NkOptional<int>(NkEditeurCapturesMaillage(NkString(args[i].SubStr(20)).CStr()));
+				}
 				if (args[i] == "--selftest") {
 					// Le moteur d'abord (textures, sauvegarde, son, systemes), puis
 					// les ACTIONS de l'editeur : un echec d'Unkeny se lit ainsi a
@@ -516,10 +524,12 @@ namespace nkentseu {
 					const int32 assets = NkEditeurLancerBancAssets();
 					// L'IA integree (01/10, R18) : un faux serveur Ollama / OpenAI local.
 					const int32 ia = NkEditeurLancerBancIA();
+					// Le MAILLAGE 2D (02/10, R31) : le moteur, puis l'editeur, a part.
+					const int32 maillage = unkeny::NkUnkenyLancerBancMaillage() | NkEditeurLancerBancMaillage();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
 									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
 									   ecran != 0 || terminal != 0 || ue5 != 0 || formes != 0 || animation != 0 ||
-									   scripts != 0 || assets != 0 || ia != 0;
+									   scripts != 0 || assets != 0 || ia != 0 || maillage != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une
@@ -952,6 +962,10 @@ namespace nkentseu {
 			if (NkEditeurPageAnimAuClavier(c)) {
 				return;
 			}
+			// (2026-10-02, R31) La fenetre d'edition d'un maillage aussi (Suppr, P, T...).
+			if (NkEditeurPageMaillageAuClavier(c)) {
+				return;
+			}
 			// Le navigateur qui a le FOCUS prend Ctrl+C / X / V / D / A, F2, Suppr.
 			if (NkEditeurContenuAuClavier(c)) {
 				return;
@@ -1129,7 +1143,9 @@ namespace nkentseu {
 			// vue ; un prefab garde la vue (il s'edite comme une scene) et y pose son
 			// bandeau ; un Blueprint prend la place du viseur (Script/NkEditeurGraphe.h)
 			// -- et l'onglet de la scene la ramene d'un clic.
-			if (!NkEditeurDessinerPageAnim(c)) {
+			// (2026-10-02, R31) La fenetre d'edition d'un MAILLAGE 2D occupe le corps elle aussi.
+			// La page d'animation d'abord : elle entretient ses documents d'arriere-plan.
+			if (!NkEditeurDessinerPageAnim(c) && !NkEditeurDessinerPageMaillage(c)) {
 				if (NkEditeurAssetALaPlaceDeLaVue(ui)) {
 					NkEditeurDessinerAsset(c);
 				} else if (NkEditeurBlueprintDevant(ui)) {

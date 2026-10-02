@@ -884,6 +884,16 @@ namespace nkentseu {
 			return n;
 		}
 
+		bool NkMaillageEchantillonner2D(const NkMaillage2D &m, const NkVec2f &p, NkVec2f &uv, uint32 &couleur) noexcept {
+			const int32 dans = NkTriangleSous2D(m, p);
+			const int32 t = dans >= 0 ? dans : TrianglePlusProche(m, p);
+			if (t < 0) {
+				return false;
+			}
+			Interpoler(m, static_cast<uint32>(t), p, uv, couleur);
+			return true;
+		}
+
 		uint32 NkDoublesSommet2D(const NkMaillage2D &m, uint32 s, uint8 *sortie, uint32 capacite) noexcept {
 			uint32 n = 0;
 			if (s >= m.nbSommets) {
