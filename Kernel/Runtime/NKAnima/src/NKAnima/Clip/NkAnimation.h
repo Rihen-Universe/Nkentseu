@@ -206,6 +206,13 @@ namespace nkentseu {
 					return (int32)j;
 				}
 
+				/// (R30, 02/10) La part d'interpolation `a` (0..1) passee par la courbe de
+				/// la cle `m` : ce que suit toute piste ; NkAnimMix l'applique aussi aux
+				/// pistes d'os depuis le squelette 2D.
+				static float32 Ease(float32 a, NkInterpMode m) {
+					return EaseAlpha(a, m);
+				}
+
 			private:
 				NkVector<NkKeyframe<T>> mKeys;
 

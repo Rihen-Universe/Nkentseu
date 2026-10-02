@@ -13,7 +13,8 @@
 // Les consommateurs incluent soit ce fichier, soit `NKAnima/<Domaine>/<Fichier>.h`
 // — jamais un chemin de racine. C'est le grep qui le prouve.
 //
-//   Skeleton/  la structure de squelette du moteur (topologie + repos, monde)
+//   Skeleton/  la structure de squelette du moteur (topologie + repos, monde) ; le
+//              squelette 2D = ce meme squelette CONTRAINT AU PLAN (NkSkeleton2D, R30)
 //   Clip/      les clips : clés, pistes, échantillonnage, mélange, HFSM (vraie
 //              depuis le 2026-09-29 : sous-machines, any-state par niveau,
 //              déclencheurs, priorités, fichier .nkanimctl), et le
@@ -26,6 +27,7 @@
 // =============================================================================
 
 #include "NKAnima/Skeleton/NkSkeletonDef.h"
+#include "NKAnima/Skeleton/NkSkeleton2D.h" // (R30, 02/10) le squelette 2D : contraint au plan, emplacements, IK a deux os, .nkskel
 #include "NKAnima/Clip/NkAnimation.h"
 #include "NKAnima/Clip/NkClipRegistry.h"
 #include "NKAnima/Blend/NkAnimMix.h" // (01/10 soir) le melange : poses, masques, arbres, couches, NLA
