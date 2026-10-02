@@ -18,7 +18,13 @@
 //   2 Famille    maquette B : la coquille d'UnkenyEditor — logo au coin sur deux
 //                rangees, boutons bordes « Libelle : valeur », panneaux poses sur
 //                une gouttiere, selection pleine.
-//   (3 Ilots et 4 Synthese viendront sur CE mecanisme.)
+//   3 Synthese   maquette D (choix de Rihen, 01/10 : « je kiffe tout », PAR DEFAUT) :
+//                la base Ilots (panneaux arrondis detaches sur un fond), UNE barre
+//                en haut avec la barre d'outils complete de Famille (≡, Workspace,
+//                Branche, Partager, palette Ctrl K, Cible ▶, Reglages), une bande
+//                verticale (extensions en haut, fenetres d'outils en bas), les
+//                segments de vues en tete de l'ilot de gauche, la page d'accueil
+//                de A, les icones Pastilles.
 //
 // ⚠️ LA REVERSIBILITE N'EST PAS UNE PROMESSE, C'EST UNE PROPRIETE DU CALCUL.
 //    `NkApparenceCalculer` est une FONCTION PURE de (apparence, theme, accent,
@@ -38,7 +44,10 @@ namespace nkentseu {
 		static const int32 NK_APPARENCE_CLASSIQUE = 0;
 		static const int32 NK_APPARENCE_NETTOYEE = 1;
 		static const int32 NK_APPARENCE_FAMILLE = 2;
-		static const int32 NK_APPARENCE_COUNT = 3;
+		static const int32 NK_APPARENCE_SYNTHESE = 3;
+		static const int32 NK_APPARENCE_COUNT = 4;
+		/// L'apparence d'un NKCode neuf (Rihen, 01/10 : la Synthese remplace l'existant).
+		static const int32 NK_APPARENCE_DEFAUT = NK_APPARENCE_SYNTHESE;
 
 		inline const char *NkApparenceNom(int32 id) {
 			switch (id) {
@@ -46,6 +55,8 @@ namespace nkentseu {
 					return "Nettoy\xC3\xA9" "e";
 				case NK_APPARENCE_FAMILLE:
 					return "Famille";
+				case NK_APPARENCE_SYNTHESE:
+					return "Synth\xC3\xA8" "se";
 				default:
 					return "Classique";
 			}
@@ -57,6 +68,8 @@ namespace nkentseu {
 					return "Sans rang\xC3\xA9" "e d'outils, une seule barre d'activit\xC3\xA9s, trois tons";
 				case NK_APPARENCE_FAMILLE:
 					return "La coquille d'UnkenyEditor : logo au coin, boutons bord\xC3\xA9s";
+				case NK_APPARENCE_SYNTHESE:
+					return "\xC3\x8Elots, une seule barre en haut, bande d'outils \xC3\xA0 gauche";
 				default:
 					return "La disposition d'avant, corrig\xC3\xA9" "e";
 			}
@@ -102,6 +115,15 @@ namespace nkentseu {
 				int32 enteteExplorateur = 0;
 				float32 ligneArbre = 0.f; ///< hauteur d'une ligne de l'arbre (0 = celle du theme)
 				bool selectionPleine = false; ///< selection pleine (Famille) au lieu de douce + barre
+				// ── Synthese (maquette D) ──
+				bool synthese = false;		  ///< la barre « Synthese » dans la barre de titre, la bande, les segments...
+				bool ilots = false;			  ///< panneaux arrondis detaches
+				float32 ilotRayon = 0.f;	  ///< rayon des ilots (px)
+				float32 dockEcart = 0.f;	  ///< ecart entre deux ilots (0 = l'historique)
+				float32 dockMarges[4] = {0.f, 0.f, 0.f, 0.f}; ///< gauche, haut, droite, bas
+				float32 barreActiviteL = 0.f; ///< largeur de la bande de gauche (0 = 48 historiques)
+				bool titreCentre = true;	  ///< le nom du document au centre de la barre de titre
+				bool menusVisibles = false;	  ///< Synthese : la barre de menus TOUJOURS visible (variante 3)
 		};
 
 		/// TOUT ce qu'une apparence ecrit, a chaque image.
@@ -249,6 +271,64 @@ namespace nkentseu {
 			return a;
 		}
 
+		/// LA SYNTHESE (maquette D, ilots.css) : un fond, des ilots, un ton « haut »
+		/// pour ce qui se pose dessus. Les traits sont des voiles (rgba) : on les
+		/// compose ici sur l'ilot.
+		inline NkApparencePalette NkPaletteSynthese(int32 theme, const char *accent) {
+			NkApparencePalette a;
+			a.clair = NkThemeIdEstClair(theme);
+			const bool c = a.clair;
+			if (theme == 0 || theme == 3) {
+				a.gouttiere = NkHex(c ? "#E5E8ED" : "#0B0D11");
+				a.panneau = NkHex(c ? "#FFFFFF" : "#14171D");
+				a.haut = NkHex(c ? "#F1F3F6" : "#1C2027");
+				a.fg = NkHex(c ? "#1D2128" : "#E4E8EE");
+				a.fg2 = NkHex(c ? "#5A6370" : "#A0A8B3");
+				a.fg3 = NkHex(c ? "#8A929D" : "#6C7480");
+			} else {
+				const NkThemePalette p = NkThemePreset(theme);
+				a.gouttiere = p.sidebar;
+				a.panneau = p.background;
+				a.haut = p.surface;
+				a.fg = p.foreground;
+				a.fg2 = p.sidebarFg;
+				a.fg3 = p.mutedFg;
+			}
+			const NkColor voile = c ? NkColor{15, 23, 42, 255} : NkColor{255, 255, 255, 255};
+			a.cadre = a.gouttiere;
+			a.editeur = a.panneau;
+			a.saisie = a.haut;
+			a.bouton = a.panneau;
+			a.boutonBord = NkMelange(a.panneau, voile, c ? 0.09f : 0.07f);
+			a.barreOnglets = a.panneau;
+			a.barreEtat = a.gouttiere;
+			a.trait = NkMelange(a.panneau, voile, c ? 0.09f : 0.07f);
+			a.trait2 = NkMelange(a.panneau, voile, c ? 0.06f : 0.045f);
+			NkAccentTons(accent, c, a.plein, a.accent);
+			a.selection = NkMelange(a.panneau, a.plein, c ? 0.11f : 0.22f);
+			a.selectionFg = a.fg;
+			a.survol = NkMelange(a.panneau, voile, 0.05f);
+			return a;
+		}
+
+		/// Coloration « One » (maquette D, ilots.css : --s-*).
+		inline NkGuiSyntax NkSyntaxeOne(const NkGuiSyntax &base, bool clair) {
+			NkGuiSyntax s = base;
+			s.text = NkHex(clair ? "#383A42" : "#C3CAD4");
+			s.keyword = NkHex(clair ? "#A626A4" : "#C678DD");
+			s.type = NkHex(clair ? "#B07A00" : "#E5C07B");
+			s.function = NkHex(clair ? "#3A6FE0" : "#61AFEF");
+			s.string = NkHex(clair ? "#4A9A4A" : "#98C379");
+			s.number = NkHex(clair ? "#986801" : "#D19A66");
+			s.comment = NkHex(clair ? "#A0A1A7" : "#7F848E");
+			s.preproc = NkHex(clair ? "#A626A4" : "#C678DD");
+			s.constant = NkHex(clair ? "#0184BC" : "#56B6C2");
+			s.heading = s.keyword;
+			s.mdcode = s.string;
+			s.oper = s.text;
+			return s;
+		}
+
 		/// Coloration du code : celle d'avant (VS Dark+/Light+) pour Classique,
 		/// celle des maquettes (Primer) pour Nettoyee et Famille.
 		inline NkGuiSyntax NkSyntaxePrimer(const NkGuiSyntax &base, bool clair) {
@@ -272,7 +352,8 @@ namespace nkentseu {
 		/// la coquille l'a pose a l'Init, capture UNE fois (les champs qu'aucune
 		/// apparence ne decide en viennent, toujours les memes).
 		inline NkApparenceEtat NkApparenceCalculer(int32 id, int32 theme, const char *accent,
-												   const NkGuiTheme &baseGui, const NkGuiSyntax &baseSyntaxe) {
+												   const NkGuiTheme &baseGui, const NkGuiSyntax &baseSyntaxe,
+												   bool menusVisibles = false) {
 			NkApparenceEtat e;
 			if (id < 0 || id >= NK_APPARENCE_COUNT)
 				id = NK_APPARENCE_CLASSIQUE;
@@ -307,6 +388,26 @@ namespace nkentseu {
 					d.enteteExplorateur = 2;
 					d.ligneArbre = 26.f;
 					d.selectionPleine = true;
+					break;
+				case NK_APPARENCE_SYNTHESE:
+					a = NkPaletteSynthese(theme, accent);
+					d.synthese = true;
+					d.barreOutils = menusVisibles; // variante 3 : la barre Synthese descend sous les menus
+					d.activiteDroite = false;
+					d.ongletsLateraux = false;
+					d.titreH = menusVisibles ? 32.f : 50.f;
+					d.bandeH = menusVisibles ? 46.f : 0.f;
+					d.barreEtatH = 28.f;
+					d.enteteExplorateur = 3;
+					d.ligneArbre = 27.f;
+					d.ilots = true;
+					d.ilotRayon = 12.f;
+					d.dockEcart = 8.f;
+					d.dockMarges[0] = 8.f;
+					d.dockMarges[2] = 8.f;
+					d.barreActiviteL = 48.f;
+					d.titreCentre = menusVisibles;
+					d.menusVisibles = menusVisibles;
 					break;
 				default:
 					a = NkPaletteClassique(theme, accent);
@@ -393,7 +494,9 @@ namespace nkentseu {
 					s.constant = {79, 193, 255, 255};
 					s.oper = {200, 200, 200, 255};
 				}
-				e.syntaxe = (id == NK_APPARENCE_CLASSIQUE) ? s : NkSyntaxePrimer(s, clair);
+				e.syntaxe = (id == NK_APPARENCE_CLASSIQUE)  ? s
+							: (id == NK_APPARENCE_SYNTHESE) ? NkSyntaxeOne(s, clair)
+															: NkSyntaxePrimer(s, clair);
 			}
 
 			// ── 3) LA PALETTE DE NKCODE (NkCol : launcher, reglages, dialogues, barre d'outils) ──

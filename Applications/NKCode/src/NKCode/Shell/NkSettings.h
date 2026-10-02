@@ -60,9 +60,12 @@ namespace nkentseu {
 				/// qu'il porte, pas un choix -- il passe au bleu.
 				bool accentChoisi = false;
 				/// (01/10) L'APPARENCE de l'IDE (NkApparence.h) : 0 Classique (celle
-				/// d'avant, corrigee), 1 Nettoyee (maquette A), 2 Famille (maquette B).
-				/// Reversible : revenir = la rechoisir.
-				int32 apparence = 0;
+				/// d'avant, corrigee), 1 Nettoyee (A), 2 Famille (B), 3 Synthese (D,
+				/// PAR DEFAUT). Reversible : revenir = la rechoisir.
+				int32 apparence = NK_APPARENCE_DEFAUT;
+				/// (01/10) Synthese : la barre de menus TOUJOURS visible (variante 3 de
+				/// la maquette D) au lieu du menu ≡.
+				bool menusVisibles = false;
 				/// (01/10) Le JEU D'ICONES (NkJeuxIcones.h) : cle = nom du dossier
 				/// sous data/extensions/ ou %APPDATA%/NKCode/extensions/ (NkJeuxIcones.h).
 				char jeuIcones[64] = "pastilles";
@@ -132,6 +135,7 @@ namespace nkentseu {
 					kv("accent", NkString(accent));
 					ki("accentChoisi", accentChoisi);
 					ki("apparence", apparence);
+					ki("menusVisibles", menusVisibles);
 					kv("jeuIcones", NkString(jeuIcones));
 					ki("transparency", transparency);
 					ki("anim", anim);
@@ -163,7 +167,7 @@ namespace nkentseu {
 					if (jeuIcones[0] == '\0')
 						NkStrCopy(jeuIcones, sizeof(jeuIcones), "pastilles");
 					if (apparence < 0 || apparence >= NK_APPARENCE_COUNT)
-						apparence = 0;
+						apparence = NK_APPARENCE_DEFAUT;
 					// jengaPath REEL : resout le vrai binaire (jenga embarque, override JENGA_EXE, sinon PATH)
 					// au lieu du litteral "jenga". Prepare l'integration future (jenga+Python dans tools/).
 					if (jengaPath[0] == '\0' || StrEq(jengaPath, "jenga")) {
@@ -270,6 +274,8 @@ namespace nkentseu {
 									accentChoisi = iv != 0;
 								else if (is("apparence"))
 									apparence = iv;
+								else if (is("menusVisibles"))
+									menusVisibles = iv != 0;
 								else if (is("jeuIcones"))
 									cp(jeuIcones, sizeof(jeuIcones));
 								else if (is("transparency"))
@@ -314,6 +320,7 @@ namespace nkentseu {
 					NkStrCopy(accent, sizeof(accent), d.accent);
 					accentChoisi = d.accentChoisi;
 					apparence = d.apparence;
+					menusVisibles = d.menusVisibles;
 					NkStrCopy(jeuIcones, sizeof(jeuIcones), d.jeuIcones);
 					transparency = d.transparency;
 					anim = d.anim;
@@ -924,7 +931,13 @@ namespace nkentseu {
 					NkSetCombo(u, {ctrlX, y, u.s(200), u.s(30)}, A, NK_APPARENCE_COUNT, &s->apparence, 7, s, blockBg);
 					u.TextEllipsis(ctrlX + u.s(214), y + u.s(7), ctrlW - u.s(214),
 								   NkApparenceDescription(s->apparence), NkCol::mutedFg);
-					y += u.s(44);
+					y += u.s(40);
+					if (s->apparence == NK_APPARENCE_SYNTHESE) {
+						if (NkSetCheck(u, ctrlX, y, ctrlW, NkT("set.menusvisibles"), &s->menusVisibles, blockBg))
+							s->dirty = true;
+						y += u.s(30);
+					}
+					y += u.s(4);
 				}
 				// (01/10) LE JEU D'ICONES : ceux de data/icons/ et ceux installes dans
 				// %APPDATA%/NKCode/extensions/ (un dossier = une extension).

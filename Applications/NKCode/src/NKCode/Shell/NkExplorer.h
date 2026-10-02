@@ -15,6 +15,7 @@
 #include "NKCode/Shell/NkI18n.h"
 #include "NKCode/Shell/NkUi.h"		// NkIcons (registre extension -> texture)
 #include "NKCode/Shell/NkApparence.h" // (01/10) en-tete selon l'apparence
+#include "NKCode/Shell/NkSyntheseSegments.h" // (01/10) Synthese : segments de vues
 #include "NKCode/Shell/NkShell.h"	// NkCodeShellRun (révéler dans l'OS)
 #include "NKCode/Editor/NkTextDraw.h" // NkCtxMenu (menu contextuel modal scrollable)
 #include "NKContainers/String/NkFormat.h" // NkPrintf/NkFormat (outils maison, pas snprintf)
@@ -67,13 +68,21 @@ namespace nkentseu {
 					// Disposition : [titre + actions] / [barre de recherche PERMANENTE] / [arbre].
 					const NkRect vclip = ctx.DL().CurrentClip();
 					const float32 ih = ctx.ItemHeight();
-					const float32 headH = ih * 2.f; // en-tête + recherche (toujours visibles)
+					// (01/10) Synthese : segments + en-tete du workspace + filtre arrondi.
+					mSynthese = NkApparenceCourante().dispo.enteteExplorateur == 3;
+					const float32 headH = mSynthese ? SyntheseEnteteH(ctx) : ih * 2.f; // en-tête + recherche
+					if (mSynthese)
+						mFiltreR = {vclip.x + ctx.S(12.f), vclip.y + headH - ctx.S(8.f + 30.f), vclip.w - ctx.S(24.f),
+									ctx.S(30.f)};
 					// Focus de la recherche selon le clic : dans la barre -> focus ; dans l'arbre -> défocus.
 					if (ctx.input.mouseClicked[0]) {
 						const NkVec2 m = ctx.input.mousePos;
 						const bool inSearch =
-							m.x >= vclip.x && m.x < vclip.x + vclip.w && m.y >= vclip.y + ih && m.y < vclip.y + headH;
-						const bool inHead = m.y >= vclip.y && m.y < vclip.y + ih;
+							mSynthese ? NkGuiRectContains(mFiltreR, m)
+									  : (m.x >= vclip.x && m.x < vclip.x + vclip.w && m.y >= vclip.y + ih &&
+										 m.y < vclip.y + headH);
+						const bool inHead = mSynthese ? (m.y >= vclip.y && m.y < vclip.y + headH && !inSearch)
+													  : (m.y >= vclip.y && m.y < vclip.y + ih);
 						if (inSearch)
 							mFilterOn = true;
 						else if (!inHead)
@@ -82,7 +91,10 @@ namespace nkentseu {
 					ctx.NextItemRect(ctx.ContentWidth(), headH); // réserve du flux
 					DrawRows(ctx, vclip.y + headH);
 					mS->explorerFocus = mFocus; // publie le focus (l'éditeur coupe son clavier)
-					DrawHeader(ctx, vclip);
+					if (mSynthese)
+						DrawHeaderSynthese(ctx, vclip, headH);
+					else
+						DrawHeader(ctx, vclip);
 					DrawFilterBar(ctx, vclip); // barre permanente (2e ligne de l'en-tête)
 					PollExplorerMenu(ctx); // menu contextuel via le gestionnaire du shell
 					DrawConfirmDel(ctx);   // confirmation de suppression
@@ -946,21 +958,103 @@ namespace nkentseu {
 					}
 				}
 
+				// ── (01/10) SYNTHESE : segments de vues, en-tete du workspace (nom,
+				//    « workspace Jenga · N projets », 4 boutons), filtre arrondi. ──
+				float32 SyntheseEnteteH(const NkGuiContext &ctx) const {
+					return NkSegmentsHauteur(ctx) + ctx.S(50.f) + ctx.S(30.f + 8.f);
+				}
+
+				void DrawHeaderSynthese(NkGuiContext &ctx, const NkRect &clip, float32 headH) {
+					auto &dl = ctx.DL();
+					const NkApparencePalette &a = NkApparenceCourante().pal;
+					dl.AddRectFilled({clip.x, clip.y, clip.w, headH}, ctx.theme.panel); // opaque : les rows passent dessous
+					const float32 segH = NkSegmentsDessiner(ctx, clip, mShell, "Explorateur");
+					const float32 S = ctx.S(1.f);
+					const NkRect tete = {clip.x, clip.y + segH, clip.w, 50.f * S};
+					// Titre : le workspace + « workspace Jenga · N projets ».
+					const char *nom = (mS->wsIdx >= 0 && mS->wsIdx < (int32)mS->wsNames.Size())
+										  ? mS->wsNames[mS->wsIdx].CStr()
+										  : (mS->HasWorkspace() ? "Workspace" : "Aucun workspace");
+					const NkString sous =
+						mS->HasWorkspace()
+							? NkPrintf("workspace Jenga \xC2\xB7 %d projet%s", (int32)mS->projects.Size(),
+									   mS->projects.Size() > 1 ? "s" : "")
+							: NkString("ouvrez un dossier .jenga");
+					if (ctx.font && ctx.font->Valid()) {
+						const float32 lh = ctx.font->LineHeight();
+						const float32 y1 = tete.y + 8.f * S;
+						dl.AddText(ctx.font->Face(), ctx.font->TexId(), {tete.x + 16.f * S, y1 + ctx.font->Ascent()}, nom,
+								   a.fg);
+						dl.AddText(ctx.font->Face(), ctx.font->TexId(), {tete.x + 16.6f * S, y1 + ctx.font->Ascent()},
+								   nom, a.fg); // gras simule
+						dl.AddText(ctx.font->Face(), ctx.font->TexId(), {tete.x + 16.f * S, y1 + lh + ctx.font->Ascent()},
+								   sous.CStr(), a.fg3);
+					}
+					// Quatre boutons : nouveau fichier, nouveau dossier, tout replier, plus.
+					const NkVec2 m = ctx.input.mousePos;
+					const bool inClip = NkGuiRectContains(dl.CurrentClip(), m) && ctx.PointReachable(m);
+					const float32 bs = 28.f * S;
+					float32 bx = tete.x + tete.w - 8.f * S - bs;
+					const float32 by = tete.y + (tete.h - bs) * 0.5f;
+					for (int32 b = 4; b >= 1; --b, bx -= bs + 2.f * S) {
+						const NkRect r = {bx, by, bs, bs};
+						const bool hov = inClip && NkGuiRectContains(r, m);
+						if (hov)
+							dl.AddRectFilled(r, a.survol, 7.f * S);
+						const NkColor c = hov ? a.fg : a.fg2;
+						const uint32 tex = !mS->icons ? 0u
+										   : b == 1	 ? (mS->icons->newFile2 ? mS->icons->newFile2 : mS->icons->filePlus)
+										   : b == 2	 ? mS->icons->newFolder
+										   : b == 3	 ? mS->icons->collapseAll
+													 : 0u;
+						const float32 isz = 16.f * S;
+						if (tex)
+							dl.AddImage(tex, {r.x + (r.w - isz) * 0.5f, r.y + (r.h - isz) * 0.5f, isz, isz}, {0.f, 0.f},
+										{1.f, 1.f}, c);
+						else // ⋯
+							for (int32 k = -1; k <= 1; ++k)
+								dl.AddCircleFilled({r.x + r.w * 0.5f + k * 5.f * S, r.y + r.h * 0.5f}, 1.3f * S, c);
+						static const char *kBulles[5] = {"", "Nouveau fichier", "Nouveau dossier", "Tout replier",
+														 "Plus d'actions (actualiser, fichiers exclus...)"};
+						editorkit::NkTooltip(ctx, hov && ctx.popupDepth == 0, kBulles[b]);
+						if (hov && ctx.input.mouseClicked[0]) {
+							mFocus = true;
+							if (b == 1)
+								StartCreate(TargetDir(), false);
+							else if (b == 2)
+								StartCreate(TargetDir(), true);
+							else if (b == 3) {
+								mExpanded.Clear();
+								mRootOpen = true;
+								mRowsDirty = true;
+							} else if (b == 4 && mS->HasWorkspace())
+								OpenExplorerMenu({r.x, r.y + r.h}, mS->root.ToString(), true, false);
+							ctx.input.mouseClicked[0] = false;
+						}
+					}
+				}
+
 				// ── Barre de filtre FIXE (2e ligne de l'en-tête) : loupe + saisie + X. ──
 				void DrawFilterBar(NkGuiContext &ctx, const NkRect &clip) {
-					const float32 h = ctx.ItemHeight();
-					const NkRect bar = {clip.x, clip.y + h, clip.w, h};
+					const float32 h = mSynthese ? mFiltreR.h : ctx.ItemHeight();
+					const NkRect bar = mSynthese ? mFiltreR : NkRect{clip.x, clip.y + h, clip.w, h};
 					auto &dl = ctx.DL();
-					dl.AddRectFilled(bar, ctx.theme.panel); // opaque
-					dl.AddRectFilled({bar.x + 2.f, bar.y + 1.f, bar.w - 4.f, h - 2.f}, ctx.theme.bgPrimary, 2.f);
-					dl.AddRect({bar.x + 2.f, bar.y + 1.f, bar.w - 4.f, h - 2.f}, ctx.theme.border, 2.f);
-					const float32 sisz = h * 0.46f; // loupe plus fine (avant : h-6, trop grosse)
-					if (mS->icons && mS->icons->search) // (01/10) teintee : visible en theme clair
-						dl.AddImage(mS->icons->search, {bar.x + 9.f, bar.y + (h - sisz) * 0.5f, sisz, sisz}, {0.f, 0.f},
-									{1.f, 1.f}, ctx.theme.textDisabled);
+					if (mSynthese) // (01/10) champ arrondi pose sur l'ilot (maquette D)
+						dl.AddRectFilled(bar, NkApparenceCourante().pal.haut, ctx.S(8.f));
+					else {
+						dl.AddRectFilled(bar, ctx.theme.panel); // opaque
+						dl.AddRectFilled({bar.x + 2.f, bar.y + 1.f, bar.w - 4.f, h - 2.f}, ctx.theme.bgPrimary, 2.f);
+						dl.AddRect({bar.x + 2.f, bar.y + 1.f, bar.w - 4.f, h - 2.f}, ctx.theme.border, 2.f);
+					}
+					const float32 sisz = mSynthese ? ctx.S(14.f) : h * 0.46f; // loupe plus fine
+					const uint32 loupe = (mSynthese && mS->icons && mS->icons->filter) ? mS->icons->filter
+										 : mS->icons ? mS->icons->search : 0u;
+					if (loupe) // (01/10) teintee : visible en theme clair
+						dl.AddImage(loupe, {bar.x + (mSynthese ? ctx.S(10.f) : 9.f), bar.y + (h - sisz) * 0.5f, sisz, sisz},
+									{0.f, 0.f}, {1.f, 1.f}, ctx.theme.textDisabled);
 					const char *shown = mFilter[0] ? mFilter : NkT("exp.filter");
 					const NkColor col = mFilter[0] ? ctx.theme.text : ctx.theme.textDisabled;
-					float32 tx = bar.x + 9.f + sisz + 8.f;
+					float32 tx = bar.x + (mSynthese ? ctx.S(10.f) : 9.f) + sisz + 8.f;
 					if (ctx.font && ctx.font->Valid()) {
 						dl.AddText(ctx.font->Face(), ctx.font->TexId(),
 								   {tx, bar.y + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()}, shown, col);
@@ -969,13 +1063,15 @@ namespace nkentseu {
 											  bar.y + 3.f, 1.5f, h - 6.f},
 											 ctx.theme.accent);
 					}
-					// X : ferme le filtre.
+					// X : ferme le filtre (Synthese : seulement quand il y a un filtre).
 					const NkRect xr = {bar.x + bar.w - h, bar.y + 2.f, h - 4.f, h - 4.f};
 					const NkVec2 m = ctx.input.mousePos;
 					const bool xh = NkGuiRectContains(dl.CurrentClip(), m) && NkGuiRectContains(xr, m);
 					const NkColor xc = xh ? ctx.theme.text : ctx.theme.textDisabled;
-					dl.AddLine({xr.x + 4.f, xr.y + 4.f}, {xr.x + xr.w - 4.f, xr.y + xr.h - 4.f}, xc, 1.5f);
-					dl.AddLine({xr.x + 4.f, xr.y + xr.h - 4.f}, {xr.x + xr.w - 4.f, xr.y + 4.f}, xc, 1.5f);
+					if (!mSynthese || mFilter[0]) {
+						dl.AddLine({xr.x + 4.f, xr.y + 4.f}, {xr.x + xr.w - 4.f, xr.y + xr.h - 4.f}, xc, 1.5f);
+						dl.AddLine({xr.x + 4.f, xr.y + xr.h - 4.f}, {xr.x + xr.w - 4.f, xr.y + 4.f}, xc, 1.5f);
+					}
 					if (xh && ctx.input.mouseClicked[0]) { // X : efface le texte, la barre reste
 						mFilter[0] = 0;
 						mRowsDirty = true;
@@ -1012,7 +1108,9 @@ namespace nkentseu {
 				// ── L'arbre : une ligne par row (chevron + icône + nom + badge git).
 				//    `topY` = bas de l'en-tête fixe : pas d'interaction au-dessus. ──
 				void DrawRows(NkGuiContext &ctx, float32 topY) {
-					const float32 rowH = ctx.ItemHeight();
+					// (01/10) Synthese : lignes de 27 px, arrondies, sans la racine (l'en-tete
+					// porte deja le nom du workspace).
+					const float32 rowH = mSynthese ? ctx.S(27.f) : ctx.ItemHeight();
 					const float32 fullW = ctx.ContentWidth();
 					auto &dl = ctx.DL();
 					const NkVec2 m = ctx.input.mousePos;
@@ -1040,20 +1138,26 @@ namespace nkentseu {
 					}
 					for (usize i = 0; i < mRows.Size(); ++i) {
 						const Row &r = mRows[i];
-						const NkRect row = ctx.NextItemRect(fullW, rowH);
+						if (mSynthese && r.root && !r.extraRoot)
+							continue; // la racine principale : son nom est dans l'en-tete
+						const NkRect rowFlux = ctx.NextItemRect(fullW, rowH);
+						const NkRect row = mSynthese ? NkRect{rowFlux.x + ctx.S(8.f), rowFlux.y, rowFlux.w - ctx.S(16.f), rowH}
+													 : rowFlux;
 						if (row.y + rowH < clip.y || row.y > clip.y + clip.h)
 							continue; // hors vue : la place est réservée, pas de dessin
 						const bool hov = inClip && NkGuiRectContains(row, m);
 						const bool sel = !r.editNew && IsSelected(r.path);
 						const bool inEdit = r.editNew || (mEditPath.Length() > 0 && !r.editNew &&
 														  SameStr(mEditPath.CStr(), r.path.CStr()));
+						const float32 arr = mSynthese ? ctx.S(7.f) : 0.f;
 						if (sel) {
-							dl.AddRectFilled(row, ctx.theme.selection);
-							if (!NkApparenceCourante().dispo.selectionPleine) // Famille : selection pleine
+							dl.AddRectFilled(row, ctx.theme.selection, arr);
+							if (!mSynthese && !NkApparenceCourante().dispo.selectionPleine) // Famille : selection pleine
 								dl.AddRectFilled({row.x, row.y, 2.f, rowH}, ctx.theme.accent);
 						} else if (hov)
-							dl.AddRectFilled(row, ctx.theme.tabHover);
-						float32 x = row.x + 4.f + r.depth * 12.f;
+							dl.AddRectFilled(row, ctx.theme.tabHover, arr);
+						float32 x = mSynthese ? row.x + ctx.S(6.f) + (float32)(r.depth > 0 ? r.depth - 1 : 0) * ctx.S(13.f)
+											  : row.x + 4.f + r.depth * 12.f;
 						const float32 cy = row.y + rowH * 0.5f;
 						if (r.dir) { // chevron ▸/▾ au trait
 							const float32 a = 3.5f;
@@ -1823,6 +1927,8 @@ namespace nkentseu {
 				NkString mOsDropDir; ///< dossier sous la position d'un drop OS (frame courante)
 				bool mDelGroup = false; ///< la confirmation vise toute la sélection
 				bool mRowsDirty = true, mRootOpen = true;
+				bool mSynthese = false; ///< (01/10) apparence Synthese : en-tete et lignes de la maquette D
+				NkRect mFiltreR{};	   ///< (01/10) le champ de filtre arrondi (Synthese)
 				bool mFilterOn = false, mShowExcluded = false, mFocus = false;
 				char mFilter[64] = {};
 				uint32 mTick = 0;

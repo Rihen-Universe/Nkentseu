@@ -11,6 +11,7 @@
 #include "NKCode/Shell/NkHome.h"
 #include "NKCode/Shell/NkApparence.h"
 #include "NKCode/Shell/NkAppIcons.h" // NkAppliquerJeuIcones (bascule a chaud)
+#include "NKCode/Shell/NkSynthese.h"  // (01/10) l'apparence Synthese (maquette D)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -367,6 +368,10 @@ inline void DrawHelpModal(NkEditorFrameContext &ec, nkcode::NkCodeDialogs *d) {
 }
 
 inline void OverlayThunk(NkEditorFrameContext &ec, void *u) {
+	// (01/10) Synthese : les coins des ilots, puis les deroulants de la barre unique
+	// (au-dessus des ilots, sous les dialogues).
+	nkcode::NkSyntheseCoins(ec.Ui());
+	nkcode::NkSyntheseDeroulants(ec);
 	auto *d = static_cast<nkcode::NkCodeDialogs *>(u);
 	// Modales AVANT DrawOverlay : le picker (ouvert par un champ des
 	// settings/du wizard) doit se dessiner AU-DESSUS de la modale.
@@ -486,7 +491,7 @@ inline void NkAppliquerApparence(NkEditorFrameContext &ec, NkHomeState *home) {
 	}
 	NkSettingsState &S = home->settings;
 	NkApparenceEtat &e = NkApparenceCourante();
-	e = NkApparenceCalculer(S.apparence, S.theme, S.accent, NkThemeDeBase(), NkSyntaxeDeBase());
+	e = NkApparenceCalculer(S.apparence, S.theme, S.accent, NkThemeDeBase(), NkSyntaxeDeBase(), S.menusVisibles);
 	NkAppliquerPaletteNkCol(e.col);
 	editorkit::NkEditorShell *sh = home->dlg ? home->dlg->shell : nullptr;
 	NkCodeState *st = home->dlg ? home->dlg->st : nullptr;
@@ -498,15 +503,26 @@ inline void NkAppliquerApparence(NkEditorFrameContext &ec, NkHomeState *home) {
 		sh->SetSideTabsVisible(e.dispo.ongletsLateraux);
 		sh->SetHeaderLayout(e.dispo.titreH, e.dispo.bandeH, e.dispo.logoCoin);
 		sh->SetStatusBarHeight(e.dispo.barreEtatH);
+		// Synthese : ilots (ecart, marges, fond), bande de l'application, barre d'etat
+		// de l'application, titre centre rendu a la barre d'outils.
+		sh->SetActivityBarLargeur(e.dispo.barreActiviteL);
+		sh->SetDockMarges(e.dispo.dockMarges[0], e.dispo.dockMarges[1], e.dispo.dockMarges[2],
+						  e.dispo.dockMarges[3]);
+		sh->SetFondFenetre(e.dispo.ilots ? e.pal.gouttiere : NkColor{0, 0, 0, 0});
+		sh->SetTitreCentreVisible(e.dispo.titreCentre);
 		// La rangee d'outils : demandee par l'apparence ET un workspace ouvert --
 		// sans workspace elle ne disait que « Aucun workspace... », une ligne
 		// perdue sous les menus (maquette A).
 		const bool barre = e.dispo.barreOutils && st && st->HasWorkspace();
 		NkBarreOutilsVisible() = barre;
 		sh->SetToolbar(barre ? &ToolbarThunk : nullptr, st);
+		NkSyntheseBranchements(sh, home, e); // apres : la variante 3 reprend la rangee d'outils
 	}
 	ctx.theme = e.gui;
 	ctx.syntax = e.syntaxe;
+	ctx.dockGap = e.dispo.dockEcart > 0.f ? e.dispo.dockEcart : 4.f;
+	ctx.dockFond = e.dispo.ilots ? e.pal.gouttiere : NkColor{0, 0, 0, 0};
+	ctx.dockSeparateurVisible = !e.dispo.ilots;
 	// Le jeu d'icones (sa variante suit le theme) : no-op s'il n'a pas change.
 	NkAppliquerJeuIcones(S.jeuIcones, e.pal.clair);
 }

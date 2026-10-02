@@ -13,6 +13,7 @@
 #include "NKCode/Shell/NkHome.h"
 #include "NKCode/Shell/NkAppData.h" // NkCodeData : data/ quel que soit le dossier de lancement
 #include "NKCode/Shell/NkJeuxIcones.h" // (01/10) jeux d'icones installables : chaine de recherche
+#include "NKCode/Shell/NkSyntheseSegments.h" // (01/10) icones des segments de vues
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {
@@ -61,6 +62,14 @@ namespace nkentseu {
 			// 100 Claude (vrai logo), 101 Codex, 102 Assistant (Maison), 103 NkAI (etincelle)
 			const uint32 R[4] = {t.claude, t.codeC, t.accueil, t.sparkles};
 			shell->SetActivityIcons(L, 7, t.gear, R, 4);
+			// Les segments de vues de la Synthese : memes icones que les vues.
+			uint32 *seg = NkSegmentsIcones();
+			seg[0] = t.files;
+			seg[1] = t.search;
+			seg[2] = t.sourceControl;
+			seg[3] = t.jenga;
+			seg[4] = t.puzzle;
+			seg[5] = t.liveShare;
 		}
 
 		inline void NkChargerJeuIcones(editorkit::NkEditorShell *shell, NkHomeState &home, NkCodeState &st,

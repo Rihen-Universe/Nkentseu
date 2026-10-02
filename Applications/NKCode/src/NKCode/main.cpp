@@ -395,7 +395,8 @@ int nkmain(const NkEntryState &state) {
 	g_menuBar.upd = &g_update; // menu Aide > Rechercher les mises a jour (Phase 13)
 	g_menuBar.jup = &g_jenga_update; // menu Aide > Mettre a jour Jenga (1 Mo, sans reinstallation)
 	// (g_menuBar.exePath est pose plus bas, avec le chemin COMPLET de l'exe.)
-	shell->SetMenuBar(&nkcode::MainMenuBarThunk, &g_menuBar);
+	// (01/10) la barre de menus de NKCode, toutes apparences (Synthese : la barre unique)
+	shell->SetMenuBar(&nkcode::NkCodeMenuBarThunk, &g_menuBar);
 	shell->SetOverlay(&nkcode::OverlayThunk, &g_dialogs);	// dialogues modaux (creation/enregistrement)
 
 	// ── Ecran d'accueil (Home) : nouvelle UI + logos/icones rasterises en texture ──
