@@ -174,6 +174,11 @@ namespace nkentseu {
 	struct NkTrack {
 			NkTrackType type = NkTrackType::Animation;
 			NkEntityId entity = NkEntityId::Invalid();
+			/// (2026-10-02, format v2) Le NOM de l'entite visee dans la scene (NkName).
+			/// L'identifiant `entity` ne survit pas a un rechargement de la scene (les
+			/// generations changent) : c'est le nom qui RELIE la piste a son entite
+			/// (NkSequence::BindByName). Vide = la piste ne se relie que par `entity`.
+			NkString entityName;
 			NkString name;
 			bool muted = false;
 			bool locked = false;
@@ -223,6 +228,9 @@ namespace nkentseu {
 
 	struct NkCameraShot {
 			NkEntityId cameraEntity = NkEntityId::Invalid();
+			/// (2026-10-02, format v2) Le nom de la camera dans la scene (voir
+			/// NkTrack::entityName) : c'est lui qui relie le plan apres un rechargement.
+			NkString cameraName;
 			float32 startTime = 0.f;
 			float32 duration = 0.f;
 			NkCutType cutType = NkCutType::Cut;
@@ -292,6 +300,7 @@ namespace nkentseu {
 
 	struct NkNLATrack {
 			NkEntityId entity = NkEntityId::Invalid();
+			NkString entityName; ///< (format v2) voir NkTrack::entityName
 			NkString name;
 			NkVector<NkNLAClip> clips;
 			bool muted = false;
@@ -378,6 +387,10 @@ namespace nkentseu {
 	class NkSequence {
 		public:
 			NkString name;
+			/// (2026-10-02, format v2) LA SCENE que la sequence anime : le chemin du
+			/// `.nkscene3d` (CONVENTIONS_FICHIERS.md §6 : « la sequence `.nkseq`
+			/// pointe vers une scene `.nkscene3d` »). Vide = aucune scene nommee.
+			NkString scene;
 			float32 fps = 24.f;
 			float32 duration = 0.f; ///< Durée totale en secondes
 
@@ -436,6 +449,21 @@ namespace nkentseu {
 			 */
 			void RecalcDuration() noexcept;
 
+			/**
+			 * @brief (2026-10-02) RELIE les pistes et les plans a leurs entites PAR
+			 * LEUR NOM (NkName), dans `world`.
+			 *
+			 * Une sequence relue (`LoadFromFile`) porte des identifiants d'entites
+			 * qui ne valent plus rien des que la scene a ete rechargee : la scene
+			 * recree ses entites, leurs generations changent. Le nom, lui, est
+			 * celui que la scene ecrit. Une piste sans nom garde son identifiant.
+			 *
+			 * @return le nombre de cibles NOMMEES qui n'ont PAS ete trouvees (0 =
+			 *         tout est relie). Une cible introuvable devient Invalid : elle
+			 *         n'anime rien plutot que d'animer une autre entite.
+			 */
+			uint32 BindByName(NkWorld &world) noexcept;
+
 			// ── Sérialisation ────────────────────────────────────────────────
 			// Format `.nkseq` : binaire, séquentiel, versionné. En-tête de 24
 			// octets (magie "NKSQ", version, taille du corps, empreinte FNV-1a du
@@ -451,6 +479,10 @@ namespace nkentseu {
 			// l'en-tête, la taille protège la troncature, mais **seule l'empreinte
 			// voit un octet abîmé au milieu** — sans elle il donnerait une clé
 			// décalée et la séquence serait lue « avec succès ».
+			//
+			// (2026-10-02) VERSION 2 : la scene visee (`scene`) et les NOMS des
+			// cibles (`entityName`, `cameraName`) entrent dans le format ; la
+			// version 1 reste LUE pour toujours (scene et noms vides).
 			//
 			// N'écrit PAS les drapeaux `selected` : c'est un état d'interface, pas
 			// du contenu. L'aller-retour reste identique octet à octet, puisque

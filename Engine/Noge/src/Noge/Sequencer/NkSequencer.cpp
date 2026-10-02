@@ -28,6 +28,7 @@
 // =============================================================================
 #include "Noge/Sequencer/NkSequencer.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
+#include "Noge/ECS/Components/Core/NkTag.h" // NkName : BindByName relie les pistes par le nom
 #include "NKFileSystem/NkFile.h" // SaveToFile / LoadFromFile : octets bruts, jamais du texte
 // La piste `Animation` a besoin du registre ET du lecteur de NKAnima. Ils sont
 // inclus ICI et pas dans l'en-tete : celui-ci n'en declare que le nom.
@@ -435,12 +436,39 @@ namespace nkentseu {
 		if (tr == nullptr)
 			return;
 
+		// (2026-10-02) LA ROTATION, en angles d'Euler EN DEGRES : `localRotation.x`
+		// (tangage), `.y` (lacet), `.z` (roulis) -- les trois que montrent les
+		// Details de la famille. Elles se composent EN UNE FOIS, apres les autres
+		// canaux : un quaternion ne se modifie pas composante par composante.
+		// Une composante sans canal garde la valeur de la pose presente.
+		bool tourne = false;
+		float32 euler[3] = {0.f, 0.f, 0.f};
+		bool eulerPose[3] = {false, false, false};
 		const uint32 n = (uint32)channels.Size();
 		for (uint32 i = 0; i < n; ++i) {
 			const NkAnimChannel &ch = channels[i];
 			if (ch.muted || ch.keyframes.Empty())
 				continue;
+			const char *p = ch.propertyName;
+			const int32 axe = SeqStrEq(p, "localRotation.x") ? 0 : SeqStrEq(p, "localRotation.y") ? 1 : SeqStrEq(p, "localRotation.z") ? 2 : -1;
+			if (axe >= 0) {
+				euler[axe] = ch.Evaluate(time);
+				eulerPose[axe] = true;
+				tourne = true;
+				continue;
+			}
 			SeqApplyToTransform(ch, ch.Evaluate(time), *tr);
+		}
+		if (tourne) {
+			if (!eulerPose[0] || !eulerPose[1] || !eulerPose[2]) {
+				const math::NkEulerAngle actuel = static_cast<math::NkEulerAngle>(tr->localRotation);
+				euler[0] = eulerPose[0] ? euler[0] : actuel.pitch.Deg();
+				euler[1] = eulerPose[1] ? euler[1] : actuel.yaw.Deg();
+				euler[2] = eulerPose[2] ? euler[2] : actuel.roll.Deg();
+			}
+			tr->localRotation =
+				NkQuatf(math::NkEulerAngle(math::NkAngle(euler[0]), math::NkAngle(euler[1]), math::NkAngle(euler[2])));
+			tr->worldDirty = true;
 		}
 	}
 
@@ -654,6 +682,39 @@ namespace nkentseu {
 		duration = d;
 	}
 
+	uint32 NkSequence::BindByName(NkWorld &world) noexcept {
+		// Le nom -> l'entite, UNE requete par cible (les sequences ont quelques
+		// pistes ; une table serait plus longue a ecrire qu'a parcourir).
+		auto Trouver = [&](const NkString &nom) {
+			NkEntityId r = NkEntityId::Invalid();
+			world.Query<const ecs::NkName>().ForEach([&](NkEntityId id, const ecs::NkName &n) {
+				if (!r.IsValid() && SeqStrEq(n.value, nom.CStr()))
+					r = id;
+			});
+			return r;
+		};
+		uint32 perdues = 0;
+		for (uint32 i = 0; i < (uint32)tracks.Size(); ++i) {
+			if (tracks[i].entityName.Empty())
+				continue;
+			tracks[i].entity = Trouver(tracks[i].entityName);
+			perdues += tracks[i].entity.IsValid() ? 0u : 1u;
+		}
+		for (uint32 i = 0; i < (uint32)nlaTracks.Size(); ++i) {
+			if (nlaTracks[i].entityName.Empty())
+				continue;
+			nlaTracks[i].entity = Trouver(nlaTracks[i].entityName);
+			perdues += nlaTracks[i].entity.IsValid() ? 0u : 1u;
+		}
+		for (uint32 i = 0; i < (uint32)cameraTrack.shots.Size(); ++i) {
+			if (cameraTrack.shots[i].cameraName.Empty())
+				continue;
+			cameraTrack.shots[i].cameraEntity = Trouver(cameraTrack.shots[i].cameraName);
+			perdues += cameraTrack.shots[i].cameraEntity.IsValid() ? 0u : 1u;
+		}
+		return perdues;
+	}
+
 	// =========================================================================
 	// SÉRIALISATION — le format .nkseq
 	// =========================================================================
@@ -690,7 +751,11 @@ namespace nkentseu {
 	namespace {
 
 		constexpr uint32 kSeqMagie = 0x5153934Eu; // "NKSQ" en little-endian
-		constexpr uint32 kSeqVersion = 1u;
+		// (2026-10-02) Version 2 : la scene visee et les noms des cibles. La
+		// version 1 reste LUE (kSeqVersionMin) : « les anciennes se lisent pour
+		// toujours » (CONVENTIONS_FICHIERS.md §6).
+		constexpr uint32 kSeqVersion = 2u;
+		constexpr uint32 kSeqVersionMin = 1u;
 		constexpr uint32 kSeqEnTete = 24u;
 
 		// Le refus doit être NOMMÉ : un `false` nu oblige l'appelant à deviner, et
@@ -941,6 +1006,7 @@ namespace nkentseu {
 
 		SeqEcrivain w;
 		w.Str(name);
+		w.Str(scene); // v2
 		w.F32(fps);
 		w.F32(duration);
 		SeqEcrisSortie(w, renderOutput);
@@ -950,6 +1016,7 @@ namespace nkentseu {
 			const NkTrack &tr = tracks[t];
 			w.U8((uint8)tr.type);
 			w.U64(tr.entity.Pack());
+			w.Str(tr.entityName); // v2
 			w.Str(tr.name);
 			w.U8(tr.muted ? 1u : 0u);
 			w.U8(tr.locked ? 1u : 0u);
@@ -966,6 +1033,7 @@ namespace nkentseu {
 		for (uint32 t = 0; t < (uint32)nlaTracks.Size(); ++t) {
 			const NkNLATrack &nt = nlaTracks[t];
 			w.U64(nt.entity.Pack());
+			w.Str(nt.entityName); // v2
 			w.Str(nt.name);
 			w.U8(nt.muted ? 1u : 0u);
 			w.U8(nt.locked ? 1u : 0u);
@@ -993,6 +1061,7 @@ namespace nkentseu {
 		for (uint32 s = 0; s < (uint32)cameraTrack.shots.Size(); ++s) {
 			const NkCameraShot &sh = cameraTrack.shots[s];
 			w.U64(sh.cameraEntity.Pack());
+			w.Str(sh.cameraName); // v2
 			w.F32(sh.startTime);
 			w.F32(sh.duration);
 			w.U8((uint8)sh.cutType);
@@ -1051,7 +1120,7 @@ namespace nkentseu {
 			return false;
 		}
 		const uint32 ver = hr.U32();
-		if (ver != kSeqVersion) {
+		if (ver < kSeqVersionMin || ver > kSeqVersion) {
 			gRefus = "version de format inconnue";
 			return false;
 		}
@@ -1077,8 +1146,11 @@ namespace nkentseu {
 		r.p = d.Data() + kSeqEnTete;
 		r.n = (usize)taille;
 
+		const bool v2 = ver >= 2u;
 		NkSequence tmp;
 		tmp.name = r.Str();
+		if (v2)
+			tmp.scene = r.Str();
 		tmp.fps = r.F32();
 		tmp.duration = r.F32();
 		SeqLisSortie(r, tmp.renderOutput);
@@ -1088,6 +1160,8 @@ namespace nkentseu {
 			NkTrack tr;
 			tr.type = (NkTrackType)r.U8();
 			tr.entity = NkEntityId::Unpack(r.U64());
+			if (v2)
+				tr.entityName = r.Str();
 			tr.name = r.Str();
 			tr.muted = (r.U8() != 0u);
 			tr.locked = (r.U8() != 0u);
@@ -1114,6 +1188,8 @@ namespace nkentseu {
 		for (uint32 t = 0; t < nn && r.ok; ++t) {
 			NkNLATrack nt2;
 			nt2.entity = NkEntityId::Unpack(r.U64());
+			if (v2)
+				nt2.entityName = r.Str();
 			nt2.name = r.Str();
 			nt2.muted = (r.U8() != 0u);
 			nt2.locked = (r.U8() != 0u);
@@ -1145,6 +1221,8 @@ namespace nkentseu {
 		for (uint32 s = 0; s < ns && r.ok; ++s) {
 			NkCameraShot sh;
 			sh.cameraEntity = NkEntityId::Unpack(r.U64());
+			if (v2)
+				sh.cameraName = r.Str();
 			sh.startTime = r.F32();
 			sh.duration = r.F32();
 			sh.cutType = (NkCutType)r.U8();
@@ -1180,6 +1258,7 @@ namespace nkentseu {
 		}
 
 		name = static_cast<NkString &&>(tmp.name);
+		scene = static_cast<NkString &&>(tmp.scene);
 		fps = tmp.fps;
 		duration = tmp.duration;
 		renderOutput = static_cast<NkRenderOutput &&>(tmp.renderOutput);
