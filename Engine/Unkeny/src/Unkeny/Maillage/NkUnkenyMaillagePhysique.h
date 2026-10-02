@@ -46,6 +46,7 @@
 #ifndef __NKENTSEU_UNKENY_NKUNKENYMAILLAGEPHYSIQUE_H__
 #define __NKENTSEU_UNKENY_NKUNKENYMAILLAGEPHYSIQUE_H__
 
+#include "NKECS/NkECSDefines.h"
 #include "Unkeny/Maillage/NkUnkenyMaillage.h"
 
 namespace nkentseu {
@@ -71,12 +72,16 @@ namespace nkentseu {
 		void NkMaillageOublierPhysique(NkMaillage2D &m) noexcept;
 
 		/// Les positions MONDE des sommets, telles qu'on les dessine : en jeu, celles
-		/// de la physique des parties ; sinon le transform. Rend leur nombre.
-		uint32 NkMaillagePositionsMonde(const NkScene &scene, const NkTransform2D &t, const NkMaillage2D &m,
+		/// de la physique des parties ; sinon le transform, apres la PEAU du
+		/// squelette 2D de `e` s'il en a un (R30, Squelette/NkUnkenySquelette.h :
+		/// un sommet pondere suit ses os). LE point de branchement : le rendu, la
+		/// prise au clic, la boite de selection et la fenetre d'edition passent par
+		/// lui. Rend leur nombre.
+		uint32 NkMaillagePositionsMonde(const NkScene &scene, ecs::NkEntityId e, const NkTransform2D &t, const NkMaillage2D &m,
 										NkVec2f *sortie) noexcept;
 		/// Distance SIGNEE d'un point du monde au maillage tel qu'il est dessine
 		/// (negative dedans) : la prise au clic de l'editeur.
-		float32 NkDistanceMaillage2D(const NkScene &scene, const NkTransform2D &t, const NkMaillage2D &m,
+		float32 NkDistanceMaillage2D(const NkScene &scene, ecs::NkEntityId e, const NkTransform2D &t, const NkMaillage2D &m,
 									 const NkVec2f &p) noexcept;
 		/// La partie `k` est-elle EN JEU (son corps existe) ?
 		bool NkPartieEnJeu2D(const NkScene &scene, const NkMaillage2D &m, uint32 k) noexcept;

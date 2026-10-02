@@ -227,7 +227,9 @@ namespace nkentseu {
 					const int32 scripts = unkeny::NkUnkenyLancerBancScripts();
 					// (2026-10-02, R31) Le maillage 2D : le joueur le dessine et le simule.
 					const int32 maillage = unkeny::NkUnkenyLancerBancMaillage();
-					return NkOptional<int>(livraison == 0 && entrees == 0 && ecran == 0 && scripts == 0 && maillage == 0 ? 0 : 1);
+					// (2026-10-02, R30) Le squelette 2D : le joueur joue les os et la peau.
+					const int32 squelette = unkeny::NkUnkenyLancerBancSquelette();
+					return NkOptional<int>(livraison == 0 && entrees == 0 && ecran == 0 && scripts == 0 && maillage == 0 && squelette == 0 ? 0 : 1);
 				}
 			}
 			if (verifier) {

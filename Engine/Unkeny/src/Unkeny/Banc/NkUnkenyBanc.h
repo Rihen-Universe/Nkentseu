@@ -44,5 +44,10 @@ namespace nkentseu {
 		/// (sprite, forme, densite), dessin, fichier et prefab, parties, physique par
 		/// partie et liens. Lance a part par l'editeur et Physic2D. 0 = tout tient.
 		int32 NkUnkenyLancerBancMaillage();
+		/// Le SQUELETTE 2D (2026-10-02, R30, NkUnkenyBancSquelette.cpp) : la peau (un
+		/// sommet 50/50 suit la moyenne), le .nkskel et la scene, un clip d'os joue
+		/// (clip, animateur), les emplacements, la chaine molle qui suit, l'IK en jeu,
+		/// les auto-poids, Arreter. Lance par l'editeur, Physic2D et le joueur.
+		int32 NkUnkenyLancerBancSquelette();
 	} // namespace unkeny
 } // namespace nkentseu

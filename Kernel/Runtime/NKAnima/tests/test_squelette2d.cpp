@@ -219,6 +219,16 @@ TEST_CASE(NKAnima, SQUELETTE2D_s4_MelangeDeDeuxClipsDOs) {
 	anim::NkBlendPose(rm, pb, 1.f, &poids);
 	ASSERT_TRUE(Pres(anim::NkBone2DFromTRS(rm.bones[0]).angle, 0.f));
 	ASSERT_TRUE(Pres(anim::NkBone2DFromTRS(rm.bones[1]).angle, 1.f));
+	// Un os SANS CLE d'un clip local reste a son repos (pas l'identite) : le
+	// clip c (prepare sans cle de repos) ne cle que l'os 0 ; l'avant-bras garde x = 1.
+	{
+		anim::NkAnimationClip seul;
+		s.PrepareClip(seul, false);
+		anim::NkAddBoneKey2D(seul, 0, 0.f, anim::NkBone2D{});
+		anim::NkAnimPose ps;
+		anim::NkSampleClip(seul, 0.f, ps);
+		ASSERT_TRUE(Pres(anim::NkBone2DFromTRS(ps.bones[1]).x, 1.f) && Pres(anim::NkBone2DFromTRS(ps.bones[2]).x, 1.f));
+	}
 	// La COURBE d'une cle d'os : « entree » (a^2) a mi-chemin -> 25 %.
 	anim::NkAnimationClip c;
 	s.PrepareClip(c, false);

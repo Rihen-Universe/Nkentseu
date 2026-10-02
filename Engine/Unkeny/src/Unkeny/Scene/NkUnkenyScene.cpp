@@ -17,6 +17,7 @@
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
 #include "Unkeny/Maillage/NkUnkenyMaillage.h"
 #include "Unkeny/Maillage/NkUnkenyMaillagePhysique.h"
+#include "Unkeny/Squelette/NkUnkenySquelette.h"
 #include "Unkeny/Scene/NkUnkenyFormes.h"
 #include "Unkeny/Scene/NkUnkenyPrefab.h"
 #include "Unkeny/Script/NkUnkenyScript.h"
@@ -308,6 +309,14 @@ namespace nkentseu {
 				const NkChampSauve *champs = NkChampsMaillage2D(n);
 				PhotographierAussi<NkMaillage2D>("NkMaillage2D", champs, n);
 			}
+			// Le SQUELETTE 2D (2026-10-02, R30, Squelette/NkUnkenySquelette.h) : APRES le
+			// maillage, meme raison. Os (repos et pose), emplacements, chaines molles,
+			// IK, champ par champ ; le corps de ses chaines n'y est pas (transitoire).
+			{
+				uint32 n = 0;
+				const NkChampSauve *champs = NkChampsSquelette2D(n);
+				PhotographierAussi<NkSquelette2D>("NkSquelette2D", champs, n);
+			}
 			mCorpsLibres.Clear();
 			// Les calques de collision repartent de « tout touche tout ».
 			mCalques = NkCalquesCollision2D();
@@ -443,6 +452,10 @@ namespace nkentseu {
 			// ancre, matiere des parties molles).
 			if (NkMaillage2D *ml = mMonde.Get<NkMaillage2D>(id)) {
 				NkMaillageDetruirePhysique(*this, *ml, true);
+			}
+			// (R30) Et les chaines molles de son squelette.
+			if (NkSquelette2D *sq = mMonde.Get<NkSquelette2D>(id)) {
+				NkSqueletteDetruirePhysique(*this, *sq);
 			}
 			// Les enfants restent, a leur place : un lien vers une entite morte se
 			// lirait « racine » quand meme (NkHierarchy.h), mais leur NkLocal2D
@@ -695,6 +708,9 @@ namespace nkentseu {
 					if (mPhysique != nullptr) {
 						// Les ressorts des liens elastiques entre parties, les ancres.
 						NkMaillagesAvantPasFixe(*this, mConfig.pasFixe);
+						// (R30) Les CHAINES MOLLES des squelettes : elles naissent, leur
+						// maillon de tete suit l'os qui les tient.
+						NkSquelettesAvantPasFixe(*this, mConfig.pasFixe);
 						// Les particules AVANT les rigides : leurs impulses sont
 						// integrees par le solveur rigide dans le meme pas
 						// (NkParticules2D.h).
@@ -739,6 +755,9 @@ namespace nkentseu {
 			// (2026-10-01 soir) Le MELANGE des animateurs (fondus, arbres, couches)
 			// apres les clips de proprietes : la pose melangee a le dernier mot.
 			NkMelangerAnimateurs(*this, deltaTime);
+			// (R30) Apres TOUTE animation : les IK en jeu, puis les chaines molles
+			// reecrivent la pose de leurs os (le mouvement secondaire a le dernier mot).
+			NkSquelettesApresAnimation(*this, deltaTime);
 			// Les particules VISUELLES apres la synchro : elles naissent la ou le
 			// corps est a cette trame. Une scene sans emetteur n'y paie qu'un test.
 			mEffets.Avancer(*this, deltaTime);
@@ -1157,6 +1176,10 @@ namespace nkentseu {
 				if (NkMaillage2D *ml = mMonde.Get<NkMaillage2D>(ids[i])) {
 					NkMaillageDetruirePhysique(*this, *ml, false);
 				}
+				// (R30) Les chaines : leur matiere part avec le monde de particules.
+				if (NkSquelette2D *sq = mMonde.Get<NkSquelette2D>(ids[i])) {
+					NkSqueletteOublierPhysique(*sq);
+				}
 				mMonde.Destroy(ids[i]);
 			}
 			mCorpsLibres.Clear();
@@ -1321,6 +1344,10 @@ namespace nkentseu {
 			for (uint32 i = 0; i < faites.Size(); ++i) {
 				if (NkMaillage2D *ml = mMonde.Get<NkMaillage2D>(faites[i])) {
 					NkMaillageOublierPhysique(*ml);
+				}
+				// (R30) Idem pour les chaines molles d'un squelette.
+				if (NkSquelette2D *sq = mMonde.Get<NkSquelette2D>(faites[i])) {
+					NkSqueletteOublierPhysique(*sq);
 				}
 			}
 			if (crees != nullptr) {

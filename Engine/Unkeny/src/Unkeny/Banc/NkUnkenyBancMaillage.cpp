@@ -180,7 +180,7 @@ namespace nkentseu {
 			/// Les sommets MONDE de la partie `k` : leur y minimal et maximal.
 			void BornesPartie(const NkScene &s, const NkTransform2D &t, const NkMaillage2D &m, uint32 k, float32 &ymin, float32 &ymax) {
 				NkVec2f w[NK_MAILLAGE2D_SOMMETS_MAX];
-				NkMaillagePositionsMonde(s, t, m, w);
+				NkMaillagePositionsMonde(s, ecs::NkEntityId(), t, m, w);
 				ymin = 1.0e9f;
 				ymax = -1.0e9f;
 				for (uint32 i = 0; i < m.nbSommets; ++i) {
@@ -538,7 +538,7 @@ namespace nkentseu {
 					float32 a = 0.f;
 					(*s).PoseCorps(m.parties[1].corps, p, a);
 					NkVec2f w[NK_MAILLAGE2D_SOMMETS_MAX];
-					NkMaillagePositionsMonde(*s, t, m, w);
+					NkMaillagePositionsMonde(*s, ecs::NkEntityId(), t, m, w);
 					float32 ecart = 0.f;
 					for (uint32 i = 0; i < m.nbSommets; ++i) {
 						if (m.partieSommet[i] != 1u) {
@@ -616,7 +616,7 @@ namespace nkentseu {
 					const int32 ci = pw != nullptr ? pw->IndexCorps(m.parties[1].corps) : -1;
 					bool fini = true, memes = ci >= 0;
 					NkVec2f w[NK_MAILLAGE2D_SOMMETS_MAX];
-					NkMaillagePositionsMonde(*s, t, m, w);
+					NkMaillagePositionsMonde(*s, ecs::NkEntityId(), t, m, w);
 					uint32 r = 0;
 					for (uint32 i = 0; i < m.nbSommets; ++i) {
 						fini = fini && w[i].x == w[i].x && w[i].y == w[i].y;

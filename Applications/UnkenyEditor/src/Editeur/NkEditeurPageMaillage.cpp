@@ -129,7 +129,7 @@ namespace nkentseu {
 					return;
 				}
 				NkVec2f w[NK_MAILLAGE2D_SOMMETS_MAX];
-				NkMaillagePositionsMonde(m.scene, *t, ml, w);
+				NkMaillagePositionsMonde(m.scene, e, *t, ml, w);
 				const float32 c = math::NkCos(-t->rotation), s = math::NkSin(-t->rotation);
 				for (uint32 i = 0; i < ml.nbSommets; ++i) {
 					const float32 x = w[i].x - t->position.x, y = w[i].y - t->position.y;

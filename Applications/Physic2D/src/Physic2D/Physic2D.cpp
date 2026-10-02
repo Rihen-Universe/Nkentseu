@@ -82,7 +82,9 @@ namespace nkentseu {
 				const int32 demo = physic2d::NkPhysic2DLancerBanc();
 				// (2026-10-02, R31) Le maillage 2D et sa physique par partie.
 				const int32 maillage = unkeny::NkUnkenyLancerBancMaillage();
-				return NkOptional<int>((moteur != 0 || demo != 0 || maillage != 0) ? 1 : 0);
+				// (2026-10-02, R30) Le squelette 2D : la peau, les clips d'os, la chaine molle.
+				const int32 squelette = unkeny::NkUnkenyLancerBancSquelette();
+				return NkOptional<int>((moteur != 0 || demo != 0 || maillage != 0 || squelette != 0) ? 1 : 0);
 			}
 			if (args[i].StartsWith("--niveau=")) {
 				const NkString v = args[i].SubStr(9);

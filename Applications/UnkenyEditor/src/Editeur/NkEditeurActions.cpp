@@ -689,7 +689,7 @@ namespace nkentseu {
 				c.id = id;
 				c.niveau = 1;
 				c.couche = ml.couche;
-				c.distance = NkDistanceMaillage2D(s, t, ml, monde);
+				c.distance = NkDistanceMaillage2D(s, id, t, ml, monde);
 				const NkVec2f d = NkDemiBoiteMaillage2D(ml);
 				c.aire = math::NkAbs(4.f * d.x * t.echelle.x * d.y * t.echelle.y);
 				c.centre = t.position;
@@ -816,7 +816,7 @@ namespace nkentseu {
 			if (const NkMaillage2D *ml = s.Monde().Get<NkMaillage2D>(m.selection)) {
 				if (ml->nbSommets > 0u && ml->visible) {
 					NkVec2f w[NK_MAILLAGE2D_SOMMETS_MAX];
-					NkMaillagePositionsMonde(s, *t, *ml, w);
+					NkMaillagePositionsMonde(s, m.selection, *t, *ml, w);
 					mn = mx = w[0];
 					for (uint32 i = 1; i < ml->nbSommets; ++i) {
 						mn = NkVec2f(math::NkMin(mn.x, w[i].x), math::NkMin(mn.y, w[i].y));

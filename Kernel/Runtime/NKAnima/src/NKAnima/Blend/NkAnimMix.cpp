@@ -262,10 +262,21 @@ namespace nkentseu {
 			// matriciel de la machine).
 			if (clip.boneCount > 0) {
 				out.bones.Resize(clip.boneCount);
+				// (R30, 02/10) Un os SANS CLE d'un clip local reste a son REPOS (la
+				// « setup pose » de Spine), derive des inverses de repos du clip :
+				// local = inverseRepos(parent) x repos(os). Il valait l'identite --
+				// l'os s'effondrait sur son parent des qu'un clip ne le clait pas.
+				const bool repos = clip.skeletalLocal && (uint32)clip.jointInverseBind.Size() >= clip.boneCount;
 				for (uint32 j = 0; j < clip.boneCount; ++j) {
-					out.bones[j] = (j < (uint32)clip.boneTracks.Size() && !clip.boneTracks[j].Empty())
-									   ? EchantillonOs(clip.boneTracks[j], t)
-									   : NkBoneTRS();
+					if (j < (uint32)clip.boneTracks.Size() && !clip.boneTracks[j].Empty()) {
+						out.bones[j] = EchantillonOs(clip.boneTracks[j], t);
+					} else if (repos) {
+						const int32 p = j < (uint32)clip.jointParent.Size() ? clip.jointParent[j] : -1;
+						const NkMat4f monde = clip.jointInverseBind[j].Inverse();
+						out.bones[j] = Decomposer(p >= 0 && (uint32)p < clip.boneCount ? clip.jointInverseBind[(uint32)p] * monde : monde);
+					} else {
+						out.bones[j] = NkBoneTRS();
+					}
 				}
 				out.skeleton = &clip;
 			}

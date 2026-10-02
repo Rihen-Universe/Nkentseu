@@ -197,7 +197,7 @@ namespace nkentseu {
 					return 0.f;
 				}
 				NkVec2f w[NK_MAILLAGE2D_SOMMETS_MAX];
-				NkMaillagePositionsMonde(m.scene, *t, *ml, w);
+				NkMaillagePositionsMonde(m.scene, e, *t, *ml, w);
 				float32 y = 1.0e9f;
 				for (uint32 i = 0; i < ml->nbSommets; ++i) {
 					if (ml->partieSommet[i] == k) {

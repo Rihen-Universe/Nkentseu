@@ -13,6 +13,7 @@
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
 #include "Unkeny/Scene/NkUnkenyActif.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
+#include "Unkeny/Squelette/NkUnkenySquelette.h"
 
 #include <cstring>
 
@@ -400,7 +401,9 @@ namespace nkentseu {
 				}
 				// Sans clip de proprietes, sans couche ni arbre : rien a melanger ici
 				// (l'animateur ne sert que le sprite et le jeu, comme avant).
-				const bool proprietes = monde.Get<NkClipProprietes2D>(id) != nullptr;
+				// (R30) Un SQUELETTE 2D recoit les os de la pose melangee : fondus de
+				// transition entre clips d'os, arbres, couches masquees par os.
+				const bool proprietes = monde.Get<NkClipProprietes2D>(id) != nullptr || monde.Get<NkSquelette2D>(id) != nullptr;
 				if (!proprietes && ctl->layers.Empty() && ctl->blendSpaces.Empty()) {
 					continue;
 				}

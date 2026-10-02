@@ -10,6 +10,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKMath/NkEarcut.h"
 #include "Unkeny/Maillage/NkUnkenyMaillagePhysique.h"
+#include "Unkeny/Squelette/NkUnkenySquelette.h"
 
 namespace nkentseu {
 	namespace unkeny {
@@ -179,7 +180,7 @@ namespace nkentseu {
 					++stats.entitesVues;
 					const uint32 premier = static_cast<uint32>(sommets.Size());
 					sommets.Resize(premier + m.nbSommets);
-					NkMaillagePositionsMonde(scene, t, m, sommets.Data() + premier);
+					NkMaillagePositionsMonde(scene, id, t, m, sommets.Data() + premier);
 					NkVec2f mn = sommets[premier], mx = sommets[premier];
 					for (uint32 i = 1; i < m.nbSommets; ++i) {
 						const NkVec2f &p = sommets[premier + i];
@@ -225,7 +226,8 @@ namespace nkentseu {
 				if (aplats[i].maillage.IsValid()) {
 					// Relu APRES le tri (aucune requete ne tourne plus) : le pointeur tient.
 					if (const NkMaillage2D *m = scene.Monde().Get<NkMaillage2D>(aplats[i].maillage)) {
-						NkDessinerMaillage2D(dl, cam, *m, sommets.Data() + aplats[i].premierSommet);
+						NkDessinerMaillage2D(dl, cam, *m, sommets.Data() + aplats[i].premierSommet,
+											 scene.Monde().Get<NkSquelette2D>(aplats[i].maillage));
 						++stats.entitesDessinees;
 					}
 					continue;
@@ -268,7 +270,8 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
-		void NkDessinerMaillage2D(nkgui::NkGuiDrawList &dl, const NkVue2D &cam, const NkMaillage2D &m, const NkVec2f *monde) {
+		void NkDessinerMaillage2D(nkgui::NkGuiDrawList &dl, const NkVue2D &cam, const NkMaillage2D &m, const NkVec2f *monde,
+								  const NkSquelette2D *squelette) {
 			if (monde == nullptr || m.nbTriangles == 0u || m.nbSommets < 3u) {
 				return;
 			}
@@ -285,9 +288,14 @@ namespace nkentseu {
 			for (uint32 t = 0; t < m.nbTriangles; ++t) {
 				ordreTri[t] = t;
 			}
-			auto Ordre = [&m](uint32 t) {
+			// (R30) Les EMPLACEMENTS du squelette : une attache non montree est cachee,
+			// la montree prend l'ordre de son emplacement (rien n'est ecrit dans m).
+			int32 ordrePartie[NK_MAILLAGE2D_PARTIES_MAX];
+			bool visiblePartie[NK_MAILLAGE2D_PARTIES_MAX];
+			NkEmplacementsParties2D(squelette, m, ordrePartie, visiblePartie);
+			auto Ordre = [&m, &ordrePartie](uint32 t) {
 				const uint32 p = m.partieTriangle[t];
-				return p < m.nbParties ? m.parties[p].ordre : 0;
+				return p < m.nbParties ? ordrePartie[p] : 0;
 			};
 			for (uint32 i = 1; i < m.nbTriangles; ++i) {
 				const uint32 cle = ordreTri[i];
@@ -298,15 +306,21 @@ namespace nkentseu {
 				}
 				ordreTri[static_cast<uint32>(j + 1)] = cle;
 			}
+			uint32 nIdx = 0;
 			for (uint32 i = 0; i < m.nbTriangles; ++i) {
 				const uint32 t = ordreTri[i];
-				for (uint32 k = 0; k < 3u; ++k) {
-					idx[i * 3u + k] = m.triangles[t * 3u + k];
+				const uint32 p = m.partieTriangle[t];
+				if (p < NK_MAILLAGE2D_PARTIES_MAX && !visiblePartie[p]) {
+					continue; // une attache CACHEE (main fermee quand l'ouverte est montree)
 				}
+				for (uint32 k = 0; k < 3u; ++k) {
+					idx[nIdx + k] = m.triangles[t * 3u + k];
+				}
+				nIdx += 3u;
 			}
 			// UN appel : la texture (ou les couleurs seules) deformee par les sommets,
 			// une couleur par sommet (NkGuiDrawList::AddMesh).
-			dl.AddMesh(m.texId, ecran, m.uvs, cols, static_cast<int32>(m.nbSommets), idx, static_cast<int32>(m.nbTriangles) * 3);
+			dl.AddMesh(m.texId, ecran, m.uvs, cols, static_cast<int32>(m.nbSommets), idx, static_cast<int32>(nIdx));
 		}
 
 		// =====================================================================
