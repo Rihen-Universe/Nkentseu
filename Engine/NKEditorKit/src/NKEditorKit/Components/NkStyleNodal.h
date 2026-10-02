@@ -193,6 +193,10 @@ namespace nkentseu {
 				nkgui::NkColor outilIcone = NkHex(0xC8CCD4);
 				nkgui::NkColor outilIconeActif = NkHex(0x2A1A08);
 				float32 outilTaille = 32.f;
+				/// (2026-10-02) La GOUTTIERE : la bande, a gauche de la toile, ou la
+				/// barre d'outils vit -- hors du graphe, elle ne couvre plus un noeud.
+				nkgui::NkColor gouttiereFond = NkHex(0x17171B);
+				nkgui::NkColor gouttiereBord = NkHex(0x2A2A31);
 
 				// ── Les blocs de code (Expression, Code) -- PROPOSE (§ 13.1) ───
 				/// Pris sur la reference principale (noeud « Evaluate »).

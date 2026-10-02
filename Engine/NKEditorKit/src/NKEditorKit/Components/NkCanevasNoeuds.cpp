@@ -282,12 +282,19 @@ namespace nkentseu {
 			}
 		} // namespace
 
+		namespace {
+			/// La gouttiere de la barre d'outils (0 sans elle) : le graphe est a sa droite.
+			float32 Gouttiere(const NkEtatCanevas &e) noexcept {
+				return e.barreOutils ? e.gouttiere : 0.f;
+			}
+		} // namespace
+
 		NkVec2 NkCanevasVersEcran(const NkEtatCanevas &e, const NkRect &zone, float32 x, float32 y) noexcept {
-			return NkVec2{zone.x + (x - e.vueX) * e.zoom, zone.y + (y - e.vueY) * e.zoom};
+			return NkVec2{zone.x + Gouttiere(e) + (x - e.vueX) * e.zoom, zone.y + (y - e.vueY) * e.zoom};
 		}
 
 		NkVec2 NkCanevasDepuisEcran(const NkEtatCanevas &e, const NkRect &zone, const NkVec2 &p) noexcept {
-			return NkVec2{e.vueX + (p.x - zone.x) / e.zoom, e.vueY + (p.y - zone.y) / e.zoom};
+			return NkVec2{e.vueX + (p.x - zone.x - Gouttiere(e)) / e.zoom, e.vueY + (p.y - zone.y) / e.zoom};
 		}
 
 		namespace {
@@ -380,14 +387,15 @@ namespace nkentseu {
 				return;
 			}
 			const float32 marge = 56.f;
-			float32 z = (zone.w - 2.f * marge) / (x1 - x0);
+			const float32 largeur = zone.w - Gouttiere(e); // le graphe est a droite de la gouttiere
+			float32 z = (largeur - 2.f * marge) / (x1 - x0);
 			const float32 zy = (zone.h - 2.f * marge) / (y1 - y0);
 			z = zy < z ? zy : z;
 			// Lisible d'abord : en dessous de 0,7 le texte des noeuds ne se lit plus ;
 			// au-dessus de 1 un petit graphe parait gonfle (la charte est dessinee a 1).
 			z = z < 0.7f ? 0.7f : (z > 1.f ? 1.f : z);
 			e.zoom = z;
-			const float32 libreX = zone.w / z - (x1 - x0);
+			const float32 libreX = largeur / z - (x1 - x0);
 			const float32 libreY = zone.h / z - (y1 - y0);
 			e.vueX = libreX > 0.f ? x0 - libreX * 0.5f : x0 - marge / z;
 			e.vueY = libreY > 0.f ? y0 - libreY * 0.5f : y0 - marge / z;
@@ -1147,8 +1155,12 @@ namespace nkentseu {
 			if (e.barreOutils) {
 				const float32 t = s.outilTaille;
 				const uint32 nb = static_cast<uint32>(NkOutilCanevas::NK_NOMBRE);
-				const NkRect panneau{zone.x + 12.f, zone.y + zone.h * 0.5f - (t * static_cast<float32>(nb) + 12.f) * 0.5f, t + 8.f,
-									 t * static_cast<float32>(nb) + 12.f};
+				// Dans la GOUTTIERE, centree : hors du graphe.
+				const NkRect panneau{zone.x + (Gouttiere(e) - t - 8.f) * 0.5f, zone.y + zone.h * 0.5f - (t * static_cast<float32>(nb) + 12.f) * 0.5f,
+									 t + 8.f, t * static_cast<float32>(nb) + 12.f};
+				if (souris.x >= zone.x && souris.x < zone.x + Gouttiere(e) && souris.y >= zone.y && souris.y < zone.y + zone.h) {
+					surUi = true; // la gouttiere n'est pas le graphe
+				}
 				for (uint32 i = 0; i < nb; ++i) {
 					e.rectOutils[i] = NkRect{panneau.x + 4.f, panneau.y + 6.f + static_cast<float32>(i) * t, t, t - 4.f};
 				}
@@ -1171,7 +1183,7 @@ namespace nkentseu {
 			}
 			if (!e.portee.Empty()) {
 				const float32 lp = Largeur(police, e.portee.CStr(), 1.f) + Largeur(police, "Portée : ", 1.f) + 34.f;
-				e.rectPortee = NkRect{zone.x + 12.f, zone.y + 10.f, lp, 26.f};
+				e.rectPortee = NkRect{zone.x + Gouttiere(e) + 12.f, zone.y + 10.f, lp, 26.f};
 				if (Dans(e.rectPortee, souris)) {
 					surUi = true;
 					if (in.mouseClicked[0] && e.geste == 0) {
@@ -1240,7 +1252,7 @@ namespace nkentseu {
 					float32 nz = e.zoom * (in.wheel > 0.f ? 1.12f : 1.f / 1.12f);
 					nz = nz < 0.2f ? 0.2f : (nz > 2.f ? 2.f : nz);
 					e.zoom = nz;
-					e.vueX = avant.x - (souris.x - zone.x) / nz;
+					e.vueX = avant.x - (souris.x - zone.x - Gouttiere(e)) / nz;
 					e.vueY = avant.y - (souris.y - zone.y) / nz;
 					in.wheel = 0.f;
 				}
@@ -1622,7 +1634,7 @@ namespace nkentseu {
 							break;
 						}
 						for (int32 kx = kx0;; ++kx) {
-							const float32 x = zone.x + (static_cast<float32>(kx) * s.pasGrille - e.vueX) * z;
+							const float32 x = zone.x + Gouttiere(e) + (static_cast<float32>(kx) * s.pasGrille - e.vueX) * z;
 							if (x > zone.x + zone.w) {
 								break;
 							}
@@ -1993,8 +2005,11 @@ namespace nkentseu {
 				dl.AddRectFilled(r, NkAlphaNodal(c, 0.08f));
 				RectPointille(dl, r, c, 1.5f, 4.f);
 			}
-			// La barre d'outils verticale.
+			// La barre d'outils verticale, dans sa GOUTTIERE (opaque : ce qui passe
+			// a gauche du graphe y disparait, comme sous le bord d'un panneau).
 			if (e.barreOutils) {
+				dl.AddRectFilled(NkRect{zone.x, zone.y, Gouttiere(e), zone.h}, s.gouttiereFond);
+				dl.AddRectFilled(NkRect{zone.x + Gouttiere(e) - 1.f, zone.y, 1.f, zone.h}, s.gouttiereBord);
 				const uint32 nb = static_cast<uint32>(NkOutilCanevas::NK_NOMBRE);
 				const NkRect &r0 = e.rectOutils[0];
 				const NkRect panneau{r0.x - 4.f, r0.y - 6.f, s.outilTaille + 8.f, s.outilTaille * static_cast<float32>(nb) + 12.f};

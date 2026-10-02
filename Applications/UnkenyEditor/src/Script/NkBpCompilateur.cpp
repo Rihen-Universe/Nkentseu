@@ -1799,21 +1799,26 @@ namespace nkentseu {
 				}
 			}
 			if (graph::NkNode *r = g.Find(retour)) {
-				r->x = 1510.f;
+				r->x = 1380.f;
 				r->y = 0.f;
 			}
 			// La mise en page : le FLOT d'execution sur une ligne (en haut), les
 			// valeurs dessous, de gauche a droite dans l'ordre ou elles se calculent.
-			const graph::NkNodeId nomPorte = NkBpCreerLireVariable(d, g, "porte", 0.f, 170.f);
-			const graph::NkNodeId parNom = NkBpCreerNoeud(g, "bp.natif:unkeny.entite.par_nom", 130.f, 150.f);
-			const graph::NkNodeId pos = NkBpCreerNoeud(g, "bp.natif:unkeny.transform.position", 370.f, 150.f);
-			const graph::NkNodeId vec = NkBpCreerNoeud(g, "bp.math.vec2", 370.f, 290.f);
-			const graph::NkNodeId add = NkBpCreerNoeud(g, "bp.math.add_v", 600.f, 220.f);
-			const graph::NkNodeId tel = NkBpCreerNoeud(g, "bp.natif:unkeny.transform.teleporter", 830.f, 0.f);
-			const graph::NkNodeId eff = NkBpCreerNoeud(g, "bp.natif:unkeny.effet.jouer", 1070.f, 0.f);
-			const graph::NkNodeId aff = NkBpCreerNoeud(g, "bp.natif:unkeny.journal.afficher", 240.f, 0.f);
+			// (02/10) AUCUN fil ne traverse un noeud : « hauteur » descend tout droit
+			// vers Construire un vec2 ; l'entite de la porte part a gauche, sous le
+			// flot, et monte vers Teleporter et Jouer l'effet (un cran plus bas, pour
+			// que son fil n'ait pas a passer derriere Teleporter) ; la position et sa
+			// somme restent en bas.
+			const graph::NkNodeId nomPorte = NkBpCreerLireVariable(d, g, "porte", -130.f, 300.f);
+			const graph::NkNodeId parNom = NkBpCreerNoeud(g, "bp.natif:unkeny.entite.par_nom", 0.f, 280.f);
+			const graph::NkNodeId pos = NkBpCreerNoeud(g, "bp.natif:unkeny.transform.position", 230.f, 420.f);
+			const graph::NkNodeId vec = NkBpCreerNoeud(g, "bp.math.vec2", 230.f, 130.f);
+			const graph::NkNodeId add = NkBpCreerNoeud(g, "bp.math.add_v", 460.f, 420.f);
+			const graph::NkNodeId tel = NkBpCreerNoeud(g, "bp.natif:unkeny.transform.teleporter", 700.f, 0.f);
+			const graph::NkNodeId eff = NkBpCreerNoeud(g, "bp.natif:unkeny.effet.jouer", 950.f, 170.f);
+			const graph::NkNodeId aff = NkBpCreerNoeud(g, "bp.natif:unkeny.journal.afficher", 230.f, 0.f);
 			NkBpPoserDefaut(g, aff, "texte", "La porte s'ouvre (Blueprint)");
-			const graph::NkNodeId ecr = NkBpCreerEcrireVariable(d, g, "ouverte", 1290.f, 0.f);
+			const graph::NkNodeId ecr = NkBpCreerEcrireVariable(d, g, "ouverte", 1170.f, 0.f);
 			NkBpPoserDefaut(g, ecr, "valeur", "vrai");
 			// La fonction neuve va d'Entree a Retour : on libere « suite » (une
 			// sortie d'execution n'a qu'UNE suite).
@@ -1845,7 +1850,7 @@ namespace nkentseu {
 			graph::NkNodeGraph &e = d.graphes[0].graphe;
 			// La mise en page : le flot en haut, la condition dessous.
 			const graph::NkNodeId ev = NkBpCreerNoeud(e, "bp.ev.zone_entree", 0.f, 0.f);
-			const graph::NkNodeId nomEst = NkBpCreerNoeud(e, "bp.natif:unkeny.entite.nom_est", 250.f, 150.f);
+			const graph::NkNodeId nomEst = NkBpCreerNoeud(e, "bp.natif:unkeny.entite.nom_est", 250.f, 200.f);
 			NkBpPoserDefaut(e, nomEst, "nom", "Joueur");
 			const graph::NkNodeId et = NkBpCreerNoeud(e, "bp.math.et", 500.f, 110.f);
 			const graph::NkNodeId si = NkBpCreerNoeud(e, "bp.si", 740.f, 0.f);

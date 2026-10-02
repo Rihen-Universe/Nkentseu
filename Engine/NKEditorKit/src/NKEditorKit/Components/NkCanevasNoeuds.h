@@ -155,6 +155,10 @@ namespace nkentseu {
 				NkString portee;
 				/// Montrer la barre d'outils verticale.
 				bool barreOutils = true;
+				/// (2026-10-02) La largeur de la GOUTTIERE qui la porte, a gauche : le
+				/// graphe commence a sa droite (NkCanevasVersEcran en tient compte),
+				/// la barre ne couvre jamais un noeud. Sans barre : aucune.
+				float32 gouttiere = 48.f;
 				/// Pose par l'appelant : un AUTRE champ a le clavier (le code d'un
 				/// noeud, un panneau) -- la toile ne prend aucun raccourci.
 				bool clavierAilleurs = false;
