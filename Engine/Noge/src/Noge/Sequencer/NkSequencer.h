@@ -483,6 +483,11 @@ namespace nkentseu {
 			// (2026-10-02) VERSION 2 : la scene visee (`scene`) et les NOMS des
 			// cibles (`entityName`, `cameraName`) entrent dans le format ; la
 			// version 1 reste LUE pour toujours (scene et noms vides).
+			// ⚠️ Une cible NOMMEE s'ecrit avec un identifiant Invalid : le sien ne
+			// survit pas au rechargement de la scene, et l'ecrire rendrait deux
+			// sauvegardes de la meme sequence DIFFERENTES d'une session a l'autre.
+			// Apres LoadFromFile, les cibles nommees sont donc Invalid jusqu'a
+			// `BindByName`.
 			//
 			// N'écrit PAS les drapeaux `selected` : c'est un état d'interface, pas
 			// du contenu. L'aller-retour reste identique octet à octet, puisque
@@ -497,5 +502,17 @@ namespace nkentseu {
 	// et « version de format inconnue » n'appellent pas la même réaction. Chaîne
 	// statique, valide jusqu'au prochain appel, jamais nulle.
 	[[nodiscard]] const char *NkSequenceDernierRefus() noexcept;
+
+	// (2026-10-02) LES ANGLES DES CANAUX `localRotation.x/.y/.z`, en DEGRES :
+	// tangage (X), lacet (Y), roulis (Z), composes LACET PUIS TANGAGE PUIS ROULIS,
+	// q = Y(lacet) . X(tangage) . Z(roulis) -- la convention de la camera
+	// d'edition de Nogee (RotateY(lacet) * RotateX(tangage)) et celle d'Unity.
+	// Le lacet (le cap) tourne donc librement ; la singularite est au tangage de
+	// +/-90 degres (regarder droit en haut ou en bas), la ou une camera n'a pas
+	// de cap. ⚠️ Ce n'est PAS la convention de NkQuatf(NkEulerAngle) (NKMath,
+	// Z.Y.X : singuliere au lacet de 90 degres, celui qu'une camera franchit le
+	// plus) ; NKScena et le sequenceur passent TOUS DEUX par ces deux fonctions.
+	[[nodiscard]] NkQuatf NkSequenceRotationFromDegrees(float32 pitch, float32 yaw, float32 roll) noexcept;
+	void NkSequenceDegreesFromRotation(const NkQuatf &q, float32 &pitch, float32 &yaw, float32 &roll) noexcept;
 
 } // namespace nkentseu

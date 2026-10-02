@@ -35,6 +35,8 @@
 #include "NKAnima/Clip/NkClipRegistry.h"
 #include "NKAnima/Blend/NkAnimMix.h" // (01/10 soir) la pile de poses : NLA, fondus
 
+#include <cmath> // asin / atan2 : les angles des canaux de rotation
+
 namespace nkentseu {
 
 	namespace {
@@ -461,13 +463,13 @@ namespace nkentseu {
 		}
 		if (tourne) {
 			if (!eulerPose[0] || !eulerPose[1] || !eulerPose[2]) {
-				const math::NkEulerAngle actuel = static_cast<math::NkEulerAngle>(tr->localRotation);
-				euler[0] = eulerPose[0] ? euler[0] : actuel.pitch.Deg();
-				euler[1] = eulerPose[1] ? euler[1] : actuel.yaw.Deg();
-				euler[2] = eulerPose[2] ? euler[2] : actuel.roll.Deg();
+				float32 actuel[3];
+				NkSequenceDegreesFromRotation(tr->localRotation, actuel[0], actuel[1], actuel[2]);
+				for (int32 a = 0; a < 3; ++a) {
+					euler[a] = eulerPose[a] ? euler[a] : actuel[a];
+				}
 			}
-			tr->localRotation =
-				NkQuatf(math::NkEulerAngle(math::NkAngle(euler[0]), math::NkAngle(euler[1]), math::NkAngle(euler[2])));
+			tr->localRotation = NkSequenceRotationFromDegrees(euler[0], euler[1], euler[2]);
 			tr->worldDirty = true;
 		}
 	}
@@ -997,6 +999,41 @@ namespace nkentseu {
 		return gRefus;
 	}
 
+	NkQuatf NkSequenceRotationFromDegrees(float32 pitch, float32 yaw, float32 roll) noexcept {
+		return (NkQuatf::RotateY(math::NkAngle(yaw)) * NkQuatf::RotateX(math::NkAngle(pitch)) *
+				NkQuatf::RotateZ(math::NkAngle(roll)))
+			.Normalized();
+	}
+
+	void NkSequenceDegreesFromRotation(const NkQuatf &qIn, float32 &pitch, float32 &yaw, float32 &roll) noexcept {
+		// R = Ry(lacet) . Rx(tangage) . Rz(roulis) ; ses termes utiles :
+		//   R12 = -sin(tangage)
+		//   R02 = sin(lacet) cos(tangage)   R22 = cos(lacet) cos(tangage)
+		//   R10 = cos(tangage) sin(roulis)  R11 = cos(tangage) cos(roulis)
+		const NkQuatf q = qIn.Normalized();
+		const float32 x = q.x, y = q.y, z = q.z, w = q.w;
+		const float32 r12 = 2.f * (y * z - w * x);
+		const float32 r02 = 2.f * (x * z + w * y);
+		const float32 r22 = 1.f - 2.f * (x * x + y * y);
+		const float32 r10 = 2.f * (x * y + w * z);
+		const float32 r11 = 1.f - 2.f * (x * x + z * z);
+		const float32 kDeg = 57.29577951f;
+		float32 s = -r12;
+		s = s > 1.f ? 1.f : (s < -1.f ? -1.f : s);
+		pitch = std::asin(s) * kDeg;
+		if (s > 0.99999f || s < -0.99999f) {
+			// Droit en haut ou en bas : le cap et le roulis se confondent ; le
+			// roulis est pose a zero et le cap porte tout.
+			const float32 r00 = 1.f - 2.f * (y * y + z * z);
+			const float32 r20 = 2.f * (x * z - w * y);
+			yaw = std::atan2(-r20, r00) * kDeg;
+			roll = 0.f;
+			return;
+		}
+		yaw = std::atan2(r02, r22) * kDeg;
+		roll = std::atan2(r10, r11) * kDeg;
+	}
+
 	bool NkSequence::SaveToFile(const char *path) const noexcept {
 		gRefus = "";
 		if (path == nullptr || path[0] == '\0') {
@@ -1015,7 +1052,7 @@ namespace nkentseu {
 		for (uint32 t = 0; t < (uint32)tracks.Size(); ++t) {
 			const NkTrack &tr = tracks[t];
 			w.U8((uint8)tr.type);
-			w.U64(tr.entity.Pack());
+			w.U64(tr.entityName.Empty() ? tr.entity.Pack() : NkEntityId::Invalid().Pack());
 			w.Str(tr.entityName); // v2
 			w.Str(tr.name);
 			w.U8(tr.muted ? 1u : 0u);
@@ -1032,7 +1069,7 @@ namespace nkentseu {
 		w.U32((uint32)nlaTracks.Size());
 		for (uint32 t = 0; t < (uint32)nlaTracks.Size(); ++t) {
 			const NkNLATrack &nt = nlaTracks[t];
-			w.U64(nt.entity.Pack());
+			w.U64(nt.entityName.Empty() ? nt.entity.Pack() : NkEntityId::Invalid().Pack());
 			w.Str(nt.entityName); // v2
 			w.Str(nt.name);
 			w.U8(nt.muted ? 1u : 0u);
@@ -1060,7 +1097,7 @@ namespace nkentseu {
 		w.U32((uint32)cameraTrack.shots.Size());
 		for (uint32 s = 0; s < (uint32)cameraTrack.shots.Size(); ++s) {
 			const NkCameraShot &sh = cameraTrack.shots[s];
-			w.U64(sh.cameraEntity.Pack());
+			w.U64(sh.cameraName.Empty() ? sh.cameraEntity.Pack() : NkEntityId::Invalid().Pack());
 			w.Str(sh.cameraName); // v2
 			w.F32(sh.startTime);
 			w.F32(sh.duration);
