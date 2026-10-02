@@ -3134,7 +3134,7 @@ namespace nkentseu {
 				const bool vert = ctx.dockNodes[ni].vertical;
 				const float32 ratio = ctx.dockNodes[ni].ratio;
 				const int32 c0 = ctx.dockNodes[ni].child0, c1 = ctx.dockNodes[ni].child1;
-				const float32 sp = 4.f;
+				const float32 sp = ctx.dockGap > 0.f ? ctx.dockGap : 4.f; // (01/10) îlots : écart réglable
 				if (vert) {
 					const float32 w0 = (r.w - sp) * ratio;
 					DockComputeRects(ctx, c0, {r.x, r.y, w0, r.h});
@@ -3554,13 +3554,18 @@ namespace nkentseu {
 					// etait ecrite ici, et la poignee des tiroirs ancres en
 					// avait une AUTRE (1 px). Un seul nombre desormais.
 					const float32 sw = NkGuiSplitterWidth();
+					// (01/10) îlots : le trait est CENTRÉ dans l'écart, et la poignée le
+					// couvre en entier ; avec l'écart historique (4 px) rien ne bouge.
+					const float32 gap = ctx.dockGap > 0.f ? ctx.dockGap : 4.f;
+					const float32 dec = gap > 4.f ? (gap - sw) * 0.5f : 0.f;
+					const float32 deb = gap > 4.f ? (gap - sw) * 0.5f : 0.f;
 					NkRect sbVis, sbHit;	// zone de PRÉHENSION élargie (facile à attraper)
 					if (node.vertical) {
-						sbVis = {c0.x + c0.w, node.rect.y, sw, node.rect.h};
-						sbHit = {c0.x + c0.w - 3.f, node.rect.y, sw + 6.f, node.rect.h};
+						sbVis = {c0.x + c0.w + dec, node.rect.y, sw, node.rect.h};
+						sbHit = {c0.x + c0.w - 3.f, node.rect.y, sw + 6.f + 2.f * deb, node.rect.h};
 					} else {
-						sbVis = {node.rect.x, c0.y + c0.h, node.rect.w, sw};
-						sbHit = {node.rect.x, c0.y + c0.h - 3.f, node.rect.w, sw + 6.f};
+						sbVis = {node.rect.x, c0.y + c0.h + dec, node.rect.w, sw};
+						sbHit = {node.rect.x, c0.y + c0.h - 3.f, node.rect.w, sw + 6.f + 2.f * deb};
 					}
 					bool hov = false, hd = false;
 					ctx.ButtonBehavior(sid, sbHit, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &hd);
@@ -3608,7 +3613,8 @@ namespace nkentseu {
 							ctx.dockNodes[ni].ratio = math::NkClamp(ratio, 0.08f, 0.92f);
 						}
 					}
-					ctx.DL().AddRectFilled(sbVis, (hov || act) ? ctx.theme.accent : ctx.theme.border, 0.f);
+					if (hov || act || ctx.dockSeparateurVisible)
+						ctx.DL().AddRectFilled(sbVis, (hov || act) ? ctx.theme.accent : ctx.theme.border, 0.f);
 				}
 			}
 
@@ -3766,7 +3772,7 @@ namespace nkentseu {
 			}
 			ctx.dockTabAddNode = -1; // (re)posé par un clic « + » cette frame
 			DockComputeRects(ctx, ctx.dockRoot, rect);
-			ctx.DL().AddRectFilled(rect, ctx.theme.bgPrimary, 0.f);
+			ctx.DL().AddRectFilled(rect, ctx.dockFond.a ? ctx.dockFond : ctx.theme.bgPrimary, 0.f);
 			DockRenderNode(ctx, ctx.dockRoot);
 
 			// Popup OVERFLOW : liste des onglets de la feuille (clic = active l'onglet).

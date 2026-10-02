@@ -369,6 +369,15 @@ namespace nkentseu {
 				bool dockTabAddButton = false; ///< l'app active le bouton « + » sur les barres d'onglets
 				bool dockHideSingleTab =
 					false; ///< masque la barre d'onglets d'un nœud à 1 seul panneau (façon VSCode/IDE)
+				// ── (2026-10-01) LES ÎLOTS — STRICTEMENT ADDITIF ───────────────────
+				// L'apparence « Synthèse » de NKCode pose ses panneaux en îlots
+				// détachés sur un fond : il lui faut un ÉCART entre deux feuilles,
+				// la COULEUR de cet écart et un séparateur invisible au repos. Les
+				// défauts rendent l'historique au pixel près (4 px, fond
+				// `theme.bgPrimary`, trait visible) : aucun autre hôte ne bouge.
+				float32 dockGap = 4.f;					///< écart entre deux feuilles du dock (px)
+				NkColor dockFond = {0, 0, 0, 0};		///< fond des écarts ; alpha 0 = `theme.bgPrimary`
+				bool dockSeparateurVisible = true;		///< trait du séparateur au repos (survol : toujours)
 
 				// Modale applicative : l'app (ex. NKCode) leve ce flag tant qu'un dialogue
 				// modal (creation de projet, proprietes...) est ouvert. Le shell masque
