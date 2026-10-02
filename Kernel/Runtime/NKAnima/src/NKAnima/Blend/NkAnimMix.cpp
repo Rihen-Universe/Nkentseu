@@ -72,7 +72,14 @@ namespace nkentseu {
 				}
 				const NkBoneTRS b = Decomposer(kb.value);
 				const float32 d = kb.time - ka.time;
-				const float32 u = d > 1e-6f ? (t - ka.time) / d : 0.f;
+				// (R30, 02/10) La COURBE de la cle (douce, entree, sortie, rebond...),
+				// comme toute autre piste : la frise d'Unkeny les propose sur les os.
+				// Lineaire et « cubique » (que les pistes de matrices tracent en droite)
+				// gardent l'interpolation d'avant, octet pour octet.
+				float32 u = d > 1e-6f ? (t - ka.time) / d : 0.f;
+				if (ka.interp != NkInterpMode::NK_LINEAR && ka.interp != NkInterpMode::NK_CUBIC) {
+					u = NkAnimationTrack<float32>::Ease(u, ka.interp);
+				}
 				NkBoneTRS r;
 				r.t = {a.t.x + (b.t.x - a.t.x) * u, a.t.y + (b.t.y - a.t.y) * u, a.t.z + (b.t.z - a.t.z) * u};
 				r.s = {a.s.x + (b.s.x - a.s.x) * u, a.s.y + (b.s.y - a.s.y) * u, a.s.z + (b.s.z - a.s.z) * u};
