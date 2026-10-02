@@ -74,6 +74,11 @@ namespace nkentseu {
 					s_ide.Start(s);
 				s_ide.Tick();
 			}
+			// (01/10) LA CONSTRUCTION AVANCE A CHAQUE IMAGE. Elle n'avancait que dans le
+			// panneau Sortie (son OnUI) : Sortie fermee ou onglet cache -- le cas de la
+			// Synthese, qui montre la construction dans le Terminal --, les lignes, les
+			// diagnostics et les voyants n'arrivaient plus. Idempotent par image.
+			s->PollBuild();
 			s->ScanWorkspaces();
 			s->TickWatch(ec.dt);
 			s->LoadProjects();

@@ -221,6 +221,20 @@ static void NkCrochetsPanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int
 			fflush(stdout);
 		}
 	}
+	// (01/10) NK_CONSTRUIRE=<image> : lance `jenga build` a cette image -- le geste
+	// du bouton « Construire », sans entree injectee (captures de la Synthese).
+	{
+		static int32 sConstruire = -2;
+		if (sConstruire == -2) {
+			const char *v = std::getenv("NK_CONSTRUIRE");
+			sConstruire = v ? (int32)std::atoi(v) : -1;
+		}
+		if (sImage == sConstruire) {
+			g_state.DoBuildAction("build");
+			printf("[nkcode] CONSTRUIRE image=%d\n", (int)sImage);
+			fflush(stdout);
+		}
+	}
 	if (sImage == sSortie && sh) {
 		// LA SONDE SE FERME ELLE-MEME, par la porte que la confirmation emprunte :
 		// `RequestQuit` seul est VETOE par la question « quitter ? » (voulue pour
@@ -342,7 +356,7 @@ int nkmain(const NkEntryState &state) {
 	gPanneauxIA[2] = &codexPanel;
 	gPanneauxIA[3] = &nkaiPanel;
 	if (std::getenv("NK_AI_IMAGE") || std::getenv("NK_AI_PANNEAU") || std::getenv("NK_AGENT_EXIT") ||
-		std::getenv("NK_CAPTURE_FENETRE") ||
+		std::getenv("NK_CAPTURE_FENETRE") || std::getenv("NK_CONSTRUIRE") ||
 		std::getenv("NK_TERM_TAPER"))
 		shell->SetApresImage(&NkCrochetsPanneauIA, shell.Get());
 	static ScaffoldPanel pEngine("Moteur", NkEditorDockSide::NK_RIGHT, "Maquette - roadmap #17", sc::kEngine, 1);

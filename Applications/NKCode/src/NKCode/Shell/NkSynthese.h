@@ -969,6 +969,20 @@ namespace nkentseu {
 			auto *mb = static_cast<NkMenuBarCtx *>(user);
 			NkSynthese().mb = mb;
 			const NkApparenceDispo &d = NkApparenceCourante().dispo;
+			// Synthese : une construction qui DEMARRE amene le Terminal (sa session
+			// « jenga build » y montre la sortie mise en forme).
+			if (mb && mb->dlg && mb->dlg->st && mb->shell && !mb->dlg->st->focusPanelReq.Empty()) {
+				// (01/10) la Sortie n'est plus seule a les lire : elle peut etre fermee
+				mb->shell->FocusPanel(mb->dlg->st->focusPanelReq.CStr());
+				mb->dlg->st->focusPanelReq = NkString();
+			}
+			if (d.synthese && mb && mb->dlg && mb->dlg->st && mb->shell) {
+				static bool sBat = false;
+				const bool bat = mb->dlg->st->IsBuilding();
+				if (bat && !sBat)
+					mb->shell->FocusPanel("Terminal");
+				sBat = bat;
+			}
 			if (d.synthese && !d.menusVisibles) {
 				if (!NkBarreOutilsVisible() && mb && mb->dlg && mb->dlg->st)
 					NkCodeBattementIde(ec, mb->dlg->st);
