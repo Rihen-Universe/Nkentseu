@@ -800,6 +800,38 @@ namespace nkentseu {
 			return atteinte;
 		}
 
+		bool NkApplyTwoBoneIK2DWorld(const NkMat4f &worldUpper, const NkMat4f &worldMid, NkBone2D &localUpper,
+									 NkBone2D &localMid, const NkVec2f &effector, const NkVec2f &target, bool bendPositive,
+									 float32 weight) {
+			// La geometrie : racine = tete du bras ; milieu = tete de l'avant-bras ;
+			// bout = l'effecteur. Les longueurs viennent de la pose (echelles comprises).
+			const NkVec2f racine(worldUpper.m30, worldUpper.m31);
+			const NkVec2f milieu(worldMid.m30, worldMid.m31);
+			const NkVec2f bout = Transformer(worldMid, effector);
+			const float32 l1 = std::sqrt((milieu.x - racine.x) * (milieu.x - racine.x) + (milieu.y - racine.y) * (milieu.y - racine.y));
+			const float32 l2 = std::sqrt((bout.x - milieu.x) * (bout.x - milieu.x) + (bout.y - milieu.y) * (bout.y - milieu.y));
+			float32 a1 = 0.f, a2 = 0.f;
+			const bool ok = NkSolveTwoBoneIK2D(racine, l1, l2, target, bendPositive, a1, a2);
+			// Les angles MONDE actuels des deux segments -> la rotation a ajouter.
+			const float32 s1 = std::atan2(milieu.y - racine.y, milieu.x - racine.x);
+			const float32 s2 = std::atan2(bout.y - milieu.y, bout.x - milieu.x);
+			const float32 w = weight < 0.f ? 0.f : (weight > 1.f ? 1.f : weight);
+			const float32 d1 = NkWrapAngle(a1 - s1) * w;
+			// Le segment 2 tourne deja de d1 avec son parent : il ne lui reste que la difference.
+			const float32 d2 = NkWrapAngle((a2 - s2) - (a1 - s1)) * w;
+			localUpper.angle = NkWrapAngle(localUpper.angle + d1);
+			localMid.angle = NkWrapAngle(localMid.angle + d2);
+			return ok;
+		}
+
+		bool NkTwoBoneBendIsPositive2D(const NkMat4f &worldUpper, const NkMat4f &worldMid, const NkVec2f &effector) {
+			const NkVec2f racine(worldUpper.m30, worldUpper.m31);
+			const NkVec2f milieu(worldMid.m30, worldMid.m31);
+			const NkVec2f bout = Transformer(worldMid, effector);
+			const float32 cx = (bout.x - racine.x) * (milieu.y - racine.y) - (bout.y - racine.y) * (milieu.x - racine.x);
+			return cx >= 0.f;
+		}
+
 		bool NkApplyTwoBoneIK2D(const NkSkeleton2D &s, NkBone2D *local, uint32 mid, const NkVec2f &effector, const NkVec2f &target,
 								bool bendPositive, float32 weight) {
 			const uint32 n = s.Count();
@@ -814,25 +846,7 @@ namespace nkentseu {
 			NkVector<NkMat4f> monde;
 			monde.Resize(n);
 			s.PoseToWorld(local, monde.Data());
-			// La geometrie : racine = tete du bras ; milieu = tete de l'avant-bras ;
-			// bout = l'effecteur. Les longueurs viennent de la pose (echelles comprises).
-			const NkVec2f racine(monde[haut].m30, monde[haut].m31);
-			const NkVec2f milieu(monde[mid].m30, monde[mid].m31);
-			const NkVec2f bout = Transformer(monde[mid], effector);
-			const float32 l1 = std::sqrt((milieu.x - racine.x) * (milieu.x - racine.x) + (milieu.y - racine.y) * (milieu.y - racine.y));
-			const float32 l2 = std::sqrt((bout.x - milieu.x) * (bout.x - milieu.x) + (bout.y - milieu.y) * (bout.y - milieu.y));
-			float32 a1 = 0.f, a2 = 0.f;
-			const bool ok = NkSolveTwoBoneIK2D(racine, l1, l2, target, bendPositive, a1, a2);
-			// Les angles MONDE actuels des deux segments -> la rotation a ajouter.
-			const float32 s1 = std::atan2(milieu.y - racine.y, milieu.x - racine.x);
-			const float32 s2 = std::atan2(bout.y - milieu.y, bout.x - milieu.x);
-			const float32 w = weight < 0.f ? 0.f : (weight > 1.f ? 1.f : weight);
-			const float32 d1 = NkWrapAngle(a1 - s1) * w;
-			// Le segment 2 tourne deja de d1 avec son parent : il ne lui reste que la difference.
-			const float32 d2 = NkWrapAngle((a2 - s2) - (a1 - s1)) * w;
-			local[haut].angle = NkWrapAngle(local[haut].angle + d1);
-			local[mid].angle = NkWrapAngle(local[mid].angle + d2);
-			return ok;
+			return NkApplyTwoBoneIK2DWorld(monde[haut], monde[mid], local[haut], local[mid], effector, target, bendPositive, weight);
 		}
 
 		// =====================================================================

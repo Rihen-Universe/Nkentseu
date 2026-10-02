@@ -197,6 +197,15 @@ namespace nkentseu {
 		/// `weight` < 1 : le melange entre la pose et la solution (rotation).
 		bool NkApplyTwoBoneIK2D(const NkSkeleton2D &s, NkBone2D *local, uint32 mid, const NkVec2f &effector,
 								const NkVec2f &target, bool bendPositive, float32 weight = 1.f);
+		/// Le meme geste sur une pose MONDE deja calculee (le consommateur a sa FK :
+		/// Unkeny, ses os a capacite fixe) : `upper` = le parent de `mid` ; seules
+		/// les rotations LOCALES des deux os changent.
+		bool NkApplyTwoBoneIK2DWorld(const NkMat4f &worldUpper, const NkMat4f &worldMid, NkBone2D &localUpper,
+									 NkBone2D &localMid, const NkVec2f &effector, const NkVec2f &target, bool bendPositive,
+									 float32 weight = 1.f);
+		/// Le coude de la chaine est-il a GAUCHE de la droite racine -> bout ? (pour
+		/// garder le sens d'un coude pendant qu'on tire)
+		bool NkTwoBoneBendIsPositive2D(const NkMat4f &worldUpper, const NkMat4f &worldMid, const NkVec2f &effector);
 
 		// ── LES EMPLACEMENTS D'UNE POSE ───────────────────────────────────────────
 		/// L'attache et l'ordre de chaque emplacement (slots.Size() entrees) : ceux de
