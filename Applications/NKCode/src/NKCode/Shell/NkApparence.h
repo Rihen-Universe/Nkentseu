@@ -542,6 +542,13 @@ namespace nkentseu {
 			return e;
 		}
 
+		/// La CONTRE-EPREUVE « residu » du banc (NkBancApparences.h) : vraie, l'applicateur
+		/// oublie de reecrire un champ du theme -- le retour ne rend plus l'etat d'avant.
+		inline bool &NkBancResidu() {
+			static bool r = false;
+			return r;
+		}
+
 		/// L'etat APPLIQUE (le dernier calcul) : lu par les panneaux de NKCode qui
 		/// ont besoin d'un role que le theme du dessin ne porte pas (fond du terminal,
 		/// en-tete de l'Explorateur...).

@@ -483,6 +483,7 @@ inline void NkAppliquerPaletteNkCol(const NkThemePalette &p) {
 
 inline void NkAppliquerApparence(NkEditorFrameContext &ec, NkHomeState *home) {
 	auto &ctx = ec.Ui();
+	const NkColor residu = ctx.theme.tabBar; // (contre-epreuve du banc : l'etat AVANT toute ecriture)
 	static bool sBase = false;
 	if (!sBase) { // premiere image : le theme de la coquille, avant toute apparence
 		NkThemeDeBase() = ctx.theme;
@@ -520,6 +521,8 @@ inline void NkAppliquerApparence(NkEditorFrameContext &ec, NkHomeState *home) {
 		NkSyntheseBranchements(sh, home, e); // apres : la variante 3 reprend la rangee d'outils
 	}
 	ctx.theme = e.gui;
+	if (NkBancResidu()) // contre-epreuve du banc : un champ n'est plus reecrit
+		ctx.theme.tabBar = residu;
 	ctx.syntax = e.syntaxe;
 	ctx.dockGap = e.dispo.dockEcart > 0.f ? e.dispo.dockEcart : 4.f;
 	ctx.dockFond = e.dispo.ilots ? e.pal.gouttiere : NkColor{0, 0, 0, 0};
