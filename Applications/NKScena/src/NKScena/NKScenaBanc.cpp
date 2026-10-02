@@ -118,9 +118,9 @@ namespace nkentseu {
 
 			// ── s1 LE MODELE ──────────────────────────────────────────────────
 			std::printf("\ns1 — le modèle : la scène de NogeDemo, les pistes, les plans\n");
-			const bool demo = m.SceneDemo();
-			Temoin(demo && NkFile::Exists(NkScenaModele::kSceneDemo), "(s1) la scène de NogeDemo est écrite (.nkscene3d)",
-				   NkScenaModele::kSceneDemo);
+			const char *kSceneBanc = "Build/NKScena/Banc/nogedemo.nkscene3d";
+			const bool demo = m.SceneDemo(kSceneBanc, true);
+			Temoin(demo && NkFile::Exists(kSceneBanc), "(s1) la scène de NogeDemo est écrite (.nkscene3d)", kSceneBanc);
 			Temoin(m.Entite("Joueur").IsValid() && m.Entite("Caméra").IsValid(), "(s1b) elle a son joueur et sa caméra");
 			m.NouvelleSequence(4.f, 24.f);
 			Temoin(m.AjouterPisteTransform("Joueur") && m.frise.tracks.Size() == 3u,
@@ -230,7 +230,7 @@ namespace nkentseu {
 			{
 				NkSequence lue;
 				const bool ok = lue.LoadFromFile(fA);
-				Temoin(ok && lue.scene == NkString(NkScenaModele::kSceneDemo) && lue.cameraTrack.shots.Size() == 1u &&
+				Temoin(ok && lue.scene == NkString(NkScenaModele::kSceneExemple) && lue.cameraTrack.shots.Size() == 1u &&
 						   lue.cameraTrack.shots[0].cameraName == NkString("Caméra") && lue.tracks.Size() == 2u &&
 						   lue.tracks[0].entityName == NkString("Joueur"),
 					   "(s3b) le fichier POINTE vers sa scène, et nomme ses cibles (Joueur, Caméra)",

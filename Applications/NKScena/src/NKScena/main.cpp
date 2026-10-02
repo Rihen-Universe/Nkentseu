@@ -6,10 +6,11 @@
 // -----------------------------------------------------------------------------
 // LANCER (depuis la RACINE du depot : les nuanceurs de NKRenderer y sont lus)
 //   ./Build/Bin/Debug-Windows/NKScena/NKScena.exe
-//       [--sequence=F.nkseq | --scene=F.nkscene3d | --exemple]
+//       [--sequence=F.nkseq | --scene=F.nkscene3d | --exemple | --lanceur]
+//                                       (sans rien de tout cela : le LANCEUR de la famille)
 //       [--temps=S] [--vue-camera] [--jouer] [--theme=clair]
 //       [--tiroir=frise|contenu|journal|terminal] [--selection=NOM] [--outil=deplacer|tourner|echelle]
-//       [--details=piste|cle|plan|sequence]
+//       [--details=piste|cle|plan|sequence] [--courbes] [--enregistrer[=F.nkseq]]
 //       [--rendre [--sortie=DOSSIER]]          « Rendre », puis sortie (fenetre hors ecran)
 //       [--capture=IMAGE.png [--temps-capture=S] [--capture-image=N]]   (fenetre HORS ECRAN, puis sortie ;
 //                                       avec --rendre : apres le rendu, ou PENDANT, a l'image N)
@@ -136,6 +137,14 @@ int nkmain(const nkentseu::NkEntryState &state) {
 			options.outil = o == NkString("deplacer") ? 1 : (o == NkString("tourner") ? 2 : (o == NkString("echelle") ? 3 : 0));
 		} else if (a.StartsWith("--details=")) {
 			options.choix = NkString(a.SubStr(10));
+		} else if (a == "--courbes") {
+			options.courbes = true;
+		} else if (a == "--enregistrer") {
+			options.enregistrer = NkString("1");
+		} else if (a.StartsWith("--enregistrer=")) {
+			options.enregistrer = NkString(a.SubStr(14));
+		} else if (a == "--lanceur") {
+			options.lanceur = true;
 		} else if (a == "--rendre") {
 			options.rendre = true;
 		} else if (a.StartsWith("--capture-image=")) {
@@ -148,6 +157,10 @@ int nkmain(const nkentseu::NkEntryState &state) {
 		return RendreSansFenetre(sansFenetre, options.sortie);
 	}
 	options.horsEcran = !options.capture.Empty() || options.rendre;
+	// LE LANCEUR de la famille au lancement NU (rien a ouvrir n'est donne).
+	if (!options.horsEcran && options.sequence.Empty() && options.scene.Empty() && !options.exemple) {
+		options.lanceur = true;
+	}
 
 	NkApplicationConfig config(state);
 	config.appName = "NKScena";

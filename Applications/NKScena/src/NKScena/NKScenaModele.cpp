@@ -9,6 +9,7 @@
 #include "NKScena/NKScenaPont.h"
 
 #include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkFile.h"
 #include "Noge/ECS/Components/Core/NkTag.h"
 #include "Noge/ECS/Components/Core/NkTransform.h"
 #include "Noge/ECS/Components/Rendering/NkRenderComponents.h"
@@ -100,12 +101,15 @@ namespace nkentseu {
 		// =====================================================================
 		// LA SCENE
 		// =====================================================================
-		bool NkScenaModele::SceneDemo() {
-			if (!Pret()) {
+		bool NkScenaModele::SceneDemo(const char *chemin, bool refaire) {
+			if (!Pret() || chemin == nullptr) {
 				return false;
 			}
+			if (!refaire && NkFile::Exists(chemin) && OuvrirScene(chemin)) {
+				return true;
+			}
 			scene.NouvelleScene();
-			scene.chemin = kSceneDemo;
+			scene.chemin = chemin;
 			const bool ok = scene.Enregistrer();
 			mCameraForcee = ecs::NkEntityId::Invalid();
 			mRevision = ~0u;
@@ -559,9 +563,11 @@ namespace nkentseu {
 			if (!Pret()) {
 				return false;
 			}
-			(void)SceneDemo();
+			// L'exemple a SA scene, refaite a chaque fois : il ne depend pas d'une
+			// scene de demonstration qu'on aurait retouchee.
+			(void)SceneDemo(kSceneExemple, true);
 			NouvelleSequence(duree, 24.f);
-			nom = "Exemple — le joueur traverse";
+			nom = "Exemple : le joueur traverse";
 			frise.rootLabel = nom;
 			chemin = "Build/NKScena/exemple.nkseq";
 			ecs::NkWorld &w = scene.Monde();

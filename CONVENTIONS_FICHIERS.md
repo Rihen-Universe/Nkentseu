@@ -256,7 +256,7 @@ ouvre une application par défaut.
 | scène 3D | **`.nkscene3d`** | les cinq applications 3D | `.nkscene` de NKCraft et de NogeDemo |
 | géométrie d'une scène ou d'un maillage | `.nkgeo` (inchangé) | NKCraft, Noge | — |
 | document de scène de Genia | **à renommer** (proposition : `.nkspec`, à confirmer par Rihen) | NKCraft / Genia | `.nkscene` de `Tools/Genia/` |
-| séquence | `.nkseq` (inchangé) | NKScena | — |
+| séquence | `.nkseq` (inchangé ; **v2 le 02/10** : elle POINTE vers sa scène `.nkscene3d` et nomme ses cibles, la v1 reste lue) | NKScena | — |
 | cas clinique | `.nkcase` (inchangé) | PV3DE | — |
 | interface | `.nkgui` (inchangé) | toutes | — |
 | assets (§ 2) | inchangés | toutes | — |

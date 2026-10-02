@@ -57,8 +57,11 @@ namespace nkentseu {
 
 		class NkScenaModele {
 			public:
-				/// La scene de demonstration, ecrite au premier lancement.
+				/// La scene de demonstration, ecrite au premier lancement (puis RELUE :
+				/// on a pu la retoucher dans Nogee, NKScena ne l'ecrase pas).
 				static constexpr const char *kSceneDemo = "Build/NKScena/nogedemo.nkscene3d";
+				/// La scene de l'EXEMPLE, refaite a chaque exemple (la sienne propre).
+				static constexpr const char *kSceneExemple = "Build/NKScena/exemple.nkscene3d";
 				static constexpr const char *kSequenceDefaut = "Build/NKScena/sequence.nkseq";
 
 				NkScenaModele();
@@ -72,9 +75,11 @@ namespace nkentseu {
 				bool Pret() const noexcept {
 					return scene.Pret();
 				}
-				/// La scene de NogeDemo (sol, joueur, balle, camera, soleil), ecrite
-				/// dans kSceneDemo pour que la sequence puisse la nommer.
-				bool SceneDemo();
+				/// La scene de NogeDemo (sol, joueur, balle, camera, soleil) dans
+				/// `chemin`, pour que la sequence puisse la nommer. Le fichier existe et
+				/// `refaire` est faux : il est OUVERT (on a pu le retoucher dans Nogee) ;
+				/// sinon la scene est refaite et ecrite.
+				bool SceneDemo(const char *chemin = kSceneDemo, bool refaire = false);
 				/// Ouvre une scene Noge (JSON de NkSceneSerializer) ; les pistes se
 				/// RELIENT a ses entites par leur nom.
 				bool OuvrirScene(const char *fichier);

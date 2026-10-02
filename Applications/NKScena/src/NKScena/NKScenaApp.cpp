@@ -92,7 +92,7 @@ namespace nkentseu {
 					(void)mModele.SceneDemo();
 				}
 				mModele.NouvelleSequence();
-				mModele.Annoncer("Une scène, une frise vide : « + Piste » pose une piste, ◆ une clé, « Rendre » le film");
+				mModele.Annoncer("Une scène, une frise vide : « + Piste » pose une piste, I une clé, « Rendre » le film");
 			}
 			if (!mOptions.sortie.Empty()) {
 				mModele.sortie.dossier = mOptions.sortie;
@@ -108,6 +108,7 @@ namespace nkentseu {
 			hote.rendu = &mRendu;
 			hote.demandeRendu = &mDemandeRendu;
 			hote.contenu = NkDirectory::Exists("Build/NKScena") ? NkString("Build/NKScena") : NkString(".");
+			hote.lanceur = mOptions.lanceur;
 			mUi = new NkScenaInterface(hote);
 			PushOverlay(mUi);
 			logger.Infof("[NKScena] pret : vue 3D %s, frise partagee, sequence « %s »\n", vue ? "hors ecran" : "ABSENTE",
@@ -166,6 +167,12 @@ namespace nkentseu {
 				mModele.choix = NkScenaChoix::Plan;
 			} else if (mOptions.choix == NkString("sequence")) {
 				mModele.choix = NkScenaChoix::Sequence;
+			}
+			if (mOptions.courbes) {
+				mModele.frise.curveMode = true;
+			}
+			if (!mOptions.enregistrer.Empty()) {
+				(void)mModele.Enregistrer(mOptions.enregistrer == NkString("1") ? nullptr : mOptions.enregistrer.CStr());
 			}
 			if (mOptions.outil >= 0) {
 				mUi->Executer(SCENA_A_OUTIL + mOptions.outil);
@@ -249,7 +256,7 @@ namespace nkentseu {
 			mAttente = 2; // la vue se refait a la taille de la sortie ; on la laisse se poser
 			f.cursor = mRenduDebut;
 			mModele.Evaluer(mRenduDebut);
-			const NkString t = NkString::Format("Rendu : %d images %ux%u, par la caméra du plan → %s/%s_0001.png …", n, mRenduW, mRenduH,
+			const NkString t = NkString::Format("Rendu : %d images %ux%u, par la caméra du plan, vers %s/%s_0001.png …", n, mRenduW, mRenduH,
 												mRendu.dossier.CStr(), mModele.sortie.prefixe.CStr());
 			mModele.Annoncer(t.CStr());
 		}

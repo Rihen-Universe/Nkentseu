@@ -437,7 +437,7 @@ namespace nkentseu {
 				}
 				I.Info("Piste", piste ? "transformation (position, rotation, échelle)" : "aucune");
 				I.Info("Clés", NkString::Format("%u", static_cast<unsigned>(cles)).CStr());
-				const int32 b = I.Boutons(piste ? "Poser une clé (I)" : "Ajouter sa piste", piste ? "Clé suivante ▸" : nullptr, true, piste);
+				const int32 b = I.Boutons(piste ? "Poser une clé (I)" : "Ajouter sa piste", piste ? "Clé suivante »" : nullptr, true, piste);
 				if (b == 0) {
 					Executer(piste ? SCENA_A_CLES_ENTITE : SCENA_A_PISTE_ENTITE);
 				} else if (b == 1) {
@@ -462,7 +462,7 @@ namespace nkentseu {
 					for (uint32 k = 0; k < t->clips.Size(); ++k) {
 						const NkTimelineClip &cl = t->clips[k];
 						const NkString lib = NkString::Format("Plan %u", static_cast<unsigned>(k + 1));
-						const NkString val = NkString::Format("%s  ·  %.2f → %.2f s", cl.name.CStr(), static_cast<double>(cl.start),
+						const NkString val = NkString::Format("%s  ·  %.2f à %.2f s", cl.name.CStr(), static_cast<double>(cl.start),
 															  static_cast<double>(cl.End()));
 						I.Info(lib.CStr(), val.CStr());
 					}
@@ -648,7 +648,7 @@ namespace nkentseu {
 					f.fps = ips;
 					f.Touch();
 				}
-				I.Info("Plage de lecture", NkString::Format("%.2f → %.2f s", static_cast<double>(f.PlayStart()),
+				I.Info("Plage de lecture", NkString::Format("%.2f à %.2f s", static_cast<double>(f.PlayStart()),
 															static_cast<double>(f.PlayEnd()))
 											   .CStr());
 				if (m.CiblesPerdues() > 0u) {

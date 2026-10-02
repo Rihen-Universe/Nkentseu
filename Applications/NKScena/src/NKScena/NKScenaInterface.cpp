@@ -111,6 +111,7 @@ namespace nkentseu {
 			} else {
 				logger.Errorf("[NKScena] le backend NKGui -> NKRHI est refuse : l'interface ne sera pas rendue\n");
 			}
+			PreparerLanceur();
 			mContenu.racine = mHote.contenu;
 			mContenu.nomProjet = NkString("NKScena");
 			mTerminal.dossierDepart = NkString(".");
@@ -207,6 +208,7 @@ namespace nkentseu {
 		// =====================================================================
 		void NkScenaInterface::AvantCorps(NkFamilleCtx &) {
 			Journaliser();
+			ToucherRecent();
 		}
 
 		void NkScenaInterface::PeindreCorps(NkFamilleCtx &c) {
@@ -236,10 +238,14 @@ namespace nkentseu {
 		}
 
 		bool NkScenaInterface::Modale() const {
-			return mSelecteur && mSelecteur->pickerOpen;
+			return (mSelecteur && mSelecteur->pickerOpen) || mLanceurActif;
 		}
 
-		void NkScenaInterface::PeindreModale(NkFamilleCtx &) {
+		void NkScenaInterface::PeindreModale(NkFamilleCtx &c) {
+			if (mLanceurActif && !(mSelecteur && mSelecteur->pickerOpen)) {
+				PeindreLanceur(c);
+				return;
+			}
 			(void)NkDrawSelecteur(Gui(), *mSelecteur, theme);
 			if (mSelecteur->pickerCancelled) {
 				mSelecteur->pickerCancelled = false;
@@ -386,6 +392,8 @@ namespace nkentseu {
 			const NkString nomSel(sel ? m.scene.Nom(m.scene.selection) : "");
 			switch (menu) {
 				case SCENA_MENU_FICHIER:
+					out.PushBack(NkFamilleLigneMenu("Accueil (le lanceur)", SCENA_A_LANCEUR, "", false, !rendu));
+					out.PushBack(NkFamilleSeparateur());
 					out.PushBack(NkFamilleLigneMenu("Nouvelle séquence", SCENA_A_NOUVELLE, "Ctrl+N", false, !rendu));
 					out.PushBack(NkFamilleLigneMenu("Ouvrir une séquence…", SCENA_A_OUVRIR_SEQUENCE, "Ctrl+O", false, !rendu));
 					out.PushBack(NkFamilleSeparateur());
@@ -393,7 +401,7 @@ namespace nkentseu {
 					out.PushBack(NkFamilleLigneMenu("Enregistrer sous…", SCENA_A_ENREGISTRER_SOUS, "", false, !rendu));
 					out.PushBack(NkFamilleSeparateur());
 					out.PushBack(NkFamilleLigneMenu("Ouvrir une scène…", SCENA_A_OUVRIR_SCENE, "", false, !rendu));
-					out.PushBack(NkFamilleLigneMenu("Scène de démonstration (NogeDemo)", SCENA_A_SCENE_DEMO, "", false, !rendu));
+					out.PushBack(NkFamilleLigneMenu("Refaire la scène de démonstration (NogeDemo)", SCENA_A_SCENE_DEMO, "", false, !rendu));
 					out.PushBack(NkFamilleLigneMenu("Exemple : le joueur traverse", SCENA_A_EXEMPLE, "", false, !rendu));
 					out.PushBack(NkFamilleSeparateur());
 					out.PushBack(NkFamilleLigneMenu("Quitter", SCENA_A_QUITTER, "Ctrl+Q"));
@@ -411,6 +419,8 @@ namespace nkentseu {
 					out.PushBack(NkFamilleLigneMenu("Tout désélectionner", SCENA_A_DESELECTIONNER, "", false, sel));
 					break;
 				case SCENA_MENU_PISTE: {
+					// Le sous-menu « Plan de camera au curseur » pose son plan ICI.
+					mTempsMenuPlan = m.frise.cursor;
 					const NkString piste = sel ? NkString::Format("Piste de transformation : %s", nomSel.CStr())
 											   : NkString("Piste de transformation (choisir une entité)");
 					out.PushBack(NkFamilleLigneMenu(piste.CStr(), SCENA_A_PISTE_ENTITE, "", false,
@@ -423,8 +433,8 @@ namespace nkentseu {
 					out.PushBack(NkFamilleLigneMenu("Clé sur toute l'entité choisie", SCENA_A_CLES_ENTITE, "", false,
 													sel && m.APisteTransform(nomSel.CStr()) && !rendu));
 					out.PushBack(NkFamilleSeparateur());
-					out.PushBack(NkFamilleLigneMenu("Image précédente", SCENA_A_IMAGE_PRECEDENTE, "←"));
-					out.PushBack(NkFamilleLigneMenu("Image suivante", SCENA_A_IMAGE_SUIVANTE, "→"));
+					out.PushBack(NkFamilleLigneMenu("Image précédente", SCENA_A_IMAGE_PRECEDENTE, "Gauche"));
+					out.PushBack(NkFamilleLigneMenu("Image suivante", SCENA_A_IMAGE_SUIVANTE, "Droite"));
 					break;
 				}
 				case SCENA_MENU_RENDU: {
@@ -458,7 +468,7 @@ namespace nkentseu {
 					out.PushBack(NkFamilleIntitule("NKScena — le temps sur une scène Noge"));
 					out.PushBack(NkFamilleIntitule("Pistes, clés et plans caméra sur la frise, rendu en images"));
 					out.PushBack(NkFamilleSeparateur());
-					out.PushBack(NkFamilleIntitule("Espace : jouer / pause · ← → : image par image"));
+					out.PushBack(NkFamilleIntitule("Espace : jouer / pause · Gauche, Droite : image par image"));
 					out.PushBack(NkFamilleIntitule("I : poser une clé · Suppr : supprimer · Ctrl+Z / Ctrl+Y"));
 					out.PushBack(NkFamilleIntitule("0 : vue libre / caméra du plan · Ctrl+R : rendre"));
 					out.PushBack(NkFamilleIntitule("Clic droit + souris : tourner la vue · molette : zoom"));
@@ -588,8 +598,12 @@ namespace nkentseu {
 				case SCENA_A_OUVRIR_SCENE:
 					OuvrirSelecteur(3, NkSelecteurOuvrirFichier, "Build/NKScena", ".nkscene3d", nullptr);
 					break;
+				case SCENA_A_LANCEUR:
+					mLanceurActif = true;
+					mLanceur.erreur.Clear();
+					break;
 				case SCENA_A_SCENE_DEMO:
-					(void)m.SceneDemo();
+					(void)m.SceneDemo(NkScenaModele::kSceneDemo, true);
 					break;
 				case SCENA_A_EXEMPLE:
 					(void)m.Exemple();

@@ -505,7 +505,7 @@ namespace nkentseu {
 			dl.PushClipRect(v, true);
 			const bool parLaCamera = m.vueCamera && m.CameraDuPlan(m.frise.cursor).IsValid();
 			if (rendu) {
-				const NkString t = NkString::Format("Rendu  %d / %d  →  %s", mHote.rendu->image, mHote.rendu->total,
+				const NkString t = NkString::Format("Rendu  %d / %d  vers  %s", mHote.rendu->image, mHote.rendu->total,
 													mHote.rendu->dossier.CStr());
 				const NkRect b{v.x + 10.f, v.y + 10.f, NkFamilleLargeur(c.police, t.CStr()) + 16.f, 22.f};
 				dl.AddRectFilled(b, NkColor(kNkScenaAccent), 2.f);

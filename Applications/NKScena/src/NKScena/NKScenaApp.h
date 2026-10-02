@@ -53,10 +53,13 @@ namespace nkentseu {
 				NkString selection;		 ///< --selection=NOM : l'entite choisie
 				NkString choix;			 ///< --details=piste|cle|plan|sequence
 				int32 outil = -1;		 ///< --outil=deplacer|tourner|echelle
+				bool courbes = false;	 ///< --courbes : la frise en editeur de courbes
+				NkString enregistrer;	 ///< --enregistrer[=F] : enregistrer la sequence au depart
 				bool rendre = false;	 ///< --rendre : lancer « Rendre » au depart, puis sortir
 				NkString sortie;		 ///< --sortie=DOSSIER : le dossier du rendu
 				int32 captureImage = 0;	 ///< --capture-image=N : capturer PENDANT le rendu, a l'image N
 				bool horsEcran = false;	 ///< la fenetre est hors de tout ecran (capture, rendu scripte)
+				bool lanceur = false;	 ///< le lanceur de la famille au depart (--lanceur, ou lancement nu)
 		};
 
 		/// Le moteur, SANS physique : NKScena pose le temps, elle ne le simule pas.

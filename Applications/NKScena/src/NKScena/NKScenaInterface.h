@@ -24,6 +24,7 @@
 
 #include "Noge/Core/NkLayer.h"
 #include "NKEditorKit/Famille/NkFamille.h"
+#include "NKEditorKit/NkProjectLauncherHost.h"
 #include "NKEditorKit/NkTheme.h"
 #include "NKEditorKit/Components/NkTimelineModel.h"
 #include "NKEditorKit/Terminal/NkTerminalPanneau.h"
@@ -70,6 +71,9 @@ namespace nkentseu {
 				NkString contenu = "Build/NKScena";
 				/// Demande de rendu (l'application la prend a l'image suivante).
 				bool *demandeRendu = nullptr;
+				/// Ouvrir LE LANCEUR de la famille au demarrage (lancement interactif
+				/// sans sequence, sans scene, sans exemple donnes).
+				bool lanceur = false;
 		};
 
 		/// Les menus (0..6 : ceux de la barre de titre).
@@ -127,6 +131,7 @@ namespace nkentseu {
 			SCENA_A_THEME,
 			SCENA_A_DISPOSITION,
 			SCENA_A_GRILLE,
+			SCENA_A_LANCEUR,		 ///< Fichier > Accueil : le lanceur de la famille
 			SCENA_A_OUTIL = 200,		///< + 0 selection, 1 deplacer, 2 tourner, 3 echelle
 			SCENA_A_PISTE_DE = 1000,	///< + indice d'entite (menu « + Piste »)
 			SCENA_A_PLAN_DE = 2000,		///< + indice de camera (menu des plans)
@@ -162,6 +167,9 @@ namespace nkentseu {
 				void Journal(const char *texte, editorkit::NkFamilleNiveau niveau = editorkit::NkFamilleNiveau::Info);
 
 				void Executer(int32 a) override;
+				bool LanceurOuvert() const noexcept {
+					return mLanceurActif;
+				}
 				void Remplir(int32 m, NkVector<editorkit::NkFamilleEntreeMenu> &sortie) override;
 
 			protected:
@@ -192,6 +200,11 @@ namespace nkentseu {
 				bool Gizmo(editorkit::NkFamilleCtx &c, nkgui::NkGuiDrawList &dl, bool souris);
 				void BarreFlottante(editorkit::NkFamilleCtx &c);
 				void CadreDuPlan(editorkit::NkFamilleCtx &c, nkgui::NkGuiDrawList &dl);
+
+				// ── Le lanceur de la famille (NKScenaLanceur.cpp) ──────────────
+				void PreparerLanceur();
+				void PeindreLanceur(editorkit::NkFamilleCtx &c);
+				void ToucherRecent();
 
 				// ── Les panneaux (NKScenaInterfacePanneaux.cpp) ────────────────
 				void Outliner(editorkit::NkFamilleCtx &c);
@@ -246,6 +259,13 @@ namespace nkentseu {
 				char mTamponSelecteur[512] = {};
 				int32 mOngletDroite = 0; ///< 0 Details, 1 Sequence
 				int32 mOngletTiroir = 0; ///< 0 Frise, 1 Contenu, 2 Journal, 3 Terminal
+
+				// ── Le lanceur (NkProjectLauncherModel, celui de toute la famille) ──
+				editorkit::NkProjectLauncherModel mLanceur;
+				editorkit::NkLanceurPolices mPolicesLanceur;
+				editorkit::NkLanceurRecents mRecents;
+				bool mLanceurActif = false;
+				NkString mRecentTouche; ///< la derniere sequence notee dans les recents
 
 				// ── La frise : ce qu'elle montrait a la trame d'avant ────────
 				nk_uint64 mFriseActiveAvant = 0;
