@@ -229,6 +229,28 @@ namespace nkentseu {
 			}
 		}
 
+		void NkGuiDrawList::AddMesh(uint32 texId, const NkVec2 *pts, const NkVec2 *uvs, const NkColor *cols, int32 nVtx,
+									const uint32 *indices, int32 nIdx) noexcept {
+			// Un maillage INDEXE (le maillage 2D d'Unkeny) : les sommets une seule
+			// fois, les triangles par indices. Meme chemin que AddImagePolygon
+			// (TexturedTriangles si texId), mais la couleur est PAR SOMMET : une
+			// teinte ou un fondu qui suit la deformation.
+			if (!pts || !indices || nVtx < 3 || nIdx < 3)
+				return;
+			const uint32 base = static_cast<uint32>(vtx.Size());
+			const NkVec2 zero{0.f, 0.f};
+			const uint32 blanc = NkGuiPackColor(NkColor{255, 255, 255, 255});
+			for (int32 i = 0; i < nVtx; ++i) {
+				Vtx(pts[i], uvs ? uvs[i] : zero, cols ? NkGuiPackColor(cols[i]) : blanc);
+			}
+			for (int32 k = 0; k + 2 < nIdx; k += 3) {
+				const uint32 a = indices[k], b = indices[k + 1], c = indices[k + 2];
+				if (a >= static_cast<uint32>(nVtx) || b >= static_cast<uint32>(nVtx) || c >= static_cast<uint32>(nVtx))
+					continue;
+				Tri(base + a, base + b, base + c, texId);
+			}
+		}
+
 		void NkGuiDrawList::AddRectFilledMultiColor(const NkRect &r, const NkColor &tl, const NkColor &tr,
 													const NkColor &br, const NkColor &bl) noexcept {
 			// Quad à couleurs de coin (dégradé bilinéaire) — base du sélecteur de
