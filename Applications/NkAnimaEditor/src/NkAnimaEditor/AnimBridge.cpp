@@ -27,6 +27,9 @@
 #include "NKRenderer/Core/NkRenderGraph.h"					 // Execute() pipeline complet (option A)
 #include "NKGui/NkGuiRHIBackend.h"							 // RegisterTexture (Integrations/NKGui)
 #include "NkAnimaEditor/NkRagdollBridge.h"
+#include "NKAnima/Skeleton/NkSkeleton2D.h" // (R30, 02/10) le squelette 2D : .nkskel
+#include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkFile.h"
 #include "NKAnima/Skeleton/NkSkeletonDef.h" // LA conversion locale -> monde (2026-09-04)					 // couplage ragdoll <-> squelette (NKPhysics)
 #include "NKAnima/Physics/NkPoseMass.h"						 // M3.1 : distribution de masse + COM
 #include "NKAnima/Physics/NkBalance.h"						 // M3.2 : équilibre, polygone de support
@@ -166,7 +169,114 @@ namespace nkanima {
 		return p.Empty() ? nkentseu::NkString(relatif) : p;
 	}
 
+	namespace {
+		/// (R30, 02/10) Le dossier d'un chemin (sans la barre finale), et les fichiers
+		/// d'une extension qui s'y trouvent.
+		nkentseu::NkString DossierDe(const nkentseu::NkString &chemin) {
+			int32 i = (int32)chemin.Size() - 1;
+			while (i >= 0 && chemin[(uint32)i] != '/' && chemin[(uint32)i] != '\\') {
+				--i;
+			}
+			return i > 0 ? nkentseu::NkString(chemin.CStr(), (nkentseu::usize)i) : nkentseu::NkString(".");
+		}
+
+		nkentseu::NkString Voisin(const nkentseu::NkString &chemin, const char *ext) {
+			// Le meme nom d'abord (Bodofia.nkskel -> Bodofia.nkanim), sinon le premier du dossier.
+			nkentseu::NkString meme = chemin;
+			const int32 point = (int32)meme.Size() - 1;
+			int32 p = point;
+			while (p >= 0 && meme[(uint32)p] != '.') {
+				--p;
+			}
+			if (p > 0) {
+				meme = nkentseu::NkString(chemin.CStr(), (nkentseu::usize)p);
+				meme.Append(ext);
+				if (nkentseu::NkFile::Exists(meme.CStr())) {
+					return meme;
+				}
+			}
+			nkentseu::NkString motif("*");
+			motif.Append(ext);
+			const nkentseu::NkVector<nkentseu::NkString> f = nkentseu::NkDirectory::GetFiles(DossierDe(chemin).CStr(), motif.CStr());
+			if (f.Empty()) {
+				return nkentseu::NkString();
+			}
+			nkentseu::NkString c = f[0];
+			if (!nkentseu::NkFile::Exists(c.CStr())) {
+				c = DossierDe(chemin);
+				c.Append("/");
+				c.Append(f[0].CStr());
+			}
+			return c;
+		}
+
+		/// (R30, 02/10) UN SQUELETTE 2D d'Unkeny et ses clips : LES MEMES FICHIERS que
+		/// UnkenyEditor (.nkskel de NKAnima, .nkanim a pistes d'os). Pas de maillage ici :
+		/// la vue montre le squelette (l'apercu 2D), la frise ses pistes d'os.
+		bool InitSquelette2D(const char *chemin, bool estSquelette) {
+			const nkentseu::NkString c(chemin);
+			const nkentseu::NkString cheminSq = estSquelette ? c : Voisin(c, ".nkskel");
+			const nkentseu::NkString cheminClip = estSquelette ? Voisin(c, ".nkanim") : c;
+			anim::NkSkeleton2D sq;
+			bool deux = false;
+			const bool sqOk = !cheminSq.Empty() && sq.LoadBinary(cheminSq, &deux);
+			anim::NkAnimationClip clip;
+			const bool clipOk = !cheminClip.Empty() && clip.LoadBinary(cheminClip);
+			if (!sqOk && !clipOk) {
+				logger.Error("[AnimBridge] squelette 2D : ni .nkskel ni .nkanim lisible ({0})\n", chemin);
+				return false;
+			}
+			if (sqOk) {
+				// Le clip parle-t-il CE squelette (memes os, par nom) ? Ses pistes sont
+				// reprises par nom ; un os sans piste reste a son repos.
+				anim::NkAnimationClip pret;
+				pret.name = clipOk ? clip.name : nkentseu::NkString(sq.skeleton.bones.Empty() ? "Squelette" : sq.skeleton.bones[0].name);
+				pret.duration = clipOk && clip.duration > 1e-3f ? clip.duration : 1.f;
+				pret.fps = clipOk && clip.fps > 0.f ? clip.fps : 30.f;
+				pret.loop = clipOk ? clip.loop : true;
+				pret.propertyTracks = clip.propertyTracks;
+				pret.ResizeBones(sq.Count());
+				for (uint32 j = 0; clipOk && j < sq.Count(); ++j) {
+					for (uint32 a = 0; a < (uint32)clip.boneTracks.Size(); ++a) {
+						const nkentseu::NkString &n = a < (uint32)clip.jointNames.Size() ? clip.jointNames[a] : clip.boneTracks[a].name;
+						if (n == nkentseu::NkString(sq.skeleton.bones[j].name)) {
+							pret.boneTracks[j] = clip.boneTracks[a];
+						}
+					}
+				}
+				// Sans aucune cle, le repos a 0 : la frise a au moins une pose.
+				sq.PrepareClip(pret, !clipOk);
+				clip = pret;
+			}
+			g.gltf.isSkinned = false; // aucun maillage 3D : la vue montre le squelette
+			g.clip = clip;
+			g.player.SetClip(&g.clip);
+			g.player.Play(anim::NkPlayMode::NK_LOOP, 1.f);
+			g.editor.SetClip(&g.clip);
+			g.editor.SetSnap(1.f / (g.clip.fps > 0.f ? g.clip.fps : 30.f));
+			g.loaded = true;
+			g.comJointCount = 0;
+			BuildSkeletonAux();
+			logger.Info("[AnimBridge] squelette 2D '{0}' ({1}) + clip '{2}' : {3} os, dur={4}s\n", cheminSq.CStr(), deux ? "marque 2D" : "3D a plat",
+						cheminClip.CStr(), (uint32)g.clip.boneTracks.Size(), g.clip.duration);
+			return true;
+		}
+	} // namespace
+
 	bool AnimInit(const char *modelPath) {
+		// (R30, 02/10) Un SQUELETTE 2D d'Unkeny (.nkskel) ou l'un de ses clips (.nkanim).
+		{
+			nkentseu::NkString bas{modelPath != nullptr ? modelPath : ""};
+			for (uint32 i = 0; i < (uint32)bas.Size(); ++i) {
+				const char ch = bas[i];
+				if (ch >= 'A' && ch <= 'Z') {
+					bas[i] = (char)(ch + 32);
+				}
+			}
+			if (bas.EndsWith(".nkskel") || bas.EndsWith(".nkanim")) {
+				return InitSquelette2D(modelPath, bas.EndsWith(".nkskel"));
+			}
+		}
 		// Routage par extension (insensible a la casse — meme critere que
 		// NkMeshSystem::Import) : le chemin FBX porte desormais squelette,
 		// skinning et animations (chantier « FBX operationnel », 2026-08-17).

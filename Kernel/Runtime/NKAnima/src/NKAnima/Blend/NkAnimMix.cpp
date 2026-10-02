@@ -72,7 +72,14 @@ namespace nkentseu {
 				}
 				const NkBoneTRS b = Decomposer(kb.value);
 				const float32 d = kb.time - ka.time;
-				const float32 u = d > 1e-6f ? (t - ka.time) / d : 0.f;
+				// (R30, 02/10) La COURBE de la cle (douce, entree, sortie, rebond...),
+				// comme toute autre piste : la frise d'Unkeny les propose sur les os.
+				// Lineaire et « cubique » (que les pistes de matrices tracent en droite)
+				// gardent l'interpolation d'avant, octet pour octet.
+				float32 u = d > 1e-6f ? (t - ka.time) / d : 0.f;
+				if (ka.interp != NkInterpMode::NK_LINEAR && ka.interp != NkInterpMode::NK_CUBIC) {
+					u = NkAnimationTrack<float32>::Ease(u, ka.interp);
+				}
 				NkBoneTRS r;
 				r.t = {a.t.x + (b.t.x - a.t.x) * u, a.t.y + (b.t.y - a.t.y) * u, a.t.z + (b.t.z - a.t.z) * u};
 				r.s = {a.s.x + (b.s.x - a.s.x) * u, a.s.y + (b.s.y - a.s.y) * u, a.s.z + (b.s.z - a.s.z) * u};
@@ -255,10 +262,21 @@ namespace nkentseu {
 			// matriciel de la machine).
 			if (clip.boneCount > 0) {
 				out.bones.Resize(clip.boneCount);
+				// (R30, 02/10) Un os SANS CLE d'un clip local reste a son REPOS (la
+				// « setup pose » de Spine), derive des inverses de repos du clip :
+				// local = inverseRepos(parent) x repos(os). Il valait l'identite --
+				// l'os s'effondrait sur son parent des qu'un clip ne le clait pas.
+				const bool repos = clip.skeletalLocal && (uint32)clip.jointInverseBind.Size() >= clip.boneCount;
 				for (uint32 j = 0; j < clip.boneCount; ++j) {
-					out.bones[j] = (j < (uint32)clip.boneTracks.Size() && !clip.boneTracks[j].Empty())
-									   ? EchantillonOs(clip.boneTracks[j], t)
-									   : NkBoneTRS();
+					if (j < (uint32)clip.boneTracks.Size() && !clip.boneTracks[j].Empty()) {
+						out.bones[j] = EchantillonOs(clip.boneTracks[j], t);
+					} else if (repos) {
+						const int32 p = j < (uint32)clip.jointParent.Size() ? clip.jointParent[j] : -1;
+						const NkMat4f monde = clip.jointInverseBind[j].Inverse();
+						out.bones[j] = Decomposer(p >= 0 && (uint32)p < clip.boneCount ? clip.jointInverseBind[(uint32)p] * monde : monde);
+					} else {
+						out.bones[j] = NkBoneTRS();
+					}
 				}
 				out.skeleton = &clip;
 			}

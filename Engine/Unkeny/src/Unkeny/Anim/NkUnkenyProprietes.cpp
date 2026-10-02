@@ -17,6 +17,7 @@
 #include "Unkeny/Scene/NkUnkenyComposants.h"
 #include "Unkeny/Scene/NkUnkenyHierarchie.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
+#include "Unkeny/Squelette/NkUnkenySquelette.h"
 
 #include <cmath>
 #include <cstring>
@@ -572,6 +573,22 @@ namespace nkentseu {
 				return true;
 			}
 
+			/// (R30) Un EMPLACEMENT du squelette 2D : « Emplacement[Main].image » (l'attache
+			/// montree) ou « .ordre » (son ordre de dessin), le nom de NKAnima.
+			NkEmplacement2D *Emplacement(NkScene &scene, ecs::NkEntityId id, const NkString &nom, bool &ordre) {
+				NkString slot;
+				if (!anim::NkParseSlot2DProperty(nom, slot, ordre)) {
+					return nullptr;
+				}
+				NkSquelette2D *sq = scene.Monde().Get<NkSquelette2D>(id);
+				for (uint32 e = 0; sq != nullptr && e < sq->nbEmplacements; ++e) {
+					if (slot == NkString(sq->emplacements[e].nom)) {
+						return &sq->emplacements[e];
+					}
+				}
+				return nullptr;
+			}
+
 			bool EcrireInterne(NkScene &scene, ecs::NkEntityId id, const NkString &nom, const NkVec4f &v, bool &hierarchie) {
 				if (!scene.Monde().IsAlive(id)) {
 					return false;
@@ -579,6 +596,16 @@ namespace nkentseu {
 				const int32 k = IndexNoyau(nom);
 				if (k >= 0) {
 					return EcrireNoyau(scene, id, static_cast<NkNoyau>(k), v, hierarchie);
+				}
+				bool ordre = false;
+				if (NkEmplacement2D *e = Emplacement(scene, id, nom, ordre)) {
+					const int32 x = static_cast<int32>(std::floor(v.x + 0.5f));
+					if (ordre) {
+						e->ordre = static_cast<int16>(x);
+					} else {
+						e->attache = static_cast<int8>(x);
+					}
+					return true;
 				}
 				uint32 copieur = 0;
 				const NkChampSauve *champ = nullptr;
@@ -630,6 +657,22 @@ namespace nkentseu {
 				p.genre = kNoyau[k].genre;
 				p.canaux = kNoyau[k].canaux;
 				out.PushBack(p);
+			}
+			// (R30) Les EMPLACEMENTS du squelette 2D : l'attache montree et l'ordre
+			// de dessin, par paliers (les noms de NKAnima, NkSlot2DProperty).
+			if (const NkSquelette2D *sq = scene.Monde().Get<NkSquelette2D>(id)) {
+				for (uint32 e = 0; e < sq->nbEmplacements; ++e) {
+					for (uint32 q = 0; q < 2u; ++q) {
+						NkProprieteAnimable p;
+						p.nom = anim::NkSlot2DProperty(NkString(sq->emplacements[e].nom), q == 1u);
+						p.libelle = NkString(sq->emplacements[e].nom);
+						p.libelle.Append(q == 1u ? " : ordre" : " : image");
+						p.groupe = "Squelette 2D";
+						p.genre = NkGenrePropriete::NK_STEP;
+						p.canaux = 1;
+						out.PushBack(p);
+					}
+				}
 			}
 			// Les composants DECRITS que l'entite porte.
 			NkVector<uint8> octets;
@@ -698,6 +741,11 @@ namespace nkentseu {
 			const int32 k = IndexNoyau(nom);
 			if (k >= 0) {
 				return LireNoyau(scene, id, static_cast<NkNoyau>(k), v);
+			}
+			bool ordre = false;
+			if (const NkEmplacement2D *e = Emplacement(scene, id, nom, ordre)) {
+				v.x = static_cast<float32>(ordre ? e->ordre : e->attache);
+				return true;
 			}
 			uint32 copieur = 0;
 			const NkChampSauve *champ = nullptr;
@@ -784,7 +832,9 @@ namespace nkentseu {
 										 float32 t) {
 			// (01/10 soir) Une SEQUENCE (des clips poses, NLA) : la pose melangee de
 			// NKAnima, ses pistes propres comprises.
-			if (!clip.clipTracks.Empty()) {
+			// (R30) Un clip d'OS sur une entite a squelette 2D : la pose de NKAnima
+			// (os, puis proprietes) -- le meme chemin que le melange.
+			if (!clip.clipTracks.Empty() || (clip.boneCount > 0u && scene.Monde().Get<NkSquelette2D>(racine) != nullptr)) {
 				const anim::NkClipLookup lookup = NkRechercheClipsProprietes();
 				anim::NkAnimPose pose;
 				anim::NkSampleClip(clip, t, pose, &lookup);
@@ -818,6 +868,12 @@ namespace nkentseu {
 		uint32 NkAppliquerPoseProprietes(NkScene &scene, ecs::NkEntityId racine, const anim::NkAnimPose &pose) {
 			uint32 n = 0;
 			bool hierarchie = false;
+			// (R30) Les OS de la pose vont au squelette 2D de la racine (par NOM).
+			if (!pose.bones.Empty()) {
+				if (NkSquelette2D *sq = scene.Monde().Get<NkSquelette2D>(racine)) {
+					n += NkSqueletteAppliquerPose(*sq, pose);
+				}
+			}
 			for (uint32 i = 0; i < (uint32)pose.props.Size(); ++i) {
 				const anim::NkPropValue &p = pose.props[i];
 				if (p.weight <= 1e-4f) {

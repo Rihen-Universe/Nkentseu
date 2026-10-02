@@ -1031,6 +1031,7 @@ int nkmain(const NkEntryState &state) {
 	float secondes = 0.f;  // --secondes=S : la face se ferme seule (captures hors ecran)
 	bool horsEcran = false; // --hors-ecran : la fenetre de la face se pose hors de tout ecran
 	const char *capturesFrise = nullptr;
+	const char *capturesSquelette2D = nullptr; // (R30, 02/10)
 	for (usize i = 1; i < args.Size(); ++i) {
 		const NkString &a = args[i];
 		if (a == "--ancienne-coquille") {
@@ -1051,6 +1052,10 @@ int nkmain(const NkEntryState &state) {
 		}
 		if (a.StartsWith("--captures-frise=")) { // (01/10 soir) la frise partagee, hors ecran
 			capturesFrise = a.CStr() + 17;
+			continue;
+		}
+		if (a.StartsWith("--captures-squelette2d=")) { // (R30, 02/10) le squelette 2D d'Unkeny
+			capturesSquelette2D = a.CStr() + 23;
 			continue;
 		}
 		if (a.StartsWith("--interface=")) {
@@ -1080,6 +1085,8 @@ int nkmain(const NkEntryState &state) {
 		return SondeCoquille(dossierUI);
 	if (capturesFrise != nullptr)
 		return nkanima::NkAnimaCapturesFrise(capturesFrise, modelPath);
+	if (capturesSquelette2D != nullptr)
+		return nkanima::NkAnimaCapturesSquelette2D(capturesSquelette2D, modelPath);
 	// LA FACE D'UE5 (R32) est le chemin par defaut ; l'ancienne coquille suit.
 	if (!ancienne)
 		return nkanima::NkAnimaLancerFace(modelPath, static_cast<int>(gfx), secondes, horsEcran);

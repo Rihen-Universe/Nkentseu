@@ -38,6 +38,7 @@
 
 #include "Ia/NkEditeurIA.h"
 #include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurSquelette.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurReferences.h"
@@ -116,6 +117,7 @@ namespace nkentseu {
 						return 4;
 					case NkCarteEditeur::NK_ANIMATION:
 					case NkCarteEditeur::NK_ANIMATEUR:
+					case NkCarteEditeur::NK_SQUELETTE: // (2026-10-02, R30)
 						return 5;
 					case NkCarteEditeur::NK_SOURCE:
 						return 6;
@@ -242,6 +244,16 @@ namespace nkentseu {
 						dl.AddCircle(P(cx - 2.f, cy - 1.5f), 4.2f, col, 1.2f);
 						dl.AddTriangleFilled(P(cx + 1.f, cy - 1.f), P(cx + 6.5f, cy + 6.f), P(cx - 4.5f, cy + 6.f), col);
 						break;
+					case NkCarteEditeur::NK_SQUELETTE: {
+						// (2026-10-02, R30) Un squelette : trois os en chaine, des articulations.
+						const NkVec2 a = P(cx - 6.f, cy + 6.f), b = P(cx - 1.f, cy - 1.f), h = P(cx + 5.f, cy - 5.f);
+						dl.AddLine(a, b, col, 1.6f);
+						dl.AddLine(b, h, col, 1.6f);
+						dl.AddCircleFilled(a, 1.9f, col);
+						dl.AddCircleFilled(b, 1.9f, col);
+						dl.AddCircleFilled(h, 1.9f, col);
+						break;
+					}
 					case NkCarteEditeur::NK_MAILLAGE: {
 						// (2026-10-02, R31) Un maillage : des triangles et leurs sommets.
 						const NkVec2 a = P(cx - 6.f, cy + 5.f), b = P(cx + 6.f, cy + 5.f), h = P(cx - 2.f, cy - 6.f), d = P(cx + 6.f, cy - 3.f);
@@ -1828,6 +1840,44 @@ namespace nkentseu {
 				Fin(I);
 			}
 
+			/// (2026-10-02, R30) LE SQUELETTE 2D : ses os, ses emplacements, ses chaines ;
+			/// la fenetre d'edition (outil Os), le .nkskel, le retour au repos.
+			void CarteSquelette(NkInspecteur &I) {
+				NkEditeurModele &m = I.c.m;
+				NkEditeurInterface &ui = I.c.ui;
+				unkeny::NkSquelette2D *sq = m.scene.Monde().Get<unkeny::NkSquelette2D>(I.id);
+				if (sq == nullptr || !Entete(I, NkCarteEditeur::NK_SQUELETTE, nullptr)) {
+					return;
+				}
+				const NkMaillage2D *ml = m.scene.Monde().Get<NkMaillage2D>(I.id);
+				Info(I, "Os", NkString::Format("%u os, %u emplacement(s), %u chaîne(s) molle(s), %u IK", static_cast<uint32>(sq->nbOs),
+											   static_cast<uint32>(sq->nbEmplacements), static_cast<uint32>(sq->nbChaines), static_cast<uint32>(sq->nbIK))
+								 .CStr());
+				Info(I, "Peau", ml == nullptr ? "(aucun maillage : rien à déformer)"
+											   : NkString::Format("%u sommet(s) pondéré(s) sur %u", unkeny::NkSommetsPonderes2D(*ml), static_cast<uint32>(ml->nbSommets)).CStr());
+				Info(I, "Pose", unkeny::NkSqueletteEnPose(*sq) ? "posé (≠ repos)" : "au repos");
+				Case(I, "Os visibles en jeu", sq->osVisibles);
+				if (sq->source[0] != '\0') {
+					Info(I, "Asset", sq->source);
+				}
+				const bool edition = m.etat == NkEtatJeu::NK_EDITION;
+				const int32 b = Boutons(I, "Éditer le squelette…", "Revenir au repos", ml != nullptr, edition);
+				if (b == 0) {
+					if (NkEditeurOuvrirMaillage(m, ui, I.id)) {
+						if (NkDocMaillage *d = NkEditeurDocMaillageActif(ui)) {
+							d->outil = NkOutilMaillage::NK_OS;
+						}
+					}
+				} else if (b == 1) {
+					NkEditeurSqueletteRepos(m, I.id);
+				}
+				if (Boutons(I, "Enregistrer le squelette (.nkskel)", nullptr, edition && sq->nbOs > 0u) == 0) {
+					NkEditeurSqueletteEnregistrerAsset(m, I.id);
+					ui.contenuPerime = true;
+				}
+				Fin(I);
+			}
+
 			/// Des boutons sur la largeur de la carte (2026-10-02 : les quatre gestes
 			/// d'un script) ; rend celui clique, ou -1.
 			int32 BoutonsN(NkInspecteur &I, const char *const *noms, const bool *actifs, int32 n) {
@@ -2127,6 +2177,9 @@ namespace nkentseu {
 						break;
 					case NkCarteEditeur::NK_MAILLAGE:
 						CarteMaillage(I);
+						break;
+					case NkCarteEditeur::NK_SQUELETTE:
+						CarteSquelette(I);
 						break;
 					default:
 						break;

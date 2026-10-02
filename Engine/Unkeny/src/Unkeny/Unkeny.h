@@ -70,6 +70,7 @@
 #include "Unkeny/Maillage/NkUnkenyMaillage.h"
 #include "Unkeny/Maillage/NkUnkenyMaillageFichier.h"
 #include "Unkeny/Maillage/NkUnkenyMaillagePhysique.h"
+#include "Unkeny/Squelette/NkUnkenySquelette.h"
 #include "Unkeny/Monde/NkUnkenyTuiles.h"
 #include "Unkeny/Vues/NkUnkenyVues.h"
 #include "Unkeny/Rendu/NkUnkenyEclairage.h"

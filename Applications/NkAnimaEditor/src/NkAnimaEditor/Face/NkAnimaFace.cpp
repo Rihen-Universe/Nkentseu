@@ -167,6 +167,9 @@ namespace nkanima {
 			{".gltf", "Personnage", NkRole::TypeAnim, static_cast<uint8>(NkAssetIcone::Inconnu)},
 			{".fbx", "Personnage", NkRole::TypeAnim, static_cast<uint8>(NkAssetIcone::Inconnu)},
 			{".nkanimctl", "Contrôleur", NkRole::AccentSel, static_cast<uint8>(NkAssetIcone::Texte)},
+			// (R30, 02/10) Le squelette 2D d'Unkeny et ses clips : les memes fichiers.
+			{".nkskel", "Squelette", NkRole::TypeAnim, static_cast<uint8>(NkAssetIcone::Inconnu)},
+			{".nkanim", "Animation", NkRole::TypeAnim, static_cast<uint8>(NkAssetIcone::Texte)},
 			{".png", "Image", NkRole::TypeTex, static_cast<uint8>(NkAssetIcone::Image)},
 			{".jpg", "Image", NkRole::TypeTex, static_cast<uint8>(NkAssetIcone::Image)},
 			{".obj", "Maillage", NkRole::TypeMesh, static_cast<uint8>(NkAssetIcone::Inconnu)},

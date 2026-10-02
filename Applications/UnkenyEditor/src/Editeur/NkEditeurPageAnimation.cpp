@@ -22,6 +22,8 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurActions.h"
+#include "Unkeny/Squelette/NkUnkenySquelette.h"
+#include "NKMemory/NKMemory.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurPagesAnim.h"
 #include "NKCanvas/App/NkCanvasTexte.h"
@@ -51,6 +53,20 @@ namespace nkentseu {
 			/// clip synchronise. Faux = le repli du kit.
 			bool Evaluer(void *user, const editorkit::NkTimelineTrack &t, float32 temps, float32 out[4]) {
 				NkCtxFrise *cf = static_cast<NkCtxFrise *>(user);
+				// (R30) Une piste d'OS : la place de l'os telle que le jeu la jouera.
+				if (t.property == NkString(NK_FRISE_PROPRIETE_OS)) {
+					const int32 j = NkOsDuClipParNom(cf->d->clip, NkNomOsDePiste(t.object));
+					if (j < 0 || (uint32)j >= (uint32)cf->d->clip.boneTracks.Size() ||
+						cf->d->clip.boneTracks[(uint32)j].KeyCount() != (uint32)t.keys.Size()) {
+						return false;
+					}
+					const anim::NkBone2D b = anim::NkSampleBone2D(cf->d->clip, (uint32)j, temps);
+					out[0] = b.angle * 180.f / 3.14159265f;
+					out[1] = b.x;
+					out[2] = b.y;
+					out[3] = 0.f;
+					return true;
+				}
 				anim::NkAnimationClip::NkPropertyTrack *p = cf->d->clip.FindPropertyTrack(t.object, t.property);
 				if (p == nullptr || p->curve.Empty() || p->curve.KeyCount() != (uint32)t.keys.Size()) {
 					return false; // le clip a une trame de retard sur un geste : le repli
@@ -72,6 +88,19 @@ namespace nkentseu {
 				}
 				NkEditeurModele &m = cf->c->m;
 				const ecs::NkEntityId racine = NkEditeurCibleDoc(m, *cf->d);
+				// (R30) Une piste d'OS sans cle : la pose vivante de l'os.
+				if (t.property == NkString(NK_FRISE_PROPRIETE_OS)) {
+					const unkeny::NkSquelette2D *sq = m.scene.Monde().IsAlive(racine) ? m.scene.Monde().Get<unkeny::NkSquelette2D>(racine) : nullptr;
+					const int32 j = sq != nullptr ? unkeny::NkSqueletteTrouverOs(*sq, NkNomOsDePiste(t.object).CStr()) : -1;
+					if (j < 0) {
+						return false;
+					}
+					out[0] = sq->os[j].pangle * 180.f / 3.14159265f;
+					out[1] = sq->os[j].px;
+					out[2] = sq->os[j].py;
+					out[3] = 0.f;
+					return true;
+				}
 				const ecs::NkEntityId cible = unkeny::NkResoudreCible(m.scene, racine, t.object);
 				math::NkVec4f v;
 				if (!unkeny::NkLireProprieteAnimee(m.scene, cible, t.property, v)) {
@@ -149,6 +178,38 @@ namespace nkentseu {
 				const ecs::NkEntityId racine = NkEditeurCibleDoc(m, d);
 				if (!m.scene.Monde().IsAlive(racine)) {
 					return;
+				}
+				// (2026-10-02, R30) Les OS du squelette 2D : une piste par os (angle, x, y),
+				// et « tous les os » (une cle de pose au curseur).
+				if (const unkeny::NkSquelette2D *sq = m.scene.Monde().Get<unkeny::NkSquelette2D>(racine)) {
+					if (sq->nbOs > 0u) {
+						NkProposition tous;
+						tous.entete = "Squelette 2D";
+						tous.cible = NkString(NK_FRISE_OBJET_SQUELETTE);
+						tous.propriete.nom = "Os*";
+						tous.propriete.libelle = NkString::Format("Tous les os (clé de pose, %u os)", static_cast<uint32>(sq->nbOs));
+						d.propositions.PushBack(tous);
+					}
+					for (uint32 j = 0; j < sq->nbOs; ++j) {
+						NkString chemin(NK_FRISE_OBJET_SQUELETTE);
+						chemin.Append("/");
+						chemin.Append(unkeny::NkSqueletteCheminOs(*sq, j).CStr());
+						bool deja = false;
+						for (uint32 t = 0; t < (uint32)d.frise.tracks.Size(); ++t) {
+							deja = deja || (d.frise.tracks[t].property == NkString(NK_FRISE_PROPRIETE_OS) &&
+											NkNomOsDePiste(d.frise.tracks[t].object) == NkString(sq->os[j].nom));
+						}
+						if (deja) {
+							continue;
+						}
+						NkProposition p;
+						p.entete = "Squelette 2D";
+						p.cible = chemin;
+						p.propriete.nom = NK_FRISE_PROPRIETE_OS;
+						p.propriete.libelle = NkString::Format("Os : %s (angle, x, y)", sq->os[j].nom);
+						p.propriete.canaux = 3;
+						d.propositions.PushBack(p);
+					}
 				}
 				NkVector<ecs::NkEntityId> pile;
 				pile.PushBack(racine);
@@ -247,6 +308,29 @@ namespace nkentseu {
 					editorkit::NkTimelineTrack &t = d.frise.AddTrack(id, NkString(), "Clips", editorkit::NkTimelineValueKind::Clips, 1);
 					t.label = "Clips";
 					d.frise.activeTrack = id;
+					return;
+				}
+				// (2026-10-02, R30) Un OS (ou tous) : le clip apprend le squelette, puis une
+				// piste par os et sa cle au curseur, de la pose vivante.
+				if (p.propriete.nom == NkString(NK_FRISE_PROPRIETE_OS) || p.propriete.nom == NkString("Os*")) {
+					const ecs::NkEntityId racine = NkEditeurCibleDoc(m, d);
+					const unkeny::NkSquelette2D *sq = m.scene.Monde().IsAlive(racine) ? m.scene.Monde().Get<unkeny::NkSquelette2D>(racine) : nullptr;
+					if (sq == nullptr) {
+						return;
+					}
+					NkClipDepuisFrise(d.frise, d.clip); // le clip a jour avant de lui apprendre le squelette
+					uint8 choisis[unkeny::NK_SQUELETTE2D_OS_MAX] = {};
+					const bool tous = p.propriete.nom == NkString("Os*");
+					for (uint32 j = 0; j < sq->nbOs; ++j) {
+						choisis[j] = (tous || NkNomOsDePiste(p.cible) == NkString(sq->os[j].nom)) ? 1u : 0u;
+					}
+					const uint32 avant = (uint32)d.frise.tracks.Size();
+					unkeny::NkSqueletteCle(*sq, d.clip, d.frise.cursor, choisis);
+					// La frise relit le clip (les pistes d'os), en gardant son curseur.
+					const float32 curseur = d.frise.cursor;
+					NkFriseDepuisClip(d.clip, d.frise);
+					d.frise.cursor = curseur;
+					d.frise.activeTrack = (uint32)d.frise.tracks.Size() > avant ? d.frise.tracks[d.frise.tracks.Size() - 1].id : 0;
 					return;
 				}
 				editorkit::NkTimelineTrack &t =
@@ -559,9 +643,19 @@ namespace nkentseu {
 						d.retenues.PushBack(v);
 					}
 				}
+				// (R30) La pose des OS va au squelette : il est GARDE et RENDU apres le
+				// dessin, comme les proprietes (l'apercu ne laisse aucune trace).
+				unkeny::NkSquelette2D *sqVif = m.scene.Monde().Get<unkeny::NkSquelette2D>(cible);
+				unkeny::NkSquelette2D *sqGarde = sqVif != nullptr ? memory::NkGetDefaultAllocator().New<unkeny::NkSquelette2D>(*sqVif) : nullptr;
 				unkeny::NkAppliquerPoseProprietes(m.scene, cible, pose);
 				NkEditeurDessinerApercuAnim(c, cible, apercu);
 				NkEditeurRendreApercu(m, d);
+				if (sqGarde != nullptr) {
+					if (unkeny::NkSquelette2D *s2 = m.scene.Monde().Get<unkeny::NkSquelette2D>(cible)) {
+						*s2 = *sqGarde;
+					}
+					memory::NkGetDefaultAllocator().Delete(sqGarde);
+				}
 			} else {
 				NkEditeurDessinerApercuAnim(c, cible, apercu);
 				if (m.etat != NkEtatJeu::NK_EDITION && m.scene.Monde().IsAlive(cible)) {
@@ -627,6 +721,16 @@ namespace nkentseu {
 										   "« + Piste » : une propriété (position, rotation, couleur, image…). Double-clic : une clé.",
 										   c.pal.attenue);
 			}
+		}
+
+		// (2026-10-02, R30) Les propositions de « + Piste » et leur ajout, pour le banc
+		// du squelette (les memes fonctions que le choix de la page).
+		void NkEditeurProposerPistes(NkEditeurModele &m, NkDocAnim &d) {
+			Proposer(m, d);
+		}
+
+		void NkEditeurAjouterPisteProposee(NkEditeurModele &m, NkDocAnim &d, const NkProposition &p) {
+			AjouterPiste(m, d, p);
 		}
 
 	} // namespace editeur

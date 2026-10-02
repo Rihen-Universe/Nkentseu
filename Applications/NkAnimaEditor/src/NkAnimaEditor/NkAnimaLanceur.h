@@ -48,7 +48,7 @@ namespace nkanima {
 		m.identite.prefixe = NkString("NkAnima");
 		m.identite.sousTitre = NkString("Animation squelettique — Nkentseu");
 		m.identite.version = NkString("0.1.0");
-		m.identite.extensions = NkString(".glb .gltf .fbx");
+		m.identite.extensions = NkString(".glb .gltf .fbx .nkskel .nkanim");
 		m.identite.accent = math::NkColor(0x00, 0xA8, 0xD0).ToUint32A(); // le cyan de l'editeur
 		m.identite.glyphe = G::Os;
 
@@ -161,7 +161,7 @@ namespace nkanima {
 			}
 			case NkLanceurAction::Ouvrir: {
 				const NkDialogResult d =
-					NkDialogs::OpenFileDialog("*.glb;*.gltf;*.fbx", "Ouvrir un personnage anime (glTF, FBX)");
+					NkDialogs::OpenFileDialog("*.glb;*.gltf;*.fbx;*.nkskel;*.nkanim", "Ouvrir un personnage anime (glTF, FBX, squelette 2D)");
 				if (!d.confirmed || d.path.Empty())
 					return false;
 				return AnimaChargerDepuisLanceur(l, d.path, NkPath(d.path.CStr()).GetFileNameWithoutExtension());

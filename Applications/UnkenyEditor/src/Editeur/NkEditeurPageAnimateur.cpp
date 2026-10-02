@@ -23,6 +23,7 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurActions.h"
+#include "Unkeny/Squelette/NkUnkenySquelette.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurPagesAnim.h"
 #include "NKCanvas/App/NkCanvasTexte.h"
@@ -295,6 +296,13 @@ namespace nkentseu {
 					m.scene.Enfants(pile[k], enfants);
 					for (uint32 e = 0; e < (uint32)enfants.Size(); ++e) {
 						pile.PushBack(enfants[e]);
+					}
+				}
+				// (2026-10-02, R30) Et les OS du squelette 2D : un masque « Torse » tient
+				// l'os et ses descendants (NkAnimMask::BoneWeights, par nom).
+				if (const unkeny::NkSquelette2D *sq = m.scene.Monde().Get<unkeny::NkSquelette2D>(cible)) {
+					for (uint32 j = 0; j < sq->nbOs; ++j) {
+						g.masks.PushBack(NkString(sq->os[j].nom));
 					}
 				}
 			}

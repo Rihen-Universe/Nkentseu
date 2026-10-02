@@ -165,4 +165,75 @@ namespace nkanima {
 		return erreurs == 0 ? 0 : 1;
 	}
 
+	// =========================================================================
+	// (2026-10-02, R30) LE SQUELETTE 2D D'UNKENY dans NkAnimaEditor : l'apercu
+	// (le squelette a la pose courante) au-dessus, le tiroir Frise (ses pistes
+	// d'os) en dessous. Les MEMES fichiers qu'UnkenyEditor (.nkskel, .nkanim).
+	// =========================================================================
+	int32 NkAnimaCapturesSquelette2D(const char *dossier, const char *modele) {
+		std::printf("=== CAPTURE DU SQUELETTE 2D (NkAnimaEditor) ===\n");
+		if (dossier == nullptr || !AnimInit(modele)) {
+			std::printf("  /!\\ squelette non charge : %s\n", modele != nullptr ? modele : "(aucun)");
+			return 1;
+		}
+		NkDirectory::CreateRecursive(dossier);
+		nkgui::NkGuiFont police;
+		const bool policeOk = police.LoadEmbedded(NkEmbeddedFontId::DroidSans, 15.f, false);
+		TimelinePanel frise;
+		PreviewPanel apercu;
+		const int32 W = 1600, H = 900, HA = 420;
+		apercu.zoneImposee = nkgui::NkRect{8.f, 8.f, (float32)W - 16.f, (float32)HA - 16.f};
+		AnimSetPlaying(false);
+		AnimSeek(AnimDuration() * 0.25f);
+		AnimUpdate(0.f);
+		NkString chemin(dossier);
+		chemin.Append("/09_nkanimaeditor_meme_squelette.png");
+		bool ok = false;
+		for (int32 k = 0; k < 3; ++k) {
+			nkgui::NkGuiContext ctx;
+			ctx.viewW = W;
+			ctx.viewH = H;
+			if (policeOk) {
+				ctx.font = &police;
+			}
+			ctx.BeginFrame(0.016f);
+			ctx.DL().Reset();
+			editorkit::NkEditorFrameContext ec;
+			ec.ui = &ctx;
+			ec.dt = 0.f;
+			ctx.BeginLayout({0.f, 0.f, (float32)W, (float32)HA});
+			apercu.OnUI(ec);
+			ctx.BeginLayout({0.f, (float32)HA, (float32)W, (float32)(H - HA)});
+			NkAnimaDessinerFriseZone(ec, 0.f, (float32)HA, (float32)W, (float32)(H - HA));
+			if (k == 0) {
+				// L'arbre des os replie sous le 3e niveau : la frise tient a l'ecran.
+				editorkit::NkTimelineModel &m = NkAnimaFriseModele();
+				m.collapsed.Clear();
+				for (uint32 i = 0; i < (uint32)m.tracks.Size(); ++i) {
+					const NkString &o = m.tracks[i].object;
+					if (editorkit::NkTimelineModel::ObjectDepth(o) >= 4 && !m.IsCollapsed(o)) {
+						m.collapsed.PushBack(o);
+					}
+				}
+			}
+			if (k + 1 < 3) {
+				continue;
+			}
+			nkgui::NkGuiDrawListRaster ras;
+			if (!ras.Init(W, H)) {
+				break;
+			}
+			ras.Effacer(0x141414FFu); // RGBA (le fond des captures d'UnkenyEditor)
+			if (policeOk) {
+				ras.PoserTexture(police.TexId(), police.pixels, police.atlasW, police.atlasH, 1);
+			}
+			ras.Rasteriser(ctx.dl);
+			ras.Rasteriser(ctx.dlOverlay);
+			NkImage img = NkImage::Wrap(const_cast<uint8 *>(ras.Pixels()), W, H, NkImagePixelFormat::NK_RGBA32);
+			ok = img.SavePNG(chemin.CStr());
+		}
+		std::printf("  capture %s : %s (%u os, %.2f s)\n", chemin.CStr(), ok ? "ok" : "ECHEC", AnimBoneCount(), (double)AnimDuration());
+		return ok && AnimBoneCount() > 0u ? 0 : 1;
+	}
+
 } // namespace nkanima

@@ -17,6 +17,7 @@
 #include "NKPhysics/NkParticules2DFabrique.h"
 #include "Unkeny/Scene/NkUnkenyFormes.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
+#include "Unkeny/Squelette/NkUnkenySquelette.h"
 
 namespace nkentseu {
 	namespace unkeny {
@@ -616,8 +617,14 @@ namespace nkentseu {
 		// =====================================================================
 		// LA PLACE DES SOMMETS
 		// =====================================================================
-		uint32 NkMaillagePositionsMonde(const NkScene &scene, const NkTransform2D &t, const NkMaillage2D &m, NkVec2f *sortie) noexcept {
+		uint32 NkMaillagePositionsMonde(const NkScene &scene, ecs::NkEntityId e, const NkTransform2D &t, const NkMaillage2D &m,
+										NkVec2f *sortie) noexcept {
 			const physics::NkParticules2D *pw = scene.Particules();
+			// (R30) La PEAU : les sommets ponderes suivent les os du squelette 2D de
+			// l'entite (sa pose) ; les autres restent au repos.
+			const NkSquelette2D *sq = e.IsValid() ? scene.Monde().Get<NkSquelette2D>(e) : nullptr;
+			NkVec2f peau[NK_MAILLAGE2D_SOMMETS_MAX];
+			NkMaillageDeformer2D(sq, m, peau);
 			// Par partie : sa pose (rigide), une fois.
 			bool rigide[NK_MAILLAGE2D_PARTIES_MAX] = {};
 			NkVec2f pose[NK_MAILLAGE2D_PARTIES_MAX];
@@ -651,14 +658,15 @@ namespace nkentseu {
 						}
 					}
 				}
-				sortie[i] = t.VersMonde(m.positions[i]);
+				sortie[i] = t.VersMonde(peau[i]);
 			}
 			return m.nbSommets;
 		}
 
-		float32 NkDistanceMaillage2D(const NkScene &scene, const NkTransform2D &t, const NkMaillage2D &m, const NkVec2f &p) noexcept {
+		float32 NkDistanceMaillage2D(const NkScene &scene, ecs::NkEntityId e, const NkTransform2D &t, const NkMaillage2D &m,
+									 const NkVec2f &p) noexcept {
 			NkVec2f w[NK_MAILLAGE2D_SOMMETS_MAX];
-			NkMaillagePositionsMonde(scene, t, m, w);
+			NkMaillagePositionsMonde(scene, e, t, m, w);
 			float32 d = 1.0e9f;
 			bool dedans = false;
 			for (uint32 tr = 0; tr < m.nbTriangles; ++tr) {

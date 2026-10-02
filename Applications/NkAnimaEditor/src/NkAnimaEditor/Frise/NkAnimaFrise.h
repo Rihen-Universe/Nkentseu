@@ -44,5 +44,8 @@ namespace nkanima {
 	/// `--captures-frise=DOSSIER [modele]` : le panneau de la frise HORS ECRAN, en
 	/// PNG (sans fenetre ni GPU). Rend 0 si toutes les images sont ecrites.
 	nkentseu::int32 NkAnimaCapturesFrise(const char *dossier, const char *modele);
+	/// (R30, 02/10) `--captures-squelette2d=DOSSIER chemin.nkskel` : le squelette 2D
+	/// d'Unkeny (apercu) et ses pistes d'os (frise), hors ecran. 0 = ecrite.
+	nkentseu::int32 NkAnimaCapturesSquelette2D(const char *dossier, const char *modele);
 
 } // namespace nkanima

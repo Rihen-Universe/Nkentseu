@@ -17,6 +17,7 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurApp.h"
+#include "Editeur/NkEditeurSquelette.h"
 
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurAssets.h"
@@ -491,6 +492,13 @@ namespace nkentseu {
 				if (args[i].StartsWith("--captures-maillage=")) {
 					return NkOptional<int>(NkEditeurCapturesMaillage(NkString(args[i].SubStr(20)).CStr()));
 				}
+				// (2026-10-02, R30) Le SQUELETTE 2D seul : le moteur, puis l'editeur.
+				if (args[i] == "--banc-squelette") {
+					return NkOptional<int>(unkeny::NkUnkenyLancerBancSquelette() | NkEditeurLancerBancSquelette());
+				}
+				if (args[i].StartsWith("--captures-squelette=")) {
+					return NkOptional<int>(NkEditeurCapturesSquelette(NkString(args[i].SubStr(21)).CStr()));
+				}
 				if (args[i] == "--selftest") {
 					// Le moteur d'abord (textures, sauvegarde, son, systemes), puis
 					// les ACTIONS de l'editeur : un echec d'Unkeny se lit ainsi a
@@ -530,10 +538,12 @@ namespace nkentseu {
 					const int32 ia = NkEditeurLancerBancIA();
 					// Le MAILLAGE 2D (02/10, R31) : le moteur, puis l'editeur, a part.
 					const int32 maillage = unkeny::NkUnkenyLancerBancMaillage() | NkEditeurLancerBancMaillage();
+					// Le SQUELETTE 2D (02/10, R30) : le moteur, puis l'editeur, a part.
+					const int32 squelette = unkeny::NkUnkenyLancerBancSquelette() | NkEditeurLancerBancSquelette();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
 									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
 									   ecran != 0 || terminal != 0 || ue5 != 0 || formes != 0 || animation != 0 ||
-									   scripts != 0 || assets != 0 || ia != 0 || maillage != 0;
+									   scripts != 0 || assets != 0 || ia != 0 || maillage != 0 || squelette != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une

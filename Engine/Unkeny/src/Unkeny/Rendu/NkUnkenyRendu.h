@@ -34,6 +34,7 @@
 
 namespace nkentseu {
 	namespace unkeny {
+		struct NkSquelette2D; // Squelette/NkUnkenySquelette.h (R30)
 
 		struct NkStatsRendu {
 				int32 entitesVues = 0;	  ///< entites avec sprite visible
@@ -59,8 +60,10 @@ namespace nkentseu {
 		/// (NkMaillagePositionsMonde) : la texture deformee, une couleur par sommet
 		/// (multipliee par la teinte), les parties dans leur ordre de dessin. C'est
 		/// le dessin de NkDessinerScene, offert a la fenetre d'edition.
+		/// (R30) `squelette` (facultatif) : ses EMPLACEMENTS cachent les attaches non
+		/// montrees et donnent son ordre a celle qui l'est (NkEmplacementsParties2D).
 		void NkDessinerMaillage2D(nkgui::NkGuiDrawList &dl, const NkVue2D &camera, const NkMaillage2D &m,
-								  const NkVec2f *monde);
+								  const NkVec2f *monde, const NkSquelette2D *squelette = nullptr);
 
 		/// La meme forme en VIGNETTE, inscrite dans le rectangle `r` (en pixels) :
 		/// les icones du panneau « Placer des acteurs ».

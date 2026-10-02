@@ -101,7 +101,9 @@ namespace nkentseu {
 			// L'etape 2 d'Unreal (2026-10-01, document 02 §5) : AJOUTES A LA FIN.
 			NK_TEXTURE_SPRITE, ///< la liste deroulante de la texture d'un sprite (Details)
 			// R33 (2026-10-01) : AJOUTES A LA FIN.
-			NK_COMPOSANT_MOU ///< sous-menu « Corps mou » de « Ajouter un composant » : la matiere
+			NK_COMPOSANT_MOU, ///< sous-menu « Corps mou » de « Ajouter un composant » : la matiere
+			// R30 (2026-10-02) : AJOUTE A LA FIN.
+			NK_COMPOSANT_SQUELETTE ///< sous-menu « Squelette 2D » : le modele de depart (ou vide)
 		};
 
 		/// La largeur de « Placer des acteurs » REPLIE : sa colonne d'onglets.
@@ -253,7 +255,8 @@ namespace nkentseu {
 			//   2300-2399  « Ajouter un composant > Animateur » (R33)
 			//   2400-2449  les pages Animation et Animateur (NkEditeurPagesAnim.h)
 			//   2450-2499  le MAILLAGE 2D (NkEditeurMaillage.h, 2026-10-02, R31)
-			//   2550-...   LIBRES (2500-2549 : l'IA)
+			//   2550-2599  le SQUELETTE 2D (NkEditeurSquelette.h, 2026-10-02, R30)
+			//   2600-...   LIBRES (2500-2549 : l'IA)
 			// Les pages Animation et Animateur (2026-10-01, NkEditeurPagesAnim.h) : 2400-2449.
 			NK_A_ANIM_ANIMATION = 2400, ///< Fenetre > Animation : le clip de la selection (ou un neuf)
 			NK_A_ANIM_ANIMATEUR = 2401,	///< Fenetre > Animateur : le controleur de la selection (ou un neuf)
@@ -629,7 +632,7 @@ namespace nkentseu {
 				/// composants d'une entite, il n'y a pas d'ordre propre a garder.
 				// (2026-10-02, R31) Le MAILLAGE 2D (14) juste apres la Forme 2D (11) : la
 				// meme famille (Rendu). Les places 0..3 ne bougent pas.
-				uint8 ordreCartes[static_cast<uint32>(NkCarteEditeur::NK_COUNT)] = {0, 1, 2, 3, 4, 5, 6, 9, 10, 11, 14, 7, 12, 13, 8};
+				uint8 ordreCartes[static_cast<uint32>(NkCarteEditeur::NK_COUNT)] = {0, 1, 2, 3, 4, 5, 6, 9, 10, 11, 14, 15, 7, 12, 13, 8};
 				// (2026-10-01, R33) Forme 2D et Ancrage AJOUTES vers la fin : les places
 				// 0..3 ne bougent pas (le banc e45 de Monter / Descendre les lit).
 				int32 carteMenu = -1;			   ///< la carte dont le menu « ⋮ » est ouvert

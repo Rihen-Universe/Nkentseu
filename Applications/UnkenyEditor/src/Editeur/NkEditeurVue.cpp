@@ -30,6 +30,7 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurSquelette.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurPlacer.h"
 #include "Editeur/NkEditeurViseur.h"
@@ -1041,6 +1042,7 @@ namespace nkentseu {
 			c.m.stats = NkDessinerViseur(dl, c.m, aire, appareil);
 			DessinerGizmo(c, dl);
 			NkEditeurDessinerPoigneesCollision(c, dl); // 2026-10-01
+			NkEditeurDessinerOsScene(c);			   // (2026-10-02, R30) les os de la selection
 			Repere(c, dl, aire);
 			dl.PopClipRect();
 			// La barre flottante APRES la scene (elle passe dessus) et AVANT la
