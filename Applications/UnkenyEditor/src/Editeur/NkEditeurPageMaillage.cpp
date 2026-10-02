@@ -405,7 +405,12 @@ namespace nkentseu {
 					};
 					switch (d.outil) {
 						case NkOutilMaillage::NK_OS:
-							if (sq != nullptr && surTete >= 0) {
+							if (sq != nullptr && in.shiftDown && d.os >= 0 &&
+								std::fabs(queue[d.os].x - in.mousePos.x) + std::fabs(queue[d.os].y - in.mousePos.y) <= 14.f) {
+								// Maj + glisser depuis le BOUT de l'os choisi : un os CHAINE.
+								d.osGeste = 1;
+								d.osAppui = NkSqueletteQueue(*sq, monde, static_cast<uint32>(d.os));
+							} else if (sq != nullptr && surTete >= 0) {
 								Saisir(static_cast<uint32>(surTete), 2);
 							} else if (sq != nullptr && surQueue >= 0) {
 								Saisir(static_cast<uint32>(surQueue), 3);
@@ -1017,11 +1022,13 @@ namespace nkentseu {
 				Titre(P, sq != nullptr ? NkString::Format("Squelette 2D : %u os", static_cast<uint32>(sq->nbOs)).CStr() : "Squelette 2D (aucun)");
 				// ── Les MODELES DE DEPART (outil Os, ou sans squelette) ──
 				if (sq == nullptr || d.outil == NkOutilMaillage::NK_OS) {
-					static const char *const kModeles[4] = {"Humanoïde", "Quadrupède", "Oiseau", "Créature"};
-					static const NkBoutonSquelette kIds[4] = {NkBoutonSquelette::NK_HUMANOIDE, NkBoutonSquelette::NK_QUADRUPEDE,
+					static const char *const kModeles[5] = {"Face", "Profil", "Quadrup.", "Oiseau", "Créature"};
+					static const int32 kModele[5] = {0, 4, 1, 2, 3}; // l'ordre de NkSkeleton2DTemplate
+					static const NkBoutonSquelette kIds[5] = {NkBoutonSquelette::NK_HUMANOIDE, NkBoutonSquelette::NK_PROFIL, NkBoutonSquelette::NK_QUADRUPEDE,
 															  NkBoutonSquelette::NK_OISEAU, NkBoutonSquelette::NK_CREATURE};
-					Ligne(P, sq == nullptr ? "Un modèle de départ (mis à la taille du maillage) :" : "Remplacer par un modèle :");
-					const int32 k = Rangee(P, kModeles, kIds, 4);
+					Ligne(P, sq == nullptr ? "Un modèle de départ (humanoïde de face, de profil...) :" : "Remplacer par un modèle :");
+					const int32 kc = Rangee(P, kModeles, kIds, 5);
+					const int32 k = kc >= 0 ? kModele[kc] : -1;
 					if (k >= 0) {
 						if (sq == nullptr) {
 							NkEditeurCreerSquelette(m, e, k);
@@ -1033,8 +1040,8 @@ namespace nkentseu {
 					}
 				}
 				if (sq == nullptr) {
-					Ligne(P, "Ou l'outil Os (B) : glisser pose un os,");
-					Ligne(P, "depuis le bout du choisi il se CHAÎNE.");
+					Ligne(P, "Ou l'outil Os (B) : glisser pose un os ;");
+					Ligne(P, "Maj+glisser depuis le bout du choisi : CHAÎNÉ.");
 					return;
 				}
 				const NkMaillage2D *ml = m.scene.Monde().Get<NkMaillage2D>(e);
@@ -1599,7 +1606,7 @@ namespace nkentseu {
 			const NkVec2f souris = NkEditeurMaillageDepuisEcran(d, NkVec2f(c.ctx.input.mousePos.x, c.ctx.input.mousePos.y));
 			const NkString aide =
 				d.outil == NkOutilMaillage::NK_OS
-					? NkString("Os : glisser = un os (depuis le bout du choisi : il se CHAÎNE)  ·  la tête le déplace, la queue le tourne  ·  Suppr  ·  Ctrl+Z")
+					? NkString("Os : glisser dans le vide = un os (enfant du choisi)  ·  Maj+glisser depuis le bout du choisi = un os CHAÎNÉ  ·  la tête le déplace, la queue le tourne  ·  Suppr  ·  Ctrl+Z")
 				: d.outil == NkOutilMaillage::NK_POIDS
 					? NkString("Poids : clic sur une tête = l'os à peindre  ·  glisser = peindre (Maj : retirer)  ·  rouge = 1, bleu = 0  ·  Ctrl+Z")
 				: d.outil == NkOutilMaillage::NK_POSE ? NkString("Pose : tirer la queue d'un os le tourne (ses enfants suivent)  ·  la peau suit  ·  Ctrl+Z")

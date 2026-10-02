@@ -12,6 +12,7 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurPagesAnim.h"
+#include "Unkeny/Squelette/NkUnkenySquelette.h"
 #include "NKEditorKit/Components/NkStateGraphAnima.h" // (02/10) graphe <-> controleur, partage
 
 #include "Editeur/NkEditeurActions.h"
@@ -107,6 +108,48 @@ namespace nkentseu {
 		} // namespace
 
 		// =====================================================================
+		// (2026-10-02, R30) LES PISTES D'OS
+		// =====================================================================
+		NkString NkCheminOsDuClip(const anim::NkAnimationClip &clip, uint32 j) {
+			NkString chemin;
+			uint32 pile[64];
+			uint32 n = 0;
+			for (int32 o = static_cast<int32>(j); o >= 0 && n < 64u && static_cast<uint32>(o) < clip.boneCount;
+				 o = static_cast<uint32>(o) < (uint32)clip.jointParent.Size() ? clip.jointParent[(uint32)o] : -1) {
+				pile[n++] = static_cast<uint32>(o);
+			}
+			chemin = NK_FRISE_OBJET_SQUELETTE;
+			for (int32 k = static_cast<int32>(n) - 1; k >= 0; --k) {
+				chemin.Append("/");
+				const uint32 o = pile[k];
+				if (o < (uint32)clip.jointNames.Size() && !clip.jointNames[o].Empty()) {
+					chemin.Append(clip.jointNames[o].CStr());
+				} else if (o < (uint32)clip.boneTracks.Size() && !clip.boneTracks[o].name.Empty()) {
+					chemin.Append(clip.boneTracks[o].name.CStr());
+				} else {
+					chemin.Append(NkString::Format("os %u", o).CStr());
+				}
+			}
+			return chemin;
+		}
+
+		NkString NkNomOsDePiste(const NkString &objet) {
+			const char *s = objet.CStr();
+			const char *d = std::strrchr(s, '/');
+			return NkString(d != nullptr ? d + 1 : s);
+		}
+
+		int32 NkOsDuClipParNom(const anim::NkAnimationClip &clip, const NkString &nom) {
+			for (uint32 j = 0; j < clip.boneCount; ++j) {
+				if ((j < (uint32)clip.jointNames.Size() && clip.jointNames[j] == nom) ||
+					(j < (uint32)clip.boneTracks.Size() && clip.boneTracks[j].name == nom)) {
+					return static_cast<int32>(j);
+				}
+			}
+			return -1;
+		}
+
+		// =====================================================================
 		// LES CONVERSIONS
 		// =====================================================================
 		void NkFriseDepuisClip(const anim::NkAnimationClip &clip, editorkit::NkTimelineModel &frise) {
@@ -168,6 +211,38 @@ namespace nkentseu {
 				t.muted = !p.curve.enabled;
 				frise.tracks.PushBack(t);
 			}
+			// (2026-10-02, R30) Les pistes d'OS : une par os CLE (angle en degres, x, y
+			// de sa place locale), sous « Squelette/... » (l'arbre des os).
+			if (clip.skeletalLocal) {
+				for (uint32 j = 0; j < clip.boneCount && j < (uint32)clip.boneTracks.Size(); ++j) {
+					const anim::NkAnimationTrack<math::NkMat4f> &bt = clip.boneTracks[j];
+					if (bt.Empty()) {
+						continue;
+					}
+					editorkit::NkTimelineTrack t;
+					t.id = NK_FRISE_ID_OS + (nk_uint64)j;
+					t.object = NkCheminOsDuClip(clip, j);
+					t.property = NK_FRISE_PROPRIETE_OS;
+					t.label = NkString::Format("Os %s", NkNomOsDePiste(t.object).CStr());
+					t.channels = 3;
+					t.channelNames[0] = "Angle";
+					t.channelNames[1] = "X";
+					t.channelNames[2] = "Y";
+					for (uint32 k = 0; k < bt.KeyCount(); ++k) {
+						const anim::NkKeyframe<math::NkMat4f> &kf = bt.GetKey(k);
+						const anim::NkBone2D b = anim::NkBone2DFromMatrix(kf.value);
+						editorkit::NkTimelineKey key;
+						key.time = kf.time;
+						key.v[0] = b.angle * 180.f / 3.14159265f;
+						key.v[1] = b.x;
+						key.v[2] = b.y;
+						key.interp = (uint8)kf.interp;
+						t.keys.PushBack(key);
+					}
+					t.muted = !bt.enabled;
+					frise.tracks.PushBack(t);
+				}
+			}
 			// (01/10 soir) Les pistes de CLIPS (NLA) : apres les proprietes.
 			frise.nextClipId = 1;
 			for (uint32 i = 0; i < (uint32)clip.clipTracks.Size(); ++i) {
@@ -209,8 +284,50 @@ namespace nkentseu {
 			using PK = anim::NkAnimationClip::NkPropertyKind;
 			clip.propertyTracks.Clear();
 			clip.clipTracks.Clear();
+			// (2026-10-02, R30) Les pistes d'OS refont les pistes d'os du clip (l'echelle
+			// de chaque cle est reprise de l'ancien clip : la frise n'en montre pas).
+			if (clip.skeletalLocal && clip.boneCount > 0u) {
+				const anim::NkAnimationClip ancien = clip;
+				NkVector<uint8> vu;
+				vu.Resize(clip.boneCount, 0u);
+				for (uint32 i = 0; i < (uint32)frise.tracks.Size(); ++i) {
+					const editorkit::NkTimelineTrack &t = frise.tracks[i];
+					if (!(t.property == NkString(NK_FRISE_PROPRIETE_OS))) {
+						continue;
+					}
+					const int32 j = NkOsDuClipParNom(clip, NkNomOsDePiste(t.object));
+					if (j < 0 || (uint32)j >= (uint32)clip.boneTracks.Size()) {
+						continue;
+					}
+					vu[(uint32)j] = 1u;
+					anim::NkAnimationTrack<math::NkMat4f> neuf;
+					neuf.name = clip.boneTracks[(uint32)j].name;
+					neuf.enabled = !t.muted;
+					for (uint32 k = 0; k < (uint32)t.keys.Size(); ++k) {
+						const editorkit::NkTimelineKey &key = t.keys[k];
+						anim::NkBone2D b = ancien.boneTracks[(uint32)j].Empty() ? anim::NkBone2D() : anim::NkSampleBone2D(ancien, (uint32)j, key.time);
+						b.angle = key.v[0] * 3.14159265f / 180.f;
+						b.x = key.v[1];
+						b.y = key.v[2];
+						neuf.AddKey(key.time, anim::NkBone2DToMatrix(b),
+									(anim::NkInterpMode)(key.interp < (uint8)editorkit::NkTimelineInterp::Count ? key.interp : 1u));
+					}
+					clip.boneTracks[(uint32)j] = neuf;
+				}
+				// Une piste d'os RETIREE de la frise : l'os n'est plus cle.
+				for (uint32 j = 0; j < clip.boneCount && j < (uint32)clip.boneTracks.Size(); ++j) {
+					if (vu[j] == 0u && !clip.boneTracks[j].Empty()) {
+						anim::NkAnimationTrack<math::NkMat4f> vide;
+						vide.name = clip.boneTracks[j].name;
+						clip.boneTracks[j] = vide;
+					}
+				}
+			}
 			for (uint32 i = 0; i < (uint32)frise.tracks.Size(); ++i) {
 				const editorkit::NkTimelineTrack &t = frise.tracks[i];
+				if (t.property == NkString(NK_FRISE_PROPRIETE_OS)) {
+					continue; // (R30) une piste d'os : faite ci-dessus
+				}
 				if (t.kind == editorkit::NkTimelineValueKind::Clips) {
 					// (01/10 soir) une piste de CLIPS -> une NkClipStripTrack de NKAnima.
 					anim::NkClipStripTrack st;

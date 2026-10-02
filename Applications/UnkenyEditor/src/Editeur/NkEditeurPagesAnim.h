@@ -173,6 +173,10 @@ namespace nkentseu {
 		/// plan : la barre l'a deja fait passer derriere (NkEditeurDocuments.cpp).
 		bool NkEditeurDetruireDocAnim(NkEditeurModele &m, NkEditeurInterface &ui, nk_uint64 id);
 		/// Le document au premier plan, ou nul (la scene).
+		/// (R30) « + Piste » : les propositions (proprietes, os du squelette, clips) et
+		/// l'ajout d'une proposition (sa premiere cle au curseur).
+		void NkEditeurProposerPistes(NkEditeurModele &m, NkDocAnim &d);
+		void NkEditeurAjouterPisteProposee(NkEditeurModele &m, NkDocAnim &d, const NkProposition &p);
 		NkDocAnim *NkEditeurDocAnimActif(NkEditeurInterface &ui);
 		bool NkEditeurPageAnimOuverte(const NkEditeurInterface &ui) noexcept;
 		/// Enregistre le document (choisit un chemin dans Contenu/Animations s'il
@@ -209,6 +213,17 @@ namespace nkentseu {
 
 		// --- Les conversions (testees par le banc) ------------------------------
 		/// La frise d'un clip : une piste par piste de propriete.
+		// (2026-10-02, R30) LES PISTES D'OS de la frise : une par os cle, objet
+		// « Squelette/Hanches/Torse/BrasG », propriete « Os », trois canaux (angle en
+		// degres, x, y : la place LOCALE de l'os). La frise est celle de NKEditorKit ;
+		// le clip garde ses pistes d'os de NKAnima (le meme .nkanim que NkAnimaEditor).
+		constexpr const char *NK_FRISE_PROPRIETE_OS = "Os";
+		constexpr const char *NK_FRISE_OBJET_SQUELETTE = "Squelette";
+		constexpr nk_uint64 NK_FRISE_ID_OS = 1000000ull;
+		/// Le chemin de l'os `j` dans la frise, son nom depuis un chemin, son indice par nom.
+		NkString NkCheminOsDuClip(const anim::NkAnimationClip &clip, uint32 j);
+		NkString NkNomOsDePiste(const NkString &objet);
+		int32 NkOsDuClipParNom(const anim::NkAnimationClip &clip, const NkString &nom);
 		void NkFriseDepuisClip(const anim::NkAnimationClip &clip, editorkit::NkTimelineModel &frise);
 		/// Les pistes de proprietes du clip depuis la frise (les autres pistes du
 		/// clip restent), et sa duree, ses images par seconde, sa boucle.

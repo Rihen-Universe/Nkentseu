@@ -488,7 +488,7 @@ namespace nkentseu {
 					}
 				}
 			};
-			if (action >= NK_A_SQUELETTE && action <= NK_A_SQUELETTE_VIDE) {
+			if (action == NK_A_SQUELETTE_VIDE || (action >= NK_A_SQUELETTE && action < NK_A_SQUELETTE + static_cast<int32>(anim::NkSkeleton2DTemplate::NK_COUNT))) {
 				const int32 modele = action == NK_A_SQUELETTE_VIDE ? -1 : action - NK_A_SQUELETTE;
 				if (sel && NkEditeurCreerSquelette(m, m.selection, modele)) {
 					Ouvrir();

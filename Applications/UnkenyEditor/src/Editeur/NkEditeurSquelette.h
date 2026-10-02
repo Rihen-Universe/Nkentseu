@@ -42,8 +42,8 @@ namespace nkentseu {
 
 		/// Les ACTIONS du squelette (NkEditeurExecuter) : la plage 2550-2599.
 		enum NkActionSquelette : int32 {
-			NK_A_SQUELETTE = 2550,		   ///< + NkSkeleton2DTemplate (0..3) : un squelette de ce modele sur la selection
-			NK_A_SQUELETTE_VIDE = 2554,	   ///< un squelette vide (les os se posent dans la fenetre)
+			NK_A_SQUELETTE = 2550,		   ///< + NkSkeleton2DTemplate (0..4) : un squelette de ce modele sur la selection
+			NK_A_SQUELETTE_VIDE = 2559,	   ///< un squelette vide (les os se posent dans la fenetre)
 			NK_A_SQUELETTE_EDITER = 2560,  ///< la fenetre du maillage de la selection, outil Os
 			NK_A_SQUELETTE_ASSET = 2561,   ///< « Enregistrer le squelette » (.nkskel)
 			NK_A_SQUELETTE_REPOS = 2562,   ///< la pose revient au repos

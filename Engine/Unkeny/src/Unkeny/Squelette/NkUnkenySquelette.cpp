@@ -1020,7 +1020,9 @@ namespace nkentseu {
 						}
 					}
 				}
-				sk.PrepareClip(neuf, true);
+				// Sans cle de repos : un os que le clip ne cle pas reste a son repos
+				// (NkSampleClip, R30) -- la frise ne montre que les os animes.
+				sk.PrepareClip(neuf, false);
 				clip = neuf;
 			}
 			uint32 n = 0;

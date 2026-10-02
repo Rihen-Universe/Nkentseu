@@ -641,6 +641,8 @@ namespace nkentseu {
 					return "Oiseau";
 				case NkSkeleton2DTemplate::NK_CREATURE:
 					return "Creature libre";
+				case NkSkeleton2DTemplate::NK_HUMANOID_PROFILE:
+					return "Humanoide de profil";
 				default:
 					return "?";
 			}
@@ -748,6 +750,29 @@ namespace nkentseu {
 						{"TarseG", "CuisseG", 0.04f, 0.20f, 0.10f, 0.01f},
 						{"CuisseD", "Corps", -0.02f, 0.40f, 0.00f, 0.20f},
 						{"TarseD", "CuisseD", 0.00f, 0.20f, 0.06f, 0.01f},
+					};
+					return Construire(k, sizeof(k) / sizeof(k[0]), lo, hi, out);
+				}
+				case NkSkeleton2DTemplate::NK_HUMANOID_PROFILE: {
+					// De profil, tourne vers +X : la jambe et le bras D DEVANT, G derriere
+					// (decales : on les choisit a l'oeil).
+					static const OsModele k[] = {
+						{"Hanches", nullptr, -0.02f, 0.47f, 0.f, 0.57f},
+						{"Torse", "Hanches", 0.f, 0.57f, 0.02f, 0.74f},
+						{"Cou", "Torse", 0.02f, 0.74f, 0.04f, 0.80f},
+						{"Tete", "Cou", 0.04f, 0.80f, 0.08f, 0.97f},
+						{"BrasG", "Torse", -0.02f, 0.72f, -0.06f, 0.55f},
+						{"AvantBrasG", "BrasG", -0.06f, 0.55f, -0.06f, 0.40f},
+						{"MainG", "AvantBrasG", -0.06f, 0.40f, -0.05f, 0.34f},
+						{"BrasD", "Torse", 0.06f, 0.72f, 0.10f, 0.55f},
+						{"AvantBrasD", "BrasD", 0.10f, 0.55f, 0.12f, 0.40f},
+						{"MainD", "AvantBrasD", 0.12f, 0.40f, 0.14f, 0.34f},
+						{"CuisseG", "Hanches", -0.05f, 0.47f, -0.07f, 0.26f},
+						{"JambeG", "CuisseG", -0.07f, 0.26f, -0.08f, 0.06f},
+						{"PiedG", "JambeG", -0.08f, 0.06f, 0.03f, 0.02f},
+						{"CuisseD", "Hanches", 0.04f, 0.47f, 0.06f, 0.26f},
+						{"JambeD", "CuisseD", 0.06f, 0.26f, 0.05f, 0.06f},
+						{"PiedD", "JambeD", 0.05f, 0.06f, 0.16f, 0.02f},
 					};
 					return Construire(k, sizeof(k) / sizeof(k[0]), lo, hi, out);
 				}

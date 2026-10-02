@@ -793,8 +793,9 @@ namespace nkentseu {
 						// (2026-10-02, R30) Le SQUELETTE 2D : un modele de depart, ou vide. Sans
 						// maillage, il est cree depuis le sprite (ou la forme) d'abord.
 						if (squelette) {
-							static const char *const kModeles[4] = {"Humanoïde", "Quadrupède", "Oiseau", "Créature libre"};
-							for (int32 k = 0; k < 4; ++k) {
+							static const char *const kModeles[5] = {"Humanoïde (de face)", "Quadrupède", "Oiseau", "Créature libre",
+																	"Humanoïde de profil"};
+							for (int32 k = 0; k < 5; ++k) {
 								out.PushBack(Entree(NkString::Format("Squelette 2D : %s", kModeles[k]).CStr(), NK_A_SQUELETTE + k));
 							}
 							out.PushBack(Entree("Squelette 2D vide (os à poser)", NK_A_SQUELETTE_VIDE));

@@ -91,6 +91,7 @@ namespace nkentseu {
 			NK_QUADRUPEDE,
 			NK_OISEAU,
 			NK_CREATURE,
+			NK_PROFIL,
 			NK_SYMETRIE,
 			NK_SUPPRIMER,
 			NK_CHALEUR,

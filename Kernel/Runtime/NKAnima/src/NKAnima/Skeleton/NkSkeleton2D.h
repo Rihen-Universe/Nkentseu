@@ -173,6 +173,7 @@ namespace nkentseu {
 			NK_QUADRUPED,	 ///< de profil, tourne vers +X : bassin, dos, cou, tete, queue, quatre pattes
 			NK_BIRD,		 ///< de profil, tourne vers +X : corps, cou, tete, bec, ailes, queue, pattes
 			NK_CREATURE,	 ///< une seule racine : aucune forme imposee, on pose le reste
+			NK_HUMANOID_PROFILE, ///< de profil, tourne vers +X (le jeu de plateforme) : G derriere, D devant
 			NK_COUNT
 		};
 		const char *NkSkeleton2DTemplateName(NkSkeleton2DTemplate t);
