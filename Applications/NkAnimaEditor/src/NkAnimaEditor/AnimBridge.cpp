@@ -107,6 +107,10 @@ namespace nkanima {
 				float32 radius3d = 2.f;
 				float32 camYaw = 0.6f, camPitch = 0.12f, camZoom = 1.f;
 
+				// ── (2026-10-02) Apercu du controleur (graphe d'etats partage) ──
+				NkVector<NkMat4f> apercuSkin;
+				bool apercu = false;
+
 				// ── Ragdoll physique (couplage NKPhysics) ───────────────────────
 				nkentseu::physics::NkPhysicsWorld physWorld{nkentseu::physics::NkPhysicsConfig{{0.f, -9.81f, 0.f}}};
 				NkRagdollBridge ragdoll;
@@ -405,7 +409,8 @@ namespace nkanima {
 		uint32 jc = (uint32)g.clip.jointInverseBind.Size();
 		outPos.Resize(jc);
 		outParent.Resize(jc);
-		const auto &skin = g.player.GetState().boneMatrices;
+		// (02/10) l'apercu du controleur remplace la pose du lecteur
+		const auto &skin = g.apercu ? g.apercuSkin : g.player.GetState().boneMatrices;
 		for (uint32 j = 0; j < jc; ++j) {
 			NkMat4f gl;
 			if (g.editMode && j < (uint32)g.worldEdit.Size()) // pose de travail éditée
@@ -893,7 +898,7 @@ namespace nkanima {
 			for (uint32 j = 0; j < jc; ++j)
 				g.skin3d[j] = g.worldEdit[j] * g.invBind[j];
 		} else {
-			const auto &bm = g.player.GetState().boneMatrices;
+			const auto &bm = g.apercu ? g.apercuSkin : g.player.GetState().boneMatrices; // (02/10) apercu du controleur
 			for (uint32 j = 0; j < jc; ++j)
 				g.skin3d[j] = (j < (uint32)bm.Size()) ? bm[j] : NkMat4f::Identity();
 		}
@@ -1210,6 +1215,27 @@ namespace nkanima {
 			if (k >= 0)
 				g.clip.boneTracks[b].SetKeyInterp((uint32)k, (anim::NkInterpMode)interp);
 		}
+	}
+
+	const void *AnimClipOpaque() {
+		return g.loaded ? &g.clip : nullptr;
+	}
+
+	const char *AnimClipNom() {
+		return g.clip.name.Empty() ? "Clip" : g.clip.name.CStr();
+	}
+
+	void AnimPoserApercu(const NkVector<NkMat4f> &skin) {
+		g.apercuSkin = skin;
+		g.apercu = !skin.Empty();
+	}
+
+	void AnimFinApercu() {
+		g.apercu = false;
+	}
+
+	bool AnimApercuActif() {
+		return g.apercu;
 	}
 
 	uint32 AnimBoneCount() {

@@ -337,46 +337,64 @@ namespace nkanima {
 		return E().m;
 	}
 
+	namespace {
+		/// Le coeur commun : `rect` nul = la place RESTANTE du panneau courant.
+		void Dessiner(NkEditorFrameContext &ec, const NkPaintRect *zone) {
+			Etat &e = E();
+			nkgui::NkGuiContext &ctx = ec.Ui();
+			if (!AnimLoaded()) {
+				ec.Text("(aucun clip charge)");
+				return;
+			}
+			if (!e.themeChoisi) {
+				const char *v = std::getenv("NKANIMA_THEME");
+				e.theme = (v != nullptr && std::strcmp(v, "light") == 0) ? NkTheme::Light() : NkTheme::Dark();
+				e.themeChoisi = true;
+			}
+			AnimUpdate(ec.dt); // avance la lecture si en cours (une fois par image, comme l'ancienne)
+			BoucleEtPlage(e);
+			NkVector<float32> temps;
+			AnimGetKeyTimes(temps);
+			const uint32 sig = Signature(temps);
+			if (!e.construit || sig != e.signature) {
+				Construire(e, temps);
+				e.signature = sig;
+			}
+			NkTimelineModel &m = e.m;
+			m.cursor = AnimCursor();
+			m.playing = AnimIsPlaying();
+			m.hostCanUndo = AnimCanUndo();
+			m.hostCanRedo = AnimCanRedo();
+			NkPaintRect rect;
+			if (zone != nullptr) {
+				rect = *zone;
+			} else {
+				// La place RESTANTE du panneau : la frise la prend toute.
+				const nkgui::NkGuiLayout &lay = ctx.layout;
+				const float32 x = lay.cursor.x, y = lay.cursor.y;
+				float32 w = lay.region.x + lay.region.w - x - lay.padding;
+				float32 h = lay.region.y + lay.region.h - y - lay.padding;
+				w = w > 320.f ? w : 320.f;
+				h = h > 160.f ? h : 160.f;
+				const nkgui::NkRect r = ctx.NextItemRect(w, h);
+				rect = NkPaintRect{r.x, r.y, r.w, r.h};
+			}
+			NkGuiComponentPaint peintre(ctx, e.theme);
+			NkTimelineHooks hooks;
+			hooks.evaluate = &Evaluer;
+			e.r = NkDrawTimeline(peintre, Entree(ctx), rect, m, Style(), hooks);
+			Appliquer(e);
+			// Ce qui a change cote clip se relira a l'image suivante (la signature).
+		}
+	} // namespace
+
 	void NkAnimaDessinerFrise(NkEditorFrameContext &ec) {
-		Etat &e = E();
-		nkgui::NkGuiContext &ctx = ec.Ui();
-		if (!AnimLoaded()) {
-			ec.Text("(aucun clip charge)");
-			return;
-		}
-		if (!e.themeChoisi) {
-			const char *v = std::getenv("NKANIMA_THEME");
-			e.theme = (v != nullptr && std::strcmp(v, "light") == 0) ? NkTheme::Light() : NkTheme::Dark();
-			e.themeChoisi = true;
-		}
-		AnimUpdate(ec.dt); // avance la lecture si en cours (une fois par image, comme l'ancienne)
-		BoucleEtPlage(e);
-		NkVector<float32> temps;
-		AnimGetKeyTimes(temps);
-		const uint32 sig = Signature(temps);
-		if (!e.construit || sig != e.signature) {
-			Construire(e, temps);
-			e.signature = sig;
-		}
-		NkTimelineModel &m = e.m;
-		m.cursor = AnimCursor();
-		m.playing = AnimIsPlaying();
-		m.hostCanUndo = AnimCanUndo();
-		m.hostCanRedo = AnimCanRedo();
-		// La place RESTANTE du panneau : la frise la prend toute.
-		const nkgui::NkGuiLayout &lay = ctx.layout;
-		const float32 x = lay.cursor.x, y = lay.cursor.y;
-		float32 w = lay.region.x + lay.region.w - x - lay.padding;
-		float32 h = lay.region.y + lay.region.h - y - lay.padding;
-		w = w > 320.f ? w : 320.f;
-		h = h > 160.f ? h : 160.f;
-		const nkgui::NkRect rect = ctx.NextItemRect(w, h);
-		NkGuiComponentPaint peintre(ctx, e.theme);
-		NkTimelineHooks hooks;
-		hooks.evaluate = &Evaluer;
-		e.r = NkDrawTimeline(peintre, Entree(ctx), NkPaintRect{rect.x, rect.y, rect.w, rect.h}, m, Style(), hooks);
-		Appliquer(e);
-		// Ce qui a change cote clip se relira a l'image suivante (la signature).
+		Dessiner(ec, nullptr);
+	}
+
+	void NkAnimaDessinerFriseZone(NkEditorFrameContext &ec, float32 x, float32 y, float32 w, float32 h) {
+		const NkPaintRect zone{x, y, w, h};
+		Dessiner(ec, &zone);
 	}
 
 } // namespace nkanima

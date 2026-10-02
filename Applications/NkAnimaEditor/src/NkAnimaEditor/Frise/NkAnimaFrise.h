@@ -28,6 +28,10 @@ namespace nkanima {
 	/// Dessine la frise dans la place restante du panneau courant (et y joue ses
 	/// gestes). Appelle AnimUpdate(dt) : une seule fois par image, comme l'ancienne.
 	void NkAnimaDessinerFrise(nkentseu::editorkit::NkEditorFrameContext &ec);
+	/// (02/10) La meme, dans un rectangle IMPOSE (l'onglet « Frise » du tiroir de la
+	/// face d'UE5, NkAnimaFace.cpp : ACCROCHE FRISE).
+	void NkAnimaDessinerFriseZone(nkentseu::editorkit::NkEditorFrameContext &ec, nkentseu::float32 x, nkentseu::float32 y,
+								  nkentseu::float32 w, nkentseu::float32 h);
 
 	/// Le theme de la frise (celui de la coquille ; sombre par defaut, clair si
 	/// NKANIMA_THEME=light).
