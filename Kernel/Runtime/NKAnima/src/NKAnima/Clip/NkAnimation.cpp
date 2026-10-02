@@ -879,6 +879,20 @@ namespace nkentseu {
 			return NkBlendLocalTRS(ka.value, kb.value, a);
 		}
 
+		// (R30, 02/10) Un os SANS CLE d'un clip local reste a son REPOS, derive des
+		// inverses de repos du clip : local = inverseRepos(parent) x repos(os). Il
+		// valait l'identite (l'os s'effondrait sur son parent) -- le meme repli que
+		// NkSampleClip (Blend/NkAnimMix.cpp), pour que le lecteur et le melange
+		// jouent la meme pose.
+		static NkMat4f ReposLocal(const NkAnimationClip *clip, uint32 i) {
+			if (!clip->skeletalLocal || i >= (uint32)clip->jointInverseBind.Size()) {
+				return NkMat4f::Identity();
+			}
+			const int32 p = i < (uint32)clip->jointParent.Size() ? clip->jointParent[i] : -1;
+			const NkMat4f monde = clip->jointInverseBind[i].Inverse();
+			return (p >= 0 && (uint32)p < (uint32)clip->jointInverseBind.Size()) ? clip->jointInverseBind[(uint32)p] * monde : monde;
+		}
+
 		// Blend TRS-NLerp de deux matrices BONE-LOCALES (cf. header). Extrait de
 		// SampleBoneLocalSlerp pour etre partage avec NkBlendTree1D / state machine.
 		NkMat4f NkBlendLocalTRS(const NkMat4f &A, const NkMat4f &B, float32 a) {
@@ -1126,7 +1140,7 @@ namespace nkentseu {
 				for (uint32 i = 0; i < clip->boneCount; i++)
 					s.boneMatrices[i] = (i < (uint32)clip->boneTracks.Size() && !clip->boneTracks[i].Empty())
 											? SampleBoneLocalSlerp(clip->boneTracks[i], t)
-											: NkMat4f::Identity();
+											: ReposLocal(clip, i);
 				clip->ApplyFKSkinning(s.boneMatrices);
 			} else {
 				// Mode legacy : boneTracks = matrices de skinning directes.
@@ -1277,7 +1291,7 @@ namespace nkentseu {
 			for (uint32 i = 0; i < clip->boneCount; i++)
 				outLocal[i] = (i < (uint32)clip->boneTracks.Size() && !clip->boneTracks[i].Empty())
 								  ? SampleBoneLocalSlerp(clip->boneTracks[i], t)
-								  : NkMat4f::Identity();
+								  : ReposLocal(clip, i);
 		}
 
 		void NkBlendTree1D::AddClip(const NkAnimationClip *clip, float32 pos) {
