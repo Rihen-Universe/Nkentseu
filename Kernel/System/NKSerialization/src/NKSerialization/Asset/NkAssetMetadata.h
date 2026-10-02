@@ -238,6 +238,13 @@ namespace nkentseu {
 		// les deux sont exclusifs) : d'ou sa nature et son extension (regle du § 1
 		// de CONVENTIONS_FICHIERS.md). JSON qui porte son "format" (« unkeny.maillage2d »).
 		Mesh2D = 20, ///< un maillage 2D d'Unkeny (.nkmesh2d)
+		// AJOUTE le 2026-10-02 (U3, le decor d'Unkeny) : un JEU DE TUILES -- une image
+		// decoupee en grille ET ce que chaque tuile EST (nature : plein, sens unique,
+		// pente, eau ; animation ; poids du tirage ; terrains et regles d'auto-tuile).
+		// Ce n'est pas une Texture2D (on ne le pose pas sur un sprite : on peint une
+		// carte avec) ; la CARTE peinte, elle, est une Map (.nkmap, « unkeny.carte-
+		// tuiles »). JSON qui porte son "format" (« unkeny.jeu-tuiles »).
+		TileSet = 21, ///< un jeu de tuiles d'Unkeny (.nktileset)
 		Custom = 255,
 	};
 
@@ -283,6 +290,8 @@ namespace nkentseu {
 				return "SaveGame";
 			case NkAssetType::Mesh2D:
 				return "Mesh2D";
+			case NkAssetType::TileSet:
+				return "TileSet";
 			case NkAssetType::Custom:
 				return "Custom";
 			default:
@@ -349,6 +358,8 @@ namespace nkentseu {
 				return "nksave";
 			case NkAssetType::Mesh2D:
 				return "nkmesh2d";
+			case NkAssetType::TileSet:
+				return "nktileset";
 			case NkAssetType::Custom:
 			default:
 				// `.nkasset` reste la nature « non standard » — et reste accepte
@@ -391,7 +402,7 @@ namespace nkentseu {
 			{"nkshader", NkAssetType::Shader},		   {"nkscript", NkAssetType::Script},
 			{"nkanimctl", NkAssetType::AnimationController},
 			{"nkscene", NkAssetType::Scene},		   {"nksave", NkAssetType::SaveGame},
-			{"nkmesh2d", NkAssetType::Mesh2D},
+			{"nkmesh2d", NkAssetType::Mesh2D},		   {"nktileset", NkAssetType::TileSet},
 			{"nkasset", NkAssetType::Custom},
 		};
 		for (const Paire &p : kTable)
