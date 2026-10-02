@@ -7,6 +7,7 @@
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurMaillage.h"
+#include "Editeur/NkEditeurSquelette.h"
 #include "Editeur/NkEditeurPlacer.h"
 #include "Editeur/NkEditeurViseur.h"
 
@@ -1087,6 +1088,19 @@ namespace nkentseu {
 			if (NkMaillage2D *ml = w.Get<NkMaillage2D>(id)) {
 				NkMaillageMettreAEchelle2D(*ml, f);
 			}
+			// (2026-10-02, R30) Le SQUELETTE suit sa peau : les places des os (repos et
+			// pose) et leurs longueurs (par la moyenne des deux facteurs).
+			if (unkeny::NkSquelette2D *sq = w.Get<unkeny::NkSquelette2D>(id)) {
+				const float32 l = (math::NkAbs(f.x) + math::NkAbs(f.y)) * 0.5f;
+				for (uint32 j = 0; j < sq->nbOs; ++j) {
+					unkeny::NkOs2D &o = sq->os[j];
+					o.x *= f.x;
+					o.y *= f.y;
+					o.px *= f.x;
+					o.py *= f.y;
+					o.longueur *= l;
+				}
+			}
 			if (NkCollisionneur2D *col = w.Get<NkCollisionneur2D>(id)) {
 				col->decalage = NkVec2f(col->decalage.x * f.x, col->decalage.y * f.y);
 				// Polygone, chaine : chaque sommet (repere du collisionneur ; sa
@@ -1224,6 +1238,16 @@ namespace nkentseu {
 				c.corpsId = 0;
 				m.scene.AjouterCorps(e, c);
 			}
+			// (2026-10-02, R30) Le squelette 2D, sans le corps de ses chaines.
+			if (const unkeny::NkSquelette2D *s = w.Get<unkeny::NkSquelette2D>(src)) {
+				unkeny::NkSquelette2D *c = memory::NkGetDefaultAllocator().New<unkeny::NkSquelette2D>();
+				if (c != nullptr) {
+					*c = *s;
+					unkeny::NkSqueletteOublierPhysique(*c);
+					w.Add<unkeny::NkSquelette2D>(e, *c);
+					memory::NkGetDefaultAllocator().Delete(c);
+				}
+			}
 			// (2026-10-02, R31) Le maillage 2D, sans son etat de jeu (sur le tas : 6,5 Ko).
 			if (const NkMaillage2D *s = w.Get<NkMaillage2D>(src)) {
 				NkMaillage2D *c = memory::NkGetDefaultAllocator().New<NkMaillage2D>();
@@ -1265,6 +1289,8 @@ namespace nkentseu {
 					return "Ancrage à l'écran";
 				case NkComposantEditeur::NK_MAILLAGE:
 					return "Maillage 2D";
+				case NkComposantEditeur::NK_SQUELETTE:
+					return "Squelette 2D";
 				default:
 					return "";
 			}
@@ -1297,6 +1323,8 @@ namespace nkentseu {
 					return w.Has<NkAncrageEcran2D>(id);
 				case NkComposantEditeur::NK_MAILLAGE:
 					return w.Has<NkMaillage2D>(id);
+				case NkComposantEditeur::NK_SQUELETTE:
+					return w.Has<unkeny::NkSquelette2D>(id);
 				default:
 					return false;
 			}
@@ -1386,6 +1414,9 @@ namespace nkentseu {
 					// (2026-10-02, R31) Depuis le sprite s'il y en a un, sinon la forme,
 					// sinon vide (NkEditeurMaillage.h) ; le menu propose aussi chacun.
 					return NkEditeurCreerMaillage(m, id, NkSourceMaillage::NK_AUTO);
+				case NkComposantEditeur::NK_SQUELETTE:
+					// (2026-10-02, R30) Le modele humanoide par defaut ; le menu propose les autres.
+					return NkEditeurCreerSquelette(m, id, static_cast<int32>(anim::NkSkeleton2DTemplate::NK_HUMANOID));
 				default:
 					return false;
 			}
@@ -1460,6 +1491,13 @@ namespace nkentseu {
 				case NkComposantEditeur::NK_ANCRAGE:
 					w.Remove<NkAncrageEcran2D>(id);
 					return true;
+				case NkComposantEditeur::NK_SQUELETTE:
+					// (R30) Ses chaines molles partent avec lui ; la peau revient au repos.
+					if (unkeny::NkSquelette2D *sq = w.Get<unkeny::NkSquelette2D>(id)) {
+						unkeny::NkSqueletteDetruirePhysique(m.scene, *sq);
+					}
+					w.Remove<unkeny::NkSquelette2D>(id);
+					return true;
 				case NkComposantEditeur::NK_MAILLAGE: {
 					// Ses corps de parties partent avec lui (en jeu) ; le sprite ou la
 					// forme qu'il masquait reparait.
@@ -1509,6 +1547,10 @@ namespace nkentseu {
 			}
 			if (c == NkCarteEditeur::NK_MAILLAGE) {
 				sortie = NkComposantEditeur::NK_MAILLAGE;
+				return true;
+			}
+			if (c == NkCarteEditeur::NK_SQUELETTE) {
+				sortie = NkComposantEditeur::NK_SQUELETTE;
 				return true;
 			}
 			return false;
@@ -1857,8 +1899,9 @@ namespace nkentseu {
 
 		bool NkEditeurCarteAUneCase(NkCarteEditeur c) noexcept {
 			// L'ancrage n'a rien a eteindre : il se retire (menu « ⋮ »).
+			// (R30) Le squelette non plus : il se retire, ou revient au repos.
 			return c != NkCarteEditeur::NK_TRANSFORM && c != NkCarteEditeur::NK_HIERARCHIE && c != NkCarteEditeur::NK_ANCRAGE &&
-				   c < NkCarteEditeur::NK_COUNT;
+				   c != NkCarteEditeur::NK_SQUELETTE && c < NkCarteEditeur::NK_COUNT;
 		}
 
 		bool NkEditeurCarteActive(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c) {

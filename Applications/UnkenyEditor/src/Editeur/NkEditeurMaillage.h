@@ -44,6 +44,7 @@
 #include "NKContainers/String/NkString.h"
 #include "NKGui/Core/NkGuiTypes.h"
 #include "Unkeny/Maillage/NkUnkenyMaillage.h"
+#include "Unkeny/Squelette/NkUnkenySquelette.h"
 
 namespace nkentseu {
 	namespace editeur {
@@ -72,7 +73,39 @@ namespace nkentseu {
 		/// L'outil de la page.
 		enum class NkOutilMaillage : uint8 {
 			NK_SELECTION = 0, ///< clic : choisir ; glisser : deplacer (ou cadre de choix)
-			NK_AJOUTER		  ///< clic : un sommet
+			NK_AJOUTER,		  ///< clic : un sommet
+			// (2026-10-02, R30) Le SQUELETTE 2D (NkEditeurSquelette.h) : AJOUTES A LA FIN.
+			NK_OS,	  ///< B : poser (glisser), chainer, deplacer la tete, tirer la queue (le REPOS)
+			NK_POIDS, ///< W : peindre les poids de l'os choisi (Maj : retirer), auto-poids
+			NK_POSE,  ///< R : tourner les os (la POSE, pas le repos)
+			NK_IK	  ///< I : tirer une main / un pied : chaine a deux os, sens du coude
+		};
+		/// Un outil du squelette ?
+		inline bool NkOutilSquelette(NkOutilMaillage o) noexcept {
+			return o == NkOutilMaillage::NK_OS || o == NkOutilMaillage::NK_POIDS || o == NkOutilMaillage::NK_POSE || o == NkOutilMaillage::NK_IK;
+		}
+
+		/// Les boutons du panneau du squelette (le banc et les captures y visent).
+		enum class NkBoutonSquelette : uint8 {
+			NK_HUMANOIDE = 0,
+			NK_QUADRUPEDE,
+			NK_OISEAU,
+			NK_CREATURE,
+			NK_SYMETRIE,
+			NK_SUPPRIMER,
+			NK_CHALEUR,
+			NK_DISTANCE,
+			NK_PARTIES,
+			NK_NORMALISER,
+			NK_REPOS,
+			NK_COUDE_AUTO,
+			NK_COUDE_GAUCHE,
+			NK_COUDE_DROITE,
+			NK_EMPLACEMENT,
+			NK_ATTACHE,
+			NK_CHAINE,
+			NK_ASSET,
+			NK_COUNT
 		};
 
 		/// Les boutons de la barre de la page (le banc et les captures y visent).
@@ -90,6 +123,11 @@ namespace nkentseu {
 			NK_ASSET,
 			NK_CADRER,
 			NK_UV, ///< « UV collees » : deplacer un sommet garde la texture a sa place
+			// (R30) Les outils du squelette.
+			NK_OS,
+			NK_POIDS,
+			NK_POSE,
+			NK_IK,
 			NK_COUNT
 		};
 
@@ -134,6 +172,27 @@ namespace nkentseu {
 				/// Les trois choix de physique de la partie montree.
 				nkgui::NkRect physique[3] = {};
 				NkString annonce;
+				// --- (2026-10-02, R30) LE SQUELETTE -----------------------------------
+				int32 os = -1;			  ///< l'os choisi (panneau, poids, symetrie)
+				int32 emplacement = -1;	  ///< l'emplacement montre
+				float32 pinceauRayon = 0.15f; ///< m
+				float32 pinceauForce = 0.35f; ///< par coup [0,1]
+				bool pinceauRetirer = false;
+				int32 coude = -1; ///< IK : -1 garde le sens, 0 a droite, 1 a gauche
+				/// Le geste d'os en cours : 0 rien, 1 poser (glisser), 2 tete, 3 queue,
+				/// 4 tourner (pose), 5 IK, 6 peindre, 7 deplacer la racine (pose).
+				int32 osGeste = 0;
+				uint32 osSaisi = 0;
+				bool osParLeBout = false;
+				bool coudeGeste = true; ///< le sens du coude retenu au debut d'un geste d'IK
+				NkVec2f osAppui{0.f, 0.f}; ///< repere du maillage
+				NkVec2f osTete{0.f, 0.f};
+				NkVec2f osQueue{0.f, 0.f};
+				NkVec2f pinceauDernier{0.f, 0.f};
+				char nomOs[16] = {};
+				int32 nomOsPour = -2; ///< l'os dont `nomOs` est le nom (rafraichi au changement)
+				nkgui::NkRect rangeesOs[unkeny::NK_SQUELETTE2D_OS_MAX] = {};
+				nkgui::NkRect boutonsSquelette[static_cast<uint32>(NkBoutonSquelette::NK_COUNT)] = {};
 		};
 
 		/// L'etat des pages de maillage : un membre de NkEditeurInterface.

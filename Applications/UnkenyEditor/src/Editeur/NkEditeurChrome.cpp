@@ -19,6 +19,7 @@
 
 #include "Ia/NkEditeurIA.h"
 #include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurSquelette.h"
 #include "Editeur/NkEditeurAssets.h"
 #include "NKEditorKit/Components/NkContentBrowserDisque.h"
 #include "Editeur/NkEditeurLumiere.h"
@@ -351,6 +352,12 @@ namespace nkentseu {
 							const bool aMaillage = m.scene.Monde().Has<NkMaillage2D>(m.selection);
 							if (aMaillage) {
 								out.PushBack(Entree("Éditer le maillage 2D…", NK_A_MAILLAGE_EDITER));
+								// (2026-10-02, R30) Le squelette : l'editer, ou en poser un.
+								if (m.scene.Monde().Has<unkeny::NkSquelette2D>(m.selection)) {
+									out.PushBack(Entree("Éditer le squelette 2D…", NK_A_SQUELETTE_EDITER));
+								} else {
+									out.PushBack(Entree("Poser un squelette 2D (humanoïde)", NK_A_SQUELETTE, "", false, m.etat == NkEtatJeu::NK_EDITION));
+								}
 							} else if (m.scene.Monde().Has<NkSprite2D>(m.selection)) {
 								out.PushBack(Entree("Créer un maillage 2D depuis le sprite",
 													NK_A_MAILLAGE + static_cast<int32>(NkSourceMaillage::NK_SPRITE), "", false,
@@ -780,8 +787,18 @@ namespace nkentseu {
 						Ligne(NkComposantEditeur::NK_EMETTEUR, "Émetteur (effets : feu, étincelles, fumée…)");
 						// ── Animation ──
 						const bool animateur = Peut(NkComposantEditeur::NK_ANIMATEUR);
-						Section("Animation", !Peut(NkComposantEditeur::NK_ANIMATION) && !animateur);
+						const bool squelette = Peut(NkComposantEditeur::NK_SQUELETTE);
+						Section("Animation", !Peut(NkComposantEditeur::NK_ANIMATION) && !animateur && !squelette);
 						Ligne(NkComposantEditeur::NK_ANIMATION, "Animation (sprites)");
+						// (2026-10-02, R30) Le SQUELETTE 2D : un modele de depart, ou vide. Sans
+						// maillage, il est cree depuis le sprite (ou la forme) d'abord.
+						if (squelette) {
+							static const char *const kModeles[4] = {"Humanoïde", "Quadrupède", "Oiseau", "Créature libre"};
+							for (int32 k = 0; k < 4; ++k) {
+								out.PushBack(Entree(NkString::Format("Squelette 2D : %s", kModeles[k]).CStr(), NK_A_SQUELETTE + k));
+							}
+							out.PushBack(Entree("Squelette 2D vide (os à poser)", NK_A_SQUELETTE_VIDE));
+						}
 						if (animateur) {
 							// Les modeles enregistres (« plateforme » toujours), puis les
 							// controleurs .nkanimctl du Contenu (releves a l'ouverture).
@@ -1210,6 +1227,10 @@ namespace nkentseu {
 			}
 			// 2026-10-02 : le MAILLAGE 2D (2450-2499, NkEditeurMaillage.h, R31).
 			if (NkEditeurActionMaillage(c, action)) {
+				return;
+			}
+			// 2026-10-02 : le SQUELETTE 2D (2550-2599, NkEditeurSquelette.h, R30).
+			if (NkEditeurActionSquelette(c, action)) {
 				return;
 			}
 			// 2026-10-01 : l'IA integree (2500-2549, Ia/NkEditeurIA.h).

@@ -193,6 +193,8 @@ namespace nkentseu {
 			NK_ANCRAGE,	  ///< ancrage a l'ecran (HUD, document 03)
 			// 2026-10-02 (R31) : AJOUTE A LA FIN.
 			NK_MAILLAGE, ///< maillage 2D (depuis le sprite, la forme, ou vide : NkEditeurMaillage.h)
+			// 2026-10-02 (R30) : AJOUTE A LA FIN.
+			NK_SQUELETTE, ///< squelette 2D (un modele de depart, ou vide : NkEditeurSquelette.h)
 			NK_COUNT
 		};
 		const char *NkComposantEditeurNom(NkComposantEditeur c) noexcept;
@@ -237,6 +239,8 @@ namespace nkentseu {
 			NK_SCRIPTS, ///< categorie Acteur ; « Retirer le composant » retire NkScript2D
 			// 2026-10-02 (R31) : le MAILLAGE 2D, categorie Rendu. AJOUTE A LA FIN.
 			NK_MAILLAGE, ///< NkComposantEditeur::NK_MAILLAGE
+			// 2026-10-02 (R30) : le SQUELETTE 2D, categorie Animation. AJOUTE A LA FIN.
+			NK_SQUELETTE, ///< NkComposantEditeur::NK_SQUELETTE
 			NK_COUNT
 		};
 		/// Le composant d'une carte (false : Transform, Hierarchie). (2026-10-01)
