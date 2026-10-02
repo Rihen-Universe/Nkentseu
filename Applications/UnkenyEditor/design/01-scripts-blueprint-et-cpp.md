@@ -1281,13 +1281,68 @@ l'attrapeur de dernier recours (N2).
    hauteur, **enregistrez** : le Journal dit « recompilés et rechargés à
    chaud » ; une faute de frappe y apparaît en rouge (fichier:ligne), l'ancienne
    version continue.
-3. **Blueprint** : double-clic sur `Scripts/PorteBlueprint.nkbp` : la page du
-   graphe remplace la vue. Changez « 0 2 » dans le nœud `+ (vec2)`, ou ajoutez
-   un nœud (clic droit dans le vide, puis la palette), tirez un fil d'une
-   prise à l'autre, **Compiler et enregistrer** ; une erreur entoure son nœud
-   en rouge. **Fermer** rend la vue.
+3. **Blueprint** : double-clic sur `Scripts/PorteBlueprint.nkbp` : l'éditeur
+   de Blueprint (§ 15) remplace la vue. Dans **Mon Blueprint**, choisissez la
+   variable `hauteur` et changez sa valeur par défaut dans les **Détails** ;
+   ou ajoutez un nœud (clic droit dans le vide : le menu et sa recherche),
+   tirez un fil d'une prise à l'autre, **Compiler** (F5) ; une erreur est
+   écrite DANS son nœud, en rouge. **Fermer** rend la vue.
 4. **Le vôtre** : Contenu > **+ Ajouter > Script C++** (le modèle commenté
    s'ouvre) ou **Blueprint** ; choisissez une entité, Détails > **Scripts** >
    « + cpp:NouveauScript » ou « + Contenu/Scripts/NouveauBlueprint.nkbp ».
 5. **Le jeu** : Fichier > Construire… : les Blueprints sont cuits, le C++ est
    lié au joueur ; `Portes.exe --essai-scripts` le rejoue sans fenêtre.
+
+## 15. L'éditeur de Blueprint façon Unreal 5, à la charte (02/10/2026)
+
+Branche `unkeny/blueprint-ue5`. Captures : `References\Captures\blueprint-ue5\`
+(refaire : `UnkenyEditor --captures-blueprint=DOSSIER`, depuis la racine du
+dépôt) ; banc : `UnkenyEditor --selftest`, « BANC BLUEPRINT UE5 ».
+
+### 15.1 Où est quoi
+
+| Quoi | Où |
+|---|---|
+| Les jetons UNIQUES (couleurs, tailles, rayons : la charte) | `Engine/NKEditorKit/.../Components/NkStyleNodal.h` |
+| La toile générique (nœuds, fils, gestes, cadres, relais) | `Engine/NKEditorKit/.../Components/NkCanevasNoeuds.h/.cpp` |
+| Le menu des nœuds (recherche, catégories, sensible au contexte) | `Engine/NKEditorKit/.../Components/NkMenuNoeuds.h/.cpp` |
+| Le panneau « Mon Blueprint » | `Engine/NKEditorKit/.../Components/NkMonBlueprint.h/.cpp` |
+| Les fils lisses (frange alpha, cubique adaptative) | `Kernel/Runtime/NKGui/.../Core/NkGuiDrawList.h` (`AddBezierCubic`, `AddPolylineLisse`) |
+| Le document (variables, fonctions, macros, répartiteurs) | `Applications/UnkenyEditor/src/Script/NkBpDocument.h/.cpp` |
+| Le compilateur vers la machine (appels, macros, code) | `.../Script/NkBpCompilateur.cpp`, `NkBpExpression.h/.cpp` |
+| L'éditeur autonome (dessine dans un rectangle donné) | `.../Script/NkEditeurBlueprint.h/.cpp`, `NkEditeurBlueprintDomaine.cpp` |
+| La colle avec la scène (plein écran, hôte) | `.../Script/NkEditeurGraphe.h/.cpp` |
+| La machine : NK_APPEL, NK_DIFFUSER, textes, couleur, trace | `Engine/Unkeny/src/Unkeny/Script/NkUnkenyBpModule.*`, `NkUnkenyBpMachine.*` |
+
+### 15.2 Où cliquer
+
+- **Barre** : Compiler (pastille verte / jaune « à compiler » / rouge), Enregistrer
+  (Ctrl+S), Rechercher (Ctrl+F), Réglages de classe, Valeurs par défaut, Simuler.
+- **Mon Blueprint** : « + » d'une section (Fonctions, Macros, Variables,
+  Répartiteurs) ; F2 ou clic lent pour renommer ; l'œil = modifiable par
+  instance ; double-clic sur une fonction : son onglet ; glisser une variable
+  sur la toile : Lire (Ctrl) / Écrire (Alt), sinon un petit menu.
+- **Toile** : clic droit dans le vide = menu + recherche ; tirer un fil d'une
+  prise et le lâcher dans le vide = menu SENSIBLE AU CONTEXTE ; C = cadre autour
+  du choix ; double-clic sur un fil = relais ; Ctrl+C / V / D, Suppr ; clic
+  droit sur un nœud : aligner, réduire en fonction.
+- **Détails** : variable (nom, type, défaut, modifiable par instance, info-bulle,
+  catégorie) ; fonction (entrées, sorties, pure, catégorie) ; nœud de code
+  (entrées, type du résultat).
+- **Bas** : Résultats de compilation (un clic va au nœud), de recherche,
+  Console de simulation.
+- **Scène** : Détails > Scripts : chaque variable « modifiable par instance »
+  se règle par entité (texte, réel, couleur, entité…).
+
+### 15.3 Les fils lisses (retour de Rihen, 02/10)
+
+« Pourquoi les connecteurs ne sont pas lisses ? » : NKGui traçait lignes et
+courbes en quads NETS ; seul DX11 (MSAA 4x par défaut) les adoucissait à
+l'écran, les captures (rasteriseur logiciel), OpenGL, Vulkan et le logiciel
+montraient l'escalier. La frange alpha est maintenant dans la géométrie
+(même bord partout) ; les traits horizontaux et verticaux restent nets.
+Témoins (u11…), contre-épreuve sans frange (0 px adouci), capture 10 agrandie.
+
+### 15.4 À trancher par Rihen (contradictions de la charte)
+
+Listées dans le rapport du 02/10 et dans `References\Blueprint\CHARTE.md`.
