@@ -174,6 +174,11 @@ namespace nkentseu {
 	struct NkTrack {
 			NkTrackType type = NkTrackType::Animation;
 			NkEntityId entity = NkEntityId::Invalid();
+			/// (2026-10-02, format v2) Le NOM de l'entite visee dans la scene (NkName).
+			/// L'identifiant `entity` ne survit pas a un rechargement de la scene (les
+			/// generations changent) : c'est le nom qui RELIE la piste a son entite
+			/// (NkSequence::BindByName). Vide = la piste ne se relie que par `entity`.
+			NkString entityName;
 			NkString name;
 			bool muted = false;
 			bool locked = false;
@@ -223,6 +228,9 @@ namespace nkentseu {
 
 	struct NkCameraShot {
 			NkEntityId cameraEntity = NkEntityId::Invalid();
+			/// (2026-10-02, format v2) Le nom de la camera dans la scene (voir
+			/// NkTrack::entityName) : c'est lui qui relie le plan apres un rechargement.
+			NkString cameraName;
 			float32 startTime = 0.f;
 			float32 duration = 0.f;
 			NkCutType cutType = NkCutType::Cut;
@@ -292,6 +300,7 @@ namespace nkentseu {
 
 	struct NkNLATrack {
 			NkEntityId entity = NkEntityId::Invalid();
+			NkString entityName; ///< (format v2) voir NkTrack::entityName
 			NkString name;
 			NkVector<NkNLAClip> clips;
 			bool muted = false;
@@ -378,6 +387,10 @@ namespace nkentseu {
 	class NkSequence {
 		public:
 			NkString name;
+			/// (2026-10-02, format v2) LA SCENE que la sequence anime : le chemin du
+			/// `.nkscene3d` (CONVENTIONS_FICHIERS.md §6 : « la sequence `.nkseq`
+			/// pointe vers une scene `.nkscene3d` »). Vide = aucune scene nommee.
+			NkString scene;
 			float32 fps = 24.f;
 			float32 duration = 0.f; ///< Durée totale en secondes
 
@@ -436,6 +449,21 @@ namespace nkentseu {
 			 */
 			void RecalcDuration() noexcept;
 
+			/**
+			 * @brief (2026-10-02) RELIE les pistes et les plans a leurs entites PAR
+			 * LEUR NOM (NkName), dans `world`.
+			 *
+			 * Une sequence relue (`LoadFromFile`) porte des identifiants d'entites
+			 * qui ne valent plus rien des que la scene a ete rechargee : la scene
+			 * recree ses entites, leurs generations changent. Le nom, lui, est
+			 * celui que la scene ecrit. Une piste sans nom garde son identifiant.
+			 *
+			 * @return le nombre de cibles NOMMEES qui n'ont PAS ete trouvees (0 =
+			 *         tout est relie). Une cible introuvable devient Invalid : elle
+			 *         n'anime rien plutot que d'animer une autre entite.
+			 */
+			uint32 BindByName(NkWorld &world) noexcept;
+
 			// ── Sérialisation ────────────────────────────────────────────────
 			// Format `.nkseq` : binaire, séquentiel, versionné. En-tête de 24
 			// octets (magie "NKSQ", version, taille du corps, empreinte FNV-1a du
@@ -452,6 +480,15 @@ namespace nkentseu {
 			// voit un octet abîmé au milieu** — sans elle il donnerait une clé
 			// décalée et la séquence serait lue « avec succès ».
 			//
+			// (2026-10-02) VERSION 2 : la scene visee (`scene`) et les NOMS des
+			// cibles (`entityName`, `cameraName`) entrent dans le format ; la
+			// version 1 reste LUE pour toujours (scene et noms vides).
+			// ⚠️ Une cible NOMMEE s'ecrit avec un identifiant Invalid : le sien ne
+			// survit pas au rechargement de la scene, et l'ecrire rendrait deux
+			// sauvegardes de la meme sequence DIFFERENTES d'une session a l'autre.
+			// Apres LoadFromFile, les cibles nommees sont donc Invalid jusqu'a
+			// `BindByName`.
+			//
 			// N'écrit PAS les drapeaux `selected` : c'est un état d'interface, pas
 			// du contenu. L'aller-retour reste identique octet à octet, puisque
 			// `LoadFromFile` construit des objets où `selected` vaut `false` et
@@ -465,5 +502,17 @@ namespace nkentseu {
 	// et « version de format inconnue » n'appellent pas la même réaction. Chaîne
 	// statique, valide jusqu'au prochain appel, jamais nulle.
 	[[nodiscard]] const char *NkSequenceDernierRefus() noexcept;
+
+	// (2026-10-02) LES ANGLES DES CANAUX `localRotation.x/.y/.z`, en DEGRES :
+	// tangage (X), lacet (Y), roulis (Z), composes LACET PUIS TANGAGE PUIS ROULIS,
+	// q = Y(lacet) . X(tangage) . Z(roulis) -- la convention de la camera
+	// d'edition de Nogee (RotateY(lacet) * RotateX(tangage)) et celle d'Unity.
+	// Le lacet (le cap) tourne donc librement ; la singularite est au tangage de
+	// +/-90 degres (regarder droit en haut ou en bas), la ou une camera n'a pas
+	// de cap. ⚠️ Ce n'est PAS la convention de NkQuatf(NkEulerAngle) (NKMath,
+	// Z.Y.X : singuliere au lacet de 90 degres, celui qu'une camera franchit le
+	// plus) ; NKScena et le sequenceur passent TOUS DEUX par ces deux fonctions.
+	[[nodiscard]] NkQuatf NkSequenceRotationFromDegrees(float32 pitch, float32 yaw, float32 roll) noexcept;
+	void NkSequenceDegreesFromRotation(const NkQuatf &q, float32 &pitch, float32 &yaw, float32 &roll) noexcept;
 
 } // namespace nkentseu

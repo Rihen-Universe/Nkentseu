@@ -3404,6 +3404,26 @@ et se mesure à part. (b) `AddTrack`, `AddChannel`, `AddClip`, `AddShot` et
 bloc USAGE de l'en-tête (l.25-32) enseigne un motif qui devient un pointeur fou dès
 la deuxième piste. Le banc adresse tout **par indice**.
 
+
+> ### 🎬 2026-10-02 — CE QUE NKSCENA A DEMANDÉ AU SÉQUENCEUR
+>
+> NKScena est née (`Applications/NKScena/ROADMAP.md` §0). Trois ajouts, chacun
+> éprouvé par son banc (`NKScena --selftest`, 34 verts ; `NkSequenceCheck`
+> toujours 61 verts) :
+>
+> - **Rotation** : canaux `localRotation.x/.y/.z` (degrés : tangage, lacet,
+>   roulis), composés **lacet · tangage · roulis** (`NkSequenceRotationFromDegrees`
+>   / `NkSequenceDegreesFromRotation`). ⚠️ Pas `NkQuatf(NkEulerAngle)` : sa
+>   convention Z·Y·X est singulière au **lacet de 90°** — mesuré : |q·q'| = 0,85.
+> - **Format `.nkseq` v2** : `NkSequence::scene` (la scène `.nkscene3d` visée) et
+>   les noms des cibles (`entityName`, `cameraName`) ; v1 toujours lue. Une cible
+>   NOMMÉE s'écrit avec un identifiant `Invalid` : l'identifiant ne survit pas au
+>   rechargement, et l'écrire rendait deux sauvegardes de la même séquence
+>   différentes d'une session à l'autre (14 octets, mesuré).
+> - **`NkSequence::BindByName(world)`** : relie pistes et plans par `NkName`,
+>   rend le nombre de cibles introuvables (devenues `Invalid` : elles n'animent
+>   rien plutôt qu'une autre entité).
+
 ---
 
 ## Phase B — GPU léger (une fois un peu de marge disponible)

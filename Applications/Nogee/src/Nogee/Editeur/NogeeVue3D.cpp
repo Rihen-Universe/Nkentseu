@@ -139,6 +139,13 @@ namespace nkentseu {
 			}
 		}
 
+		bool NogeeVue3D::Relire(uint8 *rgba) {
+			if (!Pret() || rgba == nullptr) {
+				return false;
+			}
+			return Cible(mCible)->ReadbackPixels(rgba, mW * 4u);
+		}
+
 		NkTextureHandle NogeeVue3D::Texture() const noexcept {
 			if (mRendu == nullptr || mCible == nullptr) {
 				return NkTextureHandle{};

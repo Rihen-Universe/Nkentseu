@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+NKScena — l'application qui pose le TEMPS sur une scene Noge
+==============================================================
+AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+Elle ouvre une scene construite ailleurs (Nogee, NogeDemo), y pose des pistes,
+des cles et des plans camera sur LA frise partagee de NKEditorKit, et rend la
+sequence en fichiers. Voir ROADMAP.md (sa definition, ce qu'elle exclut, sa
+condition de naissance -- remplie le 2026-10-02) et design/01..03.
+
+CE QU'ELLE EMPRUNTE, SANS RECOPIER :
+  - la trame d'editeur de la famille (NKEditorKit/Famille, NkFamilleEditeur) ;
+  - la frise facon Sequencer d'UE5 (NKEditorKit/Components/NkTimeline*) ;
+  - le sequenceur de Noge et son format .nkseq (Noge/Sequencer) ;
+  - la VUE 3D et le MODELE DE SCENE de Nogee : `NogeeVue3D.cpp` et
+    `NogeeModele.cpp` sont COMPILES ICI TELS QUELS (pas copies) -- le meme
+    renderer hors ecran, la meme scene de NogeDemo, la meme camera d'edition ;
+  - NkImageSequenceWriter (NKMedia) et NkOffscreenTarget (NKRenderer) pour le
+    rendu en images.
+
+LANCER (depuis la RACINE du depot : les nuanceurs de NKRenderer y sont lus)
+  ./Build/Bin/Debug-Windows/NKScena/NKScena.exe            (la scene de NogeDemo)
+  ./Build/Bin/Debug-Windows/NKScena/NKScena.exe --selftest (le banc, sans fenetre)
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+with project("NKScena"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files([
+        "src/NKScena/**.cpp",
+        # EMPRUNTES A NOGEE, compiles tels quels (voir l'en-tete).
+        "%{wks.location}/Applications/Nogee/src/Nogee/Editeur/NogeeVue3D.cpp",
+        "%{wks.location}/Applications/Nogee/src/Nogee/Editeur/NogeeModele.cpp",
+    ])
+
+    nkentseudependson(
+        ["Noge", "NKAnima", "NKVFX", "NKAgent", "NKRL", "NKTensor", "NKAudio", "NKMedia", "NKNetwork",
+         "NKRenderer", "NKSL", "NKCollision", "NKPhysics", "NKNavigation",
+         "NKSerialization", "NKFileSystem", "NKECS", "NKRHI",
+         "NKEditorKit", "NKGui", "NKCanvas", "NKReflection",
+         "NKGLSlang", "NKSPIRVCross", "NKGlad", "NKFont", "NKImage",
+         "NKEvent", "NKWindow", "NKLogger", "NKMath", "NKTime", "NKStream",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "%{wks.location}/Applications/Nogee/src", "%{Noge.location}/src",
+                        "%{wks.location}/Integrations"]
+                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
+    )
+    # Le backend NKGui -> NKRHI (NkGuiRHIBackend) : l'interface se rend par lui.
+    dependson(["NKGuiIntegration"])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    # ===== Windows ================================================================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        windowedapp()
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
+        _WIN_LINKS = [
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "uuid", "ole32", "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            "winmm", "avrt", "ws2_32",
+        ]
+        if WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+            if "mingw" not in TC_WINDOWS.lower():
+                _WIN_LINKS.extend(GLSLANG_LIBS_WINDOWS)
+        links(_WIN_LINKS)
+
+    # ===== Linux XLib =============================================================
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xext", "GL"])
+
+    # ===== macOS ==================================================================
+    with filter("system:macOS"):
+        windowedapp()
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
