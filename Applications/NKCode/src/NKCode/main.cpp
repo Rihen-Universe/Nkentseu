@@ -28,6 +28,7 @@
 #include "NKCode/Shell/NkAppFonts.h"
 #include "NKCode/Shell/NkAppIcons.h"
 #include "NKCode/Shell/NkAppCommands.h"
+#include "NKCode/Shell/NkEditeurVide.h" // (01/10) la page de l'editeur vide
 #include "NKCode/Shell/NkOpenWindows.h" // registre des fenetres ouvertes (restauration au lancement)
 #include "NKCode/Project/NkLogSink.h"
 #include "NKImage/NKImage.h"
@@ -402,6 +403,8 @@ int nkmain(const NkEntryState &state) {
 	// ── Ecran d'accueil (Home) : nouvelle UI + logos/icones rasterises en texture ──
 	g_home.st = &g_state;
 	g_home.dlg = &g_dialogs;
+	nkcode::NkEditeurVideHook() = {&nkcode::NkPageEditeurVide, &g_home}; // (01/10) accueil de l'editeur vide
+	nkcode::NkEditeurVideRearmerFn() = +[]() { nkcode::NkAccueilEditeurFerme() = false; };
 	// ExeDir() a ete pose en tete de main (chemin fiable donne par l'OS).
 	// Sans lui, NkEmbeddedJenga::Configure ne trouvait pas tools/python-embed
 	// -> gProdTools=false -> mode embarque DESACTIVE -> les boutons Construire/

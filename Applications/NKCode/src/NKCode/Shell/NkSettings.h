@@ -66,6 +66,8 @@ namespace nkentseu {
 				/// (01/10) Synthese : la barre de menus TOUJOURS visible (variante 3 de
 				/// la maquette D) au lieu du menu ≡.
 				bool menusVisibles = false;
+				/// (01/10) La page d'accueil dans l'editeur vide (NkEditeurVide.h).
+				bool accueilEditeur = true;
 				/// (01/10) Le JEU D'ICONES (NkJeuxIcones.h) : cle = nom du dossier
 				/// sous data/extensions/ ou %APPDATA%/NKCode/extensions/ (NkJeuxIcones.h).
 				char jeuIcones[64] = "pastilles";
@@ -136,6 +138,7 @@ namespace nkentseu {
 					ki("accentChoisi", accentChoisi);
 					ki("apparence", apparence);
 					ki("menusVisibles", menusVisibles);
+					ki("accueilEditeur", accueilEditeur);
 					kv("jeuIcones", NkString(jeuIcones));
 					ki("transparency", transparency);
 					ki("anim", anim);
@@ -276,6 +279,8 @@ namespace nkentseu {
 									apparence = iv;
 								else if (is("menusVisibles"))
 									menusVisibles = iv != 0;
+								else if (is("accueilEditeur"))
+									accueilEditeur = iv != 0;
 								else if (is("jeuIcones"))
 									cp(jeuIcones, sizeof(jeuIcones));
 								else if (is("transparency"))
@@ -321,6 +326,7 @@ namespace nkentseu {
 					accentChoisi = d.accentChoisi;
 					apparence = d.apparence;
 					menusVisibles = d.menusVisibles;
+					accueilEditeur = d.accueilEditeur;
 					NkStrCopy(jeuIcones, sizeof(jeuIcones), d.jeuIcones);
 					transparency = d.transparency;
 					anim = d.anim;

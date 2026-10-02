@@ -249,6 +249,11 @@ namespace nkentseu {
 				uint32 plafond = 0;
 				bool portePlus = false;			///< l'hote sait joindre quelque chose
 				bool historiqueParHote = false; ///< l'hote tient son historique (NKCode, persistant)
+				/// (01/10, ADDITIF) L'hote dessine l'EN-TETE lui-meme (titre du panneau,
+				/// fournisseur, historique, nouvelle conversation -- l'apparence
+				/// « Synthese » de NKCode) : le kit n'en publie pas et le fil commence en
+				/// haut du rectangle. Faux = l'historique.
+				bool enteteParHote = false;
 				bool commandesParHote = false;	///< l'hote tient sa liste de commandes
 				/// L'hote sait METTRE EN FILE une demande tapee pendant un tour (NKCode).
 				/// Sans elle, pendant un tour, l'envoi devient un bouton d'ARRET -- une
@@ -823,7 +828,8 @@ namespace nkentseu {
 					ed.porteHistorique = true;
 					ed.porteNouvelle = true;
 					const char *sujet = Sujet();
-					const float32 hEntete = NkAiEnteteMesurer(sujet, r.w, 0.f, ed, m, planChrome, &Mesure, &p);
+					const float32 hEntete =
+						enteteParHote ? 0.f : NkAiEnteteMesurer(sujet, r.w, 0.f, ed, m, planChrome, &Mesure, &p);
 
 					char duree[24];
 					duree[0] = 0;
