@@ -51,15 +51,17 @@ namespace nkentseu {
 				uint64 derniere = 0;   ///< ... et de la derniere
 				uint32 pixelsFond = 0; ///< pixels de la derniere image egaux au fond (rien n'y est dessine)
 				uint32 pixels = 0;
+				/// Luminance moyenne (0..255) du HAUT et du BAS de la premiere image (un
+				/// huitieme de la hauteur chacun) : le ciel est en haut, le sol en bas
+				/// -- le temoin que l'image n'est pas a l'envers.
+				float32 lumHaut = 0.f;
+				float32 lumBas = 0.f;
 		};
 
 		/// Rend la sequence du modele. 1 = rendue, 0 = echec (raison), -1 = AUCUN
 		/// peripherique graphique sur cette machine (ni vert ni rouge pour un banc).
 		int32 NkScenaRendreSansFenetre(NkScenaModele &m, const NkScenaRenduDesc &d, NkScenaRenduResultat &r);
 
-		/// Retourne une image RGBA haut-bas en place (les cibles OpenGL sont
-		/// stockees de bas en haut : NkOffscreenStoredIsBottomUp).
-		void NkScenaRetournerLignes(uint8 *px, uint32 largeur, uint32 hauteur);
 
 	} // namespace nkscena
 } // namespace nkentseu

@@ -59,6 +59,14 @@ namespace nkentseu {
 			}
 		} // namespace
 
+		void NkScenaDegres(const math::NkQuatf &q, float32 degres[3]) noexcept {
+			NkSequenceDegreesFromRotation(q, degres[0], degres[1], degres[2]);
+		}
+
+		math::NkQuatf NkScenaRotation(const float32 degres[3]) noexcept {
+			return NkSequenceRotationFromDegrees(degres[0], degres[1], degres[2]);
+		}
+
 		// =====================================================================
 		NkScenaModele::NkScenaModele() : mSeq(new NkSequence()), mReste(new NkSequence()) {
 			frise.fps = 24.f;

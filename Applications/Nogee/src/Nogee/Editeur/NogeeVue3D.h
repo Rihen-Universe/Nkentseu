@@ -72,6 +72,14 @@ namespace nkentseu {
 					return mH;
 				}
 
+				/// (2026-10-02, pour NKScena qui rend une sequence image par image)
+				/// RELIT la cible de la vue vers le processeur : `rgba` doit tenir
+				/// Largeur() x Hauteur() x 4 octets, rangees de HAUT en BAS (la
+				/// relecture redresse deja une cible OpenGL : NkOffscreenTarget::
+				/// ReadbackPixels). A appeler GPU au repos (NkIDevice::WaitIdle),
+				/// apres l'image dont on veut les pixels.
+				bool Relire(uint8 *rgba);
+
 			private:
 				NkIDevice *mDevice = nullptr;
 				renderer::NkRenderer *mRendu = nullptr;

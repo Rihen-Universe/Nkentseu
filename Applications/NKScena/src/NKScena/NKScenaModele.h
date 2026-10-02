@@ -37,6 +37,13 @@ namespace nkentseu {
 
 	namespace nkscena {
 
+		/// Les degres (tangage, lacet, roulis) d'une rotation, et retour, dans la
+		/// convention des canaux de rotation du sequenceur de Noge (lacet, puis
+		/// tangage, puis roulis : NkSequenceRotationFromDegrees). Les Details et
+		/// les cles parlent la MEME langue que ce qui joue.
+		void NkScenaDegres(const math::NkQuatf &q, float32 degres[3]) noexcept;
+		math::NkQuatf NkScenaRotation(const float32 degres[3]) noexcept;
+
 		/// Ce que les Details montrent (la derniere chose choisie).
 		enum class NkScenaChoix : uint8 { Rien = 0, Entite, Piste, Cle, Plan, Sequence };
 

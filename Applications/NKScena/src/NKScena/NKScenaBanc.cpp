@@ -344,6 +344,12 @@ namespace nkentseu {
 						   NkString::Format("0x%016llx / 0x%016llx, fond %u/%u px", static_cast<unsigned long long>(rr.premiere),
 											static_cast<unsigned long long>(rr.derniere), rr.pixelsFond, rr.pixels)
 							   .CStr());
+					Temoin(rr.lumHaut < rr.lumBas, "(s5d) l'image est À L'ENDROIT : le ciel en haut, le sol (plus clair) en bas",
+						   NkString::Format("luminance haut %.1f, bas %.1f", static_cast<double>(rr.lumHaut),
+											static_cast<double>(rr.lumBas))
+							   .CStr());
+					ContreEpreuve(rr.lumBas < rr.lumHaut, "(s5e) la même image RETOURNÉE",
+								  "le témoin d'orientation la voit à l'envers");
 					NkScenaRenduDesc fige = rd;
 					fige.figer = true;
 					fige.ecrire = false;
@@ -351,7 +357,7 @@ namespace nkentseu {
 					m.frise.fps = 3.f;
 					(void)NkScenaRendreSansFenetre(m, fige, rf);
 					m.frise.fps = 24.f;
-					ContreEpreuve(rf.premiere != rf.derniere, "(s5d) le temps FIGÉ : la même image douze fois",
+					ContreEpreuve(rf.premiere != rf.derniere, "(s5f) le temps FIGÉ : la même image douze fois",
 								  NkString::Format("0x%016llx / 0x%016llx", static_cast<unsigned long long>(rf.premiere),
 												   static_cast<unsigned long long>(rf.derniere))
 									  .CStr());

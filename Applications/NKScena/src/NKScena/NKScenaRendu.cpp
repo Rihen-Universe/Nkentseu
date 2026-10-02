@@ -69,23 +69,18 @@ namespace nkentseu {
 			}
 		} // namespace
 
-		void NkScenaRetournerLignes(uint8 *px, uint32 w, uint32 h) {
-			if (px == nullptr || w == 0u || h < 2u) {
-				return;
+		float32 NkScenaLuminance(const uint8 *px, uint32 w, uint32 y0, uint32 y1) {
+			if (px == nullptr || w == 0u || y1 <= y0) {
+				return 0.f;
 			}
-			const usize ligne = (usize)w * 4u;
-			uint8 *tampon = (uint8 *)memory::NkAlloc(ligne);
-			if (tampon == nullptr) {
-				return;
+			double somme = 0.0;
+			for (uint32 y = y0; y < y1; ++y) {
+				const uint8 *ligne = px + (usize)y * w * 4u;
+				for (uint32 x = 0; x < w; ++x) {
+					somme += 0.2126 * ligne[x * 4u] + 0.7152 * ligne[x * 4u + 1u] + 0.0722 * ligne[x * 4u + 2u];
+				}
 			}
-			for (uint32 y = 0; y < h / 2u; ++y) {
-				uint8 *a = px + (usize)y * ligne;
-				uint8 *b = px + (usize)(h - 1u - y) * ligne;
-				std::memcpy(tampon, a, ligne);
-				std::memcpy(a, b, ligne);
-				std::memcpy(b, tampon, ligne);
-			}
-			memory::NkFree(tampon);
+			return static_cast<float32>(somme / (static_cast<double>(w) * (y1 - y0)));
 		}
 
 		int32 NkScenaRendreSansFenetre(NkScenaModele &m, const NkScenaRenduDesc &d, NkScenaRenduResultat &r) {
@@ -187,7 +182,8 @@ namespace nkentseu {
 			}
 			const usize octets = (usize)W * H * 4u;
 			uint8 *px = (uint8 *)memory::NkAlloc(octets);
-			const bool basEnHaut = NkOffscreenStoredIsBottomUp(dev->GetApi());
+			// La relecture rend les rangees de HAUT en BAS sur tous les dorsaux
+			// (ReadbackPixels redresse OpenGL) : rien a retourner ici.
 			for (int32 i = 0; i < n && px != nullptr && (ouvert || !d.ecrire); ++i) {
 				const float32 t = d.figer ? debut : debut + (float32)i / ips;
 				m.Evaluer(t);
@@ -207,13 +203,12 @@ namespace nkentseu {
 					r.raison = "relecture refusee";
 					break;
 				}
-				if (basEnHaut) {
-					NkScenaRetournerLignes(px, W, H);
-				}
 				++r.rendues;
 				const uint64 h = Empreinte(px, octets);
 				if (i == 0) {
 					r.premiere = h;
+					r.lumHaut = NkScenaLuminance(px, W, 0u, H / 8u);
+					r.lumBas = NkScenaLuminance(px, W, H - H / 8u, H);
 				}
 				r.derniere = h;
 				if (d.ecrire && ecrivain.WriteFrame(px, media::NkVideoInputFormat::RGBA32)) {
