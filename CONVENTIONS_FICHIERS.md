@@ -103,7 +103,7 @@ Deux repères pour ce jour-là, tirés de l'état de l'art :
 | `Texture2D` (3) | **`.nktex`** | texture 2D compilée |
 | `TextureCube` (4) | **`.nktexc`** | cubemap (ciel, IBL) |
 | `StaticMesh` (1) | **`.nkmesh`** | maillage statique |
-| `SkeletalMesh` (2) | **`.nkskel`** | maillage à squelette |
+| `SkeletalMesh` (2) | **`.nkskel`** | le **squelette** (`anim::NkSkeletonDef` : os, parents, repos monde) — 3D ou 2D ; un squelette 2D y porte en plus sa marque `PL2D` (voir ci-dessous) — premier écrivain : R30, 02/10/2026 |
 | `Animation` (8) | **`.nkanim`** | clip d'animation |
 | `AnimationController` (17) | **`.nkanimctl`** | contrôleur d'animation : machine à états (états, sous-machines, transitions, paramètres) — décision de Rihen du 30/09/2026 |
 | `Sound` (7) | **`.nksnd`** | son compilé |
@@ -136,11 +136,43 @@ une extension — ce que le corollaire du § 1 refuse. C'est du JSON qui porte s
 `"format": "unkeny.maillage2d"`, écrit par le même code que le maillage d'une scène
 (`Applications/UnkenyEditor/design/06-maillage-2d.md` § 2.4).
 
+**`.nkskel` et le SQUELETTE 2D (2026-10-02, R30).** La ligne disait « maillage à
+squelette » ; aucun code n'écrivait ce fichier. Il porte désormais **le squelette**
+— la structure unique de NKAnima, `NkSkeletonDef` — et le maillage qui s'y peau
+garde son propre fichier (`.nkmesh` en 3D, `.nkmesh2d` en 2D). Le plan validé par
+Rihen le 02/10 dit qu'un squelette 2D **est** un squelette 3D **contraint au plan**
+(os dans XY, rotation autour de Z) : il se dépose au même endroit avec le même
+effet — il anime les os d'un objet — donc il **partage l'extension** (règle du
+§ 1). Ce qui le marque n'est pas l'extension mais une **section du contenu** :
+
+```
+[magic 'NKSK'] [version 1] [nbSections] puis [étiquette][taille][octets]...
+  'BONE'  le squelette : par os [nom] [parent] [repos MONDE, 16 f32]   ← tout lecteur
+  'PL2D'  LA MARQUE DU SQUELETTE 2D : la longueur de chaque os, les
+          EMPLACEMENTS (slots : os porteur, attaches nommées, attache et
+          ordre de dessin au repos)                                  ← les outils 2D
+```
+
+Un lecteur 3D (`anim::NkLoadSkeletonDef`) lit `BONE` et saute `PL2D` : il voit un
+squelette ordinaire, à plat. Un outil 2D (`anim::NkSkeleton2D::LoadBinary`)
+**refuse** un squelette dont un os sort du plan (`Validate`) et accepte un
+squelette 3D plan sans `PL2D` (longueurs déduites des enfants). Les clips d'un
+squelette 2D sont des `.nkanim` ordinaires : pistes d'os **locales**
+(`skeletalLocal`), le nom de chaque piste = le nom de son os (c'est lui qui relie
+le clip au squelette à la relecture) ; l'**attache** et l'**ordre de dessin** d'un
+emplacement sont des pistes de propriété à paliers, `Emplacement[<nom>].image` et
+`Emplacement[<nom>].ordre`. Les mêmes fichiers servent UnkenyEditor, le jeu
+(UnkenyPlayer) et NkAnimaEditor. ⚠️ Le nom d'énumération `SkeletalMesh` est gardé
+(renommer une valeur d'enum publiée ne se fait pas en passant) : c'est la ligne
+de cette table qui dit ce que contient le fichier. **À trancher par Rihen** : le
+renommer `Skeleton` le jour où un vrai format « maillage + squelette » 3D naîtra.
+
 **`.nkasset` reste accepté EN LECTURE** (compatibilité avec l'existant), mais
 n'est **plus écrit** — sauf pour `Custom`, dont c'est justement la nature.
 
-⚠️ **`.nkanim` et `.nkanimctl` ne suivent pas (encore) le format commun** : ils
-ont leur propre en-tête, magic `NKAN` pour un clip, `NKAC` pour un contrôleur,
+⚠️ **`.nkanim`, `.nkanimctl` et `.nkskel` ne suivent pas (encore) le format commun** : ils
+ont leur propre en-tête, magic `NKAN` pour un clip, `NKAC` pour un contrôleur, `NKSK`
+pour un squelette (2026-10-02),
 parce que NKAnima ne tire pas NKSerialization. La règle « l'en-tête est la
 vérité » vaut pour eux par leur magic ; leur ligne de la table ci-dessus est,
 elle, la seule correspondance type ↔ extension.

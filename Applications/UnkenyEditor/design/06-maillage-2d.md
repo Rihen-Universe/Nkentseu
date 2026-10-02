@@ -225,7 +225,7 @@ d'une scène (`interne::EcrireComposant`) : les deux ne peuvent pas diverger.
 
 ## 6. Ce qui reste (après R31)
 
-- Un **mode Poids** dans la fenêtre (R30) et l'auto-pondération.
+- ~~Un **mode Poids** dans la fenêtre (R30) et l'auto-pondération.~~ ✅ 02/10 : **document 07** (outils Os, Poids, Pose, IK de la fenêtre ; la peau passe par `NkMaillagePositionsMonde`, qui reçoit désormais l'entité).
 - Des **trous** dans le contour d'un sprite (anneau), plusieurs îles.
 - Photographier l'état des corps des parties (un enregistrement en jeu fidèle).
 - Faire toucher les polygones aux particules (NKPhysics), pour une gelée sur un
