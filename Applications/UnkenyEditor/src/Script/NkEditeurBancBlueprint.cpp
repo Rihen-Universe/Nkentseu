@@ -658,7 +658,11 @@ namespace nkentseu {
 				memory::NkAllocator &tas = memory::NkGetDefaultAllocator();
 				nkgui::NkGuiDrawList *dl = tas.New<nkgui::NkGuiDrawList>();
 				nkgui::NkGuiDrawListRaster *ras = tas.New<nkgui::NkGuiDrawListRaster>();
-				dl->traitsLisses = lisse;
+				// Le reglage PAR DEFAUT de NKGui (ce que toutes les toiles ont) ; la
+				// contre-epreuve seule le coupe.
+				if (!lisse) {
+					dl->traitsLisses = false;
+				}
 				const nkgui::NkVec2 a{12.f, 20.f}, b{200.f, 100.f};
 				const nkgui::NkVec2 c1{a.x + 94.f, a.y}, c2{b.x - 94.f, b.y};
 				const nkgui::NkColor blanc{255, 255, 255, 255};
@@ -730,7 +734,9 @@ namespace nkentseu {
 					memory::NkAllocator &tas = memory::NkGetDefaultAllocator();
 					nkgui::NkGuiDrawList *dl = tas.New<nkgui::NkGuiDrawList>();
 					nkgui::NkGuiDrawListRaster *ras = tas.New<nkgui::NkGuiDrawListRaster>();
-					dl->traitsLisses = lisse == 1;
+					if (lisse == 0) {
+						dl->traitsLisses = false; // la contre-epreuve ; sinon le DEFAUT
+					}
 					const float32 x0 = 10.3f, cy = 20.4f, w = 22.f, h = 26.f, xp = x0 + w * 0.58f;
 					const nkgui::NkVec2 pe[5] = {{x0, cy - h * 0.5f}, {xp, cy - h * 0.5f}, {x0 + w, cy}, {xp, cy + h * 0.5f}, {x0, cy + h * 0.5f}};
 					dl->AddConvexPolyLisse(pe, 5, nkgui::NkColor{255, 255, 255, 255});
