@@ -323,7 +323,20 @@ namespace nkentseu {
 					const NkArchiveNode &v = ents[i].node;
 					if (v.IsArray() || v.IsObject())
 						continue;
-					NkGuiArchive::SetToken(cible, cle, v.Lexeme());
+					// (02/10) UNE CHAINE RESTE UNE CHAINE. Recopiee en JETON, la
+					// surcharge `text = "LE DERNIER FEU"` d'une instance devenait le
+					// jeton `"LE DERNIER FEU"`, guillemets compris -- et le titre
+					// s'affichait entre guillemets (vu sur la premiere capture des
+					// ecrans stylises du Dernier Feu). La valeur citee se recopie
+					// donc par `SetString` ; le reste (nombres, booleens, vecteurs,
+					// jetons) reste un jeton, comme avant.
+					const NkStringView lex = v.Lexeme();
+					NkString texte;
+					if (lex.Size() >= 2u && lex.Data()[0] == '"' && source.GetString(cle, texte)) {
+						cible.SetString(cle, NkStringView(texte.CStr(), (usize)texte.Size()));
+					} else {
+						NkGuiArchive::SetToken(cible, cle, lex);
+					}
 					++faits;
 				}
 				return faits;

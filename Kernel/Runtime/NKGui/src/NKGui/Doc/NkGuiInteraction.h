@@ -109,6 +109,7 @@
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKGui/Doc/NkGuiGraphe.h" // le Blueprint nodal, compile vers le script
 #include "NKGui/Doc/NkGuiMonteur.h"
+#include "NKGui/Doc/NkGuiHabillage.h" // (02/10) degrade, image, ombre, echelle, son, polices
 #include "NKGui/Widgets/NkGuiWidgets.h"
 #include "NKSerialization/NkGui/NkGuiArchive.h"
 
@@ -221,6 +222,10 @@ namespace nkentseu {
 				///    libelle disparait dans l'un des deux etats.
 				bool aEncre = false;
 				NkColor encre{0, 0, 0, 255};
+				/// (02/10) L'HABILLAGE de l'etat : degrade, image (neuf tranches),
+				/// ombre ou lueur, biseau, opacite, echelle, transition, son,
+				/// typographie. Voir NkGuiHabillage.h.
+				NkGuiSurface surface;
 				/// Les couleurs de cet état que le lecteur n'a pas su lire —
 				/// écriture fautive, ou jeton `@nom` que le thème ne connaît pas.
 				/// ⚠️ Comptées, jamais tues : une couleur illisible rendait ce
@@ -335,6 +340,9 @@ namespace nkentseu {
 							p.rayon = rad;
 						}
 						LireEffets(a, p);
+						NkGuiLireSurface(a, p.surface);
+						if (p.surface.Declaree())
+							p.declare = true;
 					}
 				}
 
@@ -461,6 +469,7 @@ namespace nkentseu {
 				r.aEncre = true;
 				r.encre = dessus.encre;
 			}
+			r.surface = NkGuiFusionnerSurface(socle.surface, dessus.surface);
 			return r;
 		}
 
@@ -1751,6 +1760,22 @@ namespace nkentseu {
 				/// compte au lieu de se deviner.
 				uint32 laissesAuTheme = 0;
 
+				// ── (02/10) L'HABILLAGE VIVANT ─────────────────────────────────
+				/// Les polices de la section `fonts`, et le dossier du document (les
+				/// chemins y sont relatifs). Remplis par la coquille a la lecture.
+				NkVector<NkGuiPoliceDoc> polices;
+				NkString dossierDocument;
+				/// Les ambiances de la section `animation` (NkGuiHabillage.h).
+				NkVector<NkGuiAmbiance> ambiances;
+				/// Le temps du document (secondes), avance a chaque montage.
+				float32 temps = 0.f;
+				/// Les sons d'etat (`appearance(Hover) { sound = ... }`) entres a
+				/// cette image : l'HOTE les joue, puis vide la liste.
+				NkVector<NkString> sonsDemandes;
+				/// Les widgets dont l'habillage a ete peint par ce chemin (bancs).
+				uint32 habillesPeints = 0;
+				uint32 ambiancesJouees = 0;
+
 				// ── ce que l'evenement appelle, et rien d'autre ──────────────
 				void PoserPointeur(NkGuiContext &ctx, float32 x, float32 y) noexcept {
 					ctx.input.mousePos.x = x;
@@ -1782,6 +1807,9 @@ namespace nkentseu {
 				/// A appeler une fois, apres `infos.Lire(doc)` : branche le crochet de
 				/// style et les resolveurs de l'evaluateur.
 				void Brancher(NkGuiContext &ctx) noexcept {
+					// (02/10) Le temps des ambiances et des transitions d'etat.
+					if (ctx.input.dt > 0.f && ctx.input.dt < 1.f)
+						temps += ctx.input.dt;
 					ctx.styleFn = &NkGuiExecution::Style;
 					ctx.styleUser = this;
 					eval.resolveur = &NkGuiExecution::Resoudre;
@@ -1989,6 +2017,30 @@ namespace nkentseu {
 					(void)role;
 					mCourant = infos.TrouverMod(NkGuiArchive::IdOf(w));
 					mDesactivePousse = false;
+					// (02/10) LE CADRE de ce widget : ses sommets commencent ici (pour
+					// l'opacite, l'echelle et les ambiances, appliquees en `Apres`), et
+					// sa POLICE (`appearance { font size }`) vaut jusqu'a `Apres` --
+					// le libelle, la mesure et la hauteur de ligne la suivent.
+					if (mProfondeur < kCadresMax) {
+						Cadre &c = mCadres[mProfondeur];
+						c.info = mCourant;
+						c.dl = &ctx.DL();
+						c.vtx0 = static_cast<uint32>(c.dl->vtx.Size());
+						c.cmd0 = static_cast<uint32>(c.dl->cmds.Size());
+						c.police = ctx.font;
+						c.policeChangee = false;
+						if (mCourant != nullptr) {
+							const NkGuiSurface &sr = mCourant->etats[(uint32)NkGuiEtatApp::Normal].surface;
+							if (!sr.police.Empty() || sr.aTaille) {
+								NkGuiFont *f = PoliceDe(sr);
+								if (f != nullptr && f->Valid()) {
+									ctx.font = f;
+									c.policeChangee = true;
+								}
+							}
+						}
+					}
+					++mProfondeur;
 					// ⚠️ DEUX SOURCES, ET L'ORDRE COMPTE : le DOCUMENT pose l'etat de
 					//    depart (`enabled = false`), un COMPORTEMENT le change ensuite
 					//    (`enable` / `disable ... because`). Le second l'emporte, sinon
@@ -2034,11 +2086,145 @@ namespace nkentseu {
 						ctx.EndDisabled();
 						mDesactivePousse = false;
 					}
+					// (02/10) LE CADRE se referme : la police d'avant revient ;
+					// l'opacite du repos et les ambiances transforment ce que le
+					// widget (et, pour un conteneur, TOUT son contenu) a ecrit.
+					if (mProfondeur > 0)
+						--mProfondeur;
+					if (mProfondeur < kCadresMax) {
+						Cadre &c = mCadres[mProfondeur];
+						if (c.policeChangee)
+							ctx.font = c.police;
+						FermerCadre(ctx, c, NkGuiArchive::IdOf(w), role);
+					}
 					mCourant = nullptr;
 					(void)w;
 				}
 
 			private:
+				// ── (02/10) l'habillage : les cadres ouverts, les widgets vivants ──
+				struct Cadre {
+						NkGuiInfoWidget *info = nullptr;
+						NkGuiDrawList *dl = nullptr;
+						uint32 vtx0 = 0, cmd0 = 0;
+						NkGuiFont *police = nullptr;
+						bool policeChangee = false;
+				};
+				static constexpr int32 kCadresMax = 32;
+				Cadre mCadres[kCadresMax];
+				int32 mProfondeur = 0;
+				/// Un widget dont l'ETAT glisse (`transition`) : d'ou il part, ou il va.
+				struct Vivant {
+						NkString id;
+						uint8 etat = 0;
+						float32 t = 1.f;
+						NkGuiSurface depart;
+						NkGuiSurface cible;
+						NkColor fondDepart{0, 0, 0, 0};
+						NkColor fondCible{0, 0, 0, 0};
+				};
+				NkVector<Vivant> mVivants;
+
+				NkGuiFont *PoliceDe(const NkGuiSurface &s) noexcept {
+					const float32 taille = s.aTaille ? s.taille : (mCadres[0].police != nullptr ? 16.f : 16.f);
+					for (uint32 i = 0; i < (uint32)polices.Size(); ++i) {
+						if (polices[i].id.Compare(s.police) == 0)
+							return NkGuiPoliceDuDocument(polices[i].chemin.CStr(), polices[i].embarquee.CStr(), taille);
+					}
+					// Une taille sans police : la police embarquee de l'interface.
+					return NkGuiPoliceDuDocument("", s.police.Empty() ? "DroidSans" : s.police.CStr(), taille);
+				}
+
+				Vivant &Vivre(const NkGuiInfoWidget &info, NkGuiEtatApp etat, const NkGuiPeinture &cible, float32 dt,
+							  const NkColor &fondCible, bool &change) noexcept {
+					change = false;
+					Vivant *v = nullptr;
+					for (uint32 i = 0; i < (uint32)mVivants.Size(); ++i)
+						if (mVivants[i].id.Compare(info.id) == 0) {
+							v = &mVivants[i];
+							break;
+						}
+					if (v == nullptr) {
+						Vivant n;
+						n.id = info.id;
+						n.etat = (uint8)etat;
+						n.depart = n.cible = cible.surface;
+						n.fondDepart = n.fondCible = fondCible;
+						mVivants.PushBack(n);
+						return mVivants.Back();
+					}
+					if (v->etat != (uint8)etat) {
+						change = true;
+						// On repart de ce qu'on MONTRAIT (une transition interrompue
+						// ne saute pas).
+						const float32 duree = cible.surface.aTransition ? cible.surface.transition : 0.f;
+						v->depart = NkGuiInterpolerSurface(v->depart, v->cible, v->t);
+						v->fondDepart = detail::NkGHMelange(v->fondDepart, v->fondCible, v->t);
+						v->etat = (uint8)etat;
+						v->t = duree > 0.f ? 0.f : 1.f;
+					}
+					v->cible = cible.surface;
+					v->fondCible = fondCible;
+					const float32 duree = cible.surface.aTransition ? cible.surface.transition : 0.f;
+					if (v->t < 1.f && duree > 0.f)
+						v->t = v->t + dt / duree > 1.f ? 1.f : v->t + dt / duree;
+					return *v;
+				}
+
+				void FermerCadre(NkGuiContext &ctx, Cadre &c, NkStringView id, NkStringView role) noexcept {
+					if (c.dl == nullptr || c.dl != &ctx.DL())
+						return; // la liste a change (un popup) : on ne touche a rien
+					float32 opacite = 1.f, echelle = 1.f;
+					NkVec2 decalage{0.f, 0.f};
+					bool agir = false;
+					// L'opacite du REPOS, pour les widgets que le crochet de style ne
+					// peint pas (un texte, une image, un conteneur).
+					const bool peintParStyle = NkGMotEgal(role, "Button") || NkGMotEgal(role, "RepeatButton");
+					if (c.info != nullptr && !peintParStyle) {
+						const NkGuiSurface &sr = c.info->etats[(uint32)NkGuiEtatApp::Normal].surface;
+						if (sr.aOpacite) {
+							opacite *= sr.opacite;
+							agir = true;
+						}
+					}
+					// Les AMBIANCES qui visent ce widget.
+					for (uint32 i = 0; i < (uint32)ambiances.Size(); ++i) {
+						const NkGuiAmbiance &a = ambiances[i];
+						if (!NkGMotEgal(id, a.cible.CStr()))
+							continue;
+						if (a.surSurvol && !ctx.IsItemHovered())
+							continue;
+						const float32 f = NkGuiAvancementAmbiance(a, temps);
+						for (uint32 k = 0; k < a.nbPistes; ++k) {
+							const float32 v = a.pistes[k].de + (a.pistes[k].a - a.pistes[k].de) * f;
+							switch (a.pistes[k].propriete) {
+								case 0: opacite *= v; break;
+								case 1: echelle *= v; break;
+								case 2: decalage.x += v; break;
+								default: decalage.y += v; break;
+							}
+						}
+						agir = true;
+						++ambiancesJouees;
+					}
+					if (!agir)
+						return;
+					// Le rectangle : celui de ce que le widget a ECRIT (un conteneur
+					// compte tout son contenu) -- l'echelle se fait autour de son centre.
+					NkGuiDrawList &dl = *c.dl;
+					if (c.vtx0 >= (uint32)dl.vtx.Size())
+						return;
+					float32 x0 = 1.0e9f, y0 = 1.0e9f, x1 = -1.0e9f, y1 = -1.0e9f;
+					for (uint32 i = c.vtx0; i < (uint32)dl.vtx.Size(); ++i) {
+						const NkVec2 &q = dl.vtx[i].pos;
+						x0 = q.x < x0 ? q.x : x0;
+						y0 = q.y < y0 ? q.y : y0;
+						x1 = q.x > x1 ? q.x : x1;
+						y1 = q.y > y1 ? q.y : y1;
+					}
+					NkGuiTransformerSommets(dl, c.vtx0, c.cmd0, NkRect{x0, y0, x1 - x0, y1 - y0}, echelle, opacite, decalage);
+				}
+
 				NkGuiInfoWidget *mCourant = nullptr;
 				bool mDesactivePousse = false;
 				NkString mFocus;
@@ -2121,14 +2307,30 @@ namespace nkentseu {
 					}
 
 					const float32 rayon = p.aRayon ? p.rayon : ctx.theme.rounding;
-					if (p.aFond)
-						ctx.DL().AddRectFilled(it.rect, p.fond, rayon);
-					else
-						ctx.DL().AddRectFilled(it.rect, ctx.theme.button, rayon);
-					if (p.aContour)
-						ctx.DL().AddRect(it.rect, p.contour, p.contourLargeur, rayon);
-					else
-						ctx.DL().AddRect(it.rect, ctx.theme.border, 1.f, rayon);
+					// (02/10) L'ETAT GLISSE : la surface et le fond vont de l'etat
+					// d'avant a celui-ci en `transition` secondes ; le son de l'etat
+					// est demande a l'hote a l'ENTREE.
+					const NkColor fondCible = p.aFond ? p.fond : ctx.theme.button;
+					bool change = false;
+					Vivant &vif = self->Vivre(info, s, p, ctx.input.dt, fondCible, change);
+					if (change && !p.surface.son.Empty())
+						self->sonsDemandes.PushBack(p.surface.son);
+					const NkGuiSurface surf = NkGuiInterpolerSurface(vif.depart, vif.cible, vif.t);
+					const NkColor fond = detail::NkGHMelange(vif.fondDepart, vif.fondCible, vif.t);
+					NkGuiDrawList &dlS = ctx.DL();
+					const uint32 vtx0 = (uint32)dlS.vtx.Size();
+					const uint32 cmd0 = (uint32)dlS.cmds.Size();
+					if (surf.Riche()) {
+						NkGuiPeindreSurface(dlS, it.rect, surf, fond, true, p.aContour ? p.contour : ctx.theme.border,
+											p.aContour ? p.contourLargeur : 1.f, true, rayon);
+						++self->habillesPeints;
+					} else {
+						dlS.AddRectFilled(it.rect, fond, rayon);
+						if (p.aContour)
+							dlS.AddRect(it.rect, p.contour, p.contourLargeur, rayon);
+						else
+							dlS.AddRect(it.rect, ctx.theme.border, 1.f, rayon);
+					}
 
 					// Le libelle -- sans lui, re-peindre un bouton le rendrait muet.
 					if (ctx.font && ctx.font->Valid() && it.label) {
@@ -2157,9 +2359,17 @@ namespace nkentseu {
 								: (p.aEncre ? p.encre
 											: (it.disabled ? ctx.theme.textDisabled
 														   : ctx.theme.text));
-						ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {tx, by}, it.label, lc,
-										 it.rect.w - 6.f, 0.f, fin);
+						if (surf.aContourTexte || surf.aOmbreTexte)
+							NkGuiTexteHabille(dlS, ctx.font, NkVec2{tx, by}, it.label, fin, lc, surf, it.rect.w - 6.f);
+						else
+							dlS.AddText(ctx.font->Face(), ctx.font->TexId(), {tx, by}, it.label, lc, it.rect.w - 6.f, 0.f,
+										fin);
 					}
+					// L'echelle et l'opacite de l'etat : sur TOUT le bouton, libelle compris.
+					const float32 ech = surf.aEchelle ? surf.echelle : 1.f;
+					const float32 opa = surf.aOpacite ? surf.opacite : 1.f;
+					if (ech != 1.f || opa < 1.f)
+						NkGuiTransformerSommets(dlS, vtx0, cmd0, it.rect, ech, opa, NkVec2{0.f, 0.f});
 					++self->peints;
 					++self->peintsParEtat[(uint32)s];
 					return true;

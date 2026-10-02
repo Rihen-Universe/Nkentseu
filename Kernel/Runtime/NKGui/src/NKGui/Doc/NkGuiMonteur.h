@@ -88,6 +88,7 @@
 #include "NKGui/Doc/NkGuiLangues.h"	 // `@t:cle` -> le texte dans la langue courante
 #include "NKGui/Doc/NkGuiImages.h" // le registre nom -> texId, televerse une fois
 #include "NKGui/Doc/NkGuiJetons.h" // P1 : la table des jetons, lue par NkGuiCouleur
+#include "NKGui/Doc/NkGuiHabillage.h" // (02/10) degrade, image, ombre, biseau, texte habille
 #include "NKSerialization/NkGui/NkGuiArchive.h"
 #include <cstdlib> // getenv : la mutation de banc `sansmarqueur` de la zone hote
 
@@ -1702,6 +1703,29 @@ namespace nkentseu {
 				}
 		};
 
+		/// (02/10) L'HABILLAGE AU REPOS d'un widget (NkGuiHabillage.h) : ce que
+		/// ses blocs `appearance` (ou `appearance(Normal)`) disent au-dela de la
+		/// couleur. Un widget sans habillage rend une surface vide (`Declaree()`
+		/// faux) : le chemin d'avant garde la main.
+		inline NkGuiSurface NkGuiSurfaceRepos(const NkArchive &w) noexcept {
+			NkGuiSurface s;
+			const NkArchiveNode *corps = NkGMonteCorps(w);
+			if (!corps)
+				return s;
+			for (uint32 k = 0; k < (uint32)corps->array.Size(); ++k) {
+				if (!corps->array[k].IsObject() || !corps->array[k].object)
+					continue;
+				const NkArchive &ap = *corps->array[k].object;
+				if (!NkGMotEgal(NkGuiArchive::TypeOf(ap), "appearance"))
+					continue;
+				const NkStringView st = NkGuiArchive::StateOf(ap);
+				if (st.Size() > 0 && !NkGuiEtatEstRepos(st))
+					continue;
+				NkGuiLireSurface(ap, s);
+			}
+			return s;
+		}
+
 		struct NkGuiMonteHooks {
 				virtual ~NkGuiMonteHooks() = default;
 				/// Avant que le widget ne dessine. `e` peut etre nul (role sans etat).
@@ -2759,6 +2783,17 @@ namespace nkentseu {
 								if (NkGuiDrapeau(w, "NoMove") && !(pl.pose && aBarre))
 									++rap.flagsNonAppliques;
 							}
+							// (02/10) UN CONTENEUR HABILLE (degrade, image en neuf tranches,
+							// ombre, biseau) se peint par l'habillage, A LA PLACE du fond du
+							// theme : un cadre de jeu n'a pas l'ombre d'un panneau d'outil.
+							const NkGuiSurface surfP = NkGuiSurfaceRepos(w);
+							if (surfP.Riche()) {
+								NkGuiPeindreSurface(ctx.DL(), r, surfP, app.aFond ? app.fond : ctx.theme.panel, true,
+													surfP.aContour ? surfP.contour : ctx.theme.border,
+													surfP.aContour ? surfP.contourLargeur : (surfP.aImage ? 0.f : 1.f), true,
+													app.rayon >= 0.f ? app.rayon : ctx.theme.rounding);
+								++rap.apparencesPeintes;
+							} else {
 							PanelBackground(ctx, r);
 							// ⚠️ PAR-DESSUS, ET AVANT LES ENFANTS. Le fond du theme est peint d'abord
 							//    (il porte l'ombre et le contour que la primitive dessine) ; la couleur
@@ -2767,6 +2802,7 @@ namespace nkentseu {
 							if (app.aFond) {
 								ctx.DL().AddRectFilled(r, app.fond, app.rayon >= 0.f ? app.rayon : ctx.theme.rounding);
 								++rap.apparencesPeintes;
+							}
 							}
 							// P11 : SUR LE RECTANGLE DU CONTENEUR, et ici parce que ce
 							// `case` REND LA MAIN — le bloc generique d'apres le
@@ -2993,7 +3029,25 @@ namespace nkentseu {
 							//  L'encre est POSEE PLUS HAUT, par `EncreDuDocument`, pour tous
 							//  les roles a la fois. La poser ici EN PLUS aurait fait deux
 							//  ecrivains sur `theme.text` et deux comptes pour un attribut.
-							if (NkGBooleen(w, "wrap", false))
+							// (02/10) UN TEXTE HABILLE (contour, ombre) ou ALIGNE (`align =
+							// center | end`) : peint ici, sur toute la largeur du flux. Un
+							// titre de jeu centre et cerne de braise n'est pas un libelle.
+							const NkGuiSurface surfT = NkGuiSurfaceRepos(w);
+							const NkString alignT = NkGTexte(w, "align", "");
+							const bool centreT = NkGMotEgal(NkStringView(alignT.CStr()), "center");
+							const bool finT = NkGMotEgal(NkStringView(alignT.CStr()), "end");
+							if ((surfT.aContourTexte || surfT.aOmbreTexte || centreT || finT) && ctx.font &&
+								ctx.font->Valid() && !NkGBooleen(w, "wrap", false)) {
+								const float32 tw = ctx.font->MeasureWidth(s.CStr());
+								const NkRect rT = ctx.NextItemRect(0.f, ctx.font->LineHeight());
+								const float32 xT = centreT ? rT.x + (rT.w - tw) * 0.5f : (finT ? rT.x + rT.w - tw : rT.x);
+								NkGuiTexteHabille(ctx.DL(), ctx.font, NkVec2{xT, rT.y + ctx.font->Ascent()}, s.CStr(), nullptr,
+												  ctx.theme.text, surfT, -1.f);
+								// La note : sans elle, la cle du document (`Noter`) tomberait
+								// sur la note du widget D'AVANT.
+								NkGuiNoter(ctx, NkGuiNature::Texte, ctx.GetId(s.CStr()), s.CStr(), rT, 0u);
+								++rap.apparencesPeintes;
+							} else if (NkGBooleen(w, "wrap", false))
 								TextWrapped(ctx, s.CStr());
 							else
 								Text(ctx, s.CStr());
@@ -3908,7 +3962,50 @@ namespace nkentseu {
 							// `overlay = ""` n'en met aucun (une barre de vie dans le monde,
 							// ou « 75 % » ne se lirait pas). Absent : le pourcentage, comme avant.
 							const NkString ov = NkGTexte(w, "overlay", "");
-							ProgressBar(ctx, v, NkGA(w, "overlay") ? ov.CStr() : nullptr);
+							// (02/10) UNE JAUGE HABILLEE : la piste par l'habillage du repos,
+							// la part remplie par `fill "valeur" { color | from to }`.
+							const NkGuiSurface surfJ = NkGuiSurfaceRepos(w);
+							if (surfJ.Riche() || surfJ.aValeur || surfJ.aCouleur) {
+								const float32 vj = v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
+								const NkRect rJ = ctx.NextItemRect(0.f, ctx.ItemHeight());
+								const float32 rayJ = app.rayon >= 0.f ? app.rayon : ctx.theme.rounding;
+								NkGuiPeindreSurface(ctx.DL(), rJ, surfJ, surfJ.aCouleur ? surfJ.couleur : ctx.theme.track, true,
+													surfJ.aContour ? surfJ.contour : ctx.theme.border,
+													surfJ.aContour ? surfJ.contourLargeur : 1.f, surfJ.aContour, rayJ);
+								if (vj > 0.f) {
+									const float32 m = surfJ.aContour ? surfJ.contourLargeur + 1.f : 1.f;
+									const NkRect rV{rJ.x + m, rJ.y + m, (rJ.w - 2.f * m) * vj, rJ.h - 2.f * m};
+									NkGuiSurface sv;
+									sv.aDegrade = surfJ.aValeurDegrade;
+									sv.de = surfJ.valeurDe;
+									sv.a = surfJ.valeurA;
+									sv.angle = 0.f;
+									NkVec2 ptsV[40];
+									const int32 nV = NkGuiContourForme(rV, rayJ - m > 0.f ? rayJ - m : 0.f,
+																	   surfJ.aBiseau ? surfJ.biseau * 0.6f : 0.f, ptsV, 40);
+									NkGuiRemplirContour(ctx.DL(), rV, ptsV, nV, surfJ.aValeur ? surfJ.valeurCouleur : ctx.theme.accent,
+														&sv);
+								}
+								const char *txtJ = nullptr;
+								NkString pctJ;
+								if (NkGA(w, "overlay")) {
+									txtJ = ov.CStr();
+								} else {
+									pctJ = NkString::Format("%d%%", (int32)(vj * 100.f + 0.5f));
+									txtJ = pctJ.CStr();
+								}
+								if (txtJ && txtJ[0] && ctx.font && ctx.font->Valid()) {
+									const float32 tw = ctx.font->MeasureWidth(txtJ);
+									NkGuiTexteHabille(ctx.DL(), ctx.font,
+													  NkVec2{rJ.x + (rJ.w - tw) * 0.5f,
+															 rJ.y + (rJ.h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()},
+													  txtJ, nullptr, ctx.theme.text, surfJ, -1.f);
+								}
+								NkGuiNoter(ctx, NkGuiNature::Texte, ctx.GetId(id.CStr()), txtJ ? txtJ : "", rJ, 0u);
+								++rap.apparencesPeintes;
+							} else {
+								ProgressBar(ctx, v, NkGA(w, "overlay") ? ov.CStr() : nullptr);
+							}
 							break;
 						}
 						case NkGuiRole::Separator: {

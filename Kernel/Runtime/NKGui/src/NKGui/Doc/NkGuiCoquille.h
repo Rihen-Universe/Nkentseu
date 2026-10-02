@@ -342,6 +342,11 @@ namespace nkentseu {
 
 					NkGuiMonteur::Preparer(doc, etat);
 					infos.Lire(doc);
+					// (02/10) L'HABILLAGE : les polices du document (chemins relatifs
+					// a son dossier) et ses ambiances (NkGuiHabillage.h).
+					dossierDocument = NkGuiDossierDe(chemin.CStr());
+					NkGuiLirePolices(doc, dossierDocument.CStr(), polices);
+					NkGuiLireAmbiances(doc, ambiances);
 					NkGuiExecution::etat = &etat;
 					eval.rappel = &NkBandeDocument::SurCallback;
 					eval.rappelUser = this;
