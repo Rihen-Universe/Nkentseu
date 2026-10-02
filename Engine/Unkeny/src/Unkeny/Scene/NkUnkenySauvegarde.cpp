@@ -1539,6 +1539,16 @@ namespace nkentseu {
 				e = lue.e;
 				return true;
 			}
+
+			void EcrireComposant(NkArchive &o, const NkChampSauve *champs, uint32 n, const uint8 *octets,
+								 const NkRessourcesScene &r) {
+				EcrireChamps(o, champs, n, octets, Noms(r));
+			}
+
+			void LireComposant(const NkArchive &o, const NkChampSauve *champs, uint32 n, uint8 *octets, NkScene &scene,
+							   const NkRessourcesScene &r) {
+				LireChamps(o, champs, n, octets, scene, r);
+			}
 		} // namespace interne
 
 		// =====================================================================

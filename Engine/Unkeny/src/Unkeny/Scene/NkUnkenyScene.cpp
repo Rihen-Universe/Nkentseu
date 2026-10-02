@@ -15,6 +15,8 @@
 #include "Unkeny/Anim/NkUnkenyAnimateur.h"
 #include "Unkeny/Anim/NkUnkenyProprietes.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
+#include "Unkeny/Maillage/NkUnkenyMaillage.h"
+#include "Unkeny/Maillage/NkUnkenyMaillagePhysique.h"
 #include "Unkeny/Scene/NkUnkenyFormes.h"
 #include "Unkeny/Scene/NkUnkenyPrefab.h"
 #include "Unkeny/Script/NkUnkenyScript.h"
@@ -114,6 +116,69 @@ namespace nkentseu {
 						// l'orientation du corps, statique compris) : celui du collisionneur.
 						return collision::NkShape::Box2D(c, col.demiTaille, col.rotation);
 				}
+			}
+
+			/// UN corps au solveur, depuis sa description 2D. Le geste d'AjouterCorps,
+			/// sorti le 2026-10-02 pour que les corps LIBRES (parties de maillage)
+			/// naissent EXACTEMENT comme les autres (materiau, masse, calques).
+			/// `groupe` : un bit retire de la couche et du masque (voir CreerCorpsLibre).
+			physics::NkBodyId CreerCorpsDans(physics::NkPhysicsWorld &monde, const NkCalquesCollision2D &calques,
+											 const NkTransform2D &t, const NkCollisionneur2D &col, const NkCorps2D &corps,
+											 uint32 groupe) noexcept {
+				physics::NkBodyDef def;
+				switch (corps.type) {
+					case NkTypeCorps::NK_STATIQUE: def.type = physics::NkBodyType::STATIC; break;
+					case NkTypeCorps::NK_CINEMATIQUE: def.type = physics::NkBodyType::KINEMATIC; break;
+					default: def.type = physics::NkBodyType::DYNAMIC; break;
+				}
+				def.position = math::NkVec3f(t.position.x, t.position.y, 0.f);
+				def.orientation = DepuisAngleZ(t.rotation);
+				def.linearDamping = corps.amortissementLineaire;
+				def.angularDamping = corps.amortissementAngulaire;
+				def.gravityScale = corps.echelleGravite;
+				def.material.dynamicFriction = corps.friction;
+				def.material.staticFriction = corps.friction * 1.2f;
+				def.material.restitution = corps.rebond;
+				def.layer = col.couche;
+				// (2026-10-01) La matrice des calques s'ajoute au masque propre : par
+				// defaut elle laisse tout passer (NkMasqueCalques2D).
+				def.mask = col.masque & NkMasqueCalques2D(calques, col.couche);
+				if (groupe != 0u) {
+					// (2026-10-02) Un GROUPE : la couche n'est plus que son bit, et le
+					// masque l'exclut -- deux corps du groupe ne se voient pas, tout le
+					// reste les voit (le masque des autres garde les bits 16 a 31).
+					if (col.couche == 0u || col.masque == 0u) {
+						def.layer = 0u;
+						def.mask = 0u;
+					} else {
+						def.layer = groupe;
+						def.mask &= ~groupe;
+					}
+				}
+				if (corps.rotationBloquee) {
+					def.flags |= physics::NK_BODY_FIXED_ROT;
+				}
+				if (col.declencheur) {
+					def.flags |= physics::NK_BODY_TRIGGER;
+				}
+				math::NkVec3f sommets[NK_COLLISION_SOMMETS_MAX + 1u];
+				const collision::NkShape forme =
+					VersShape(col, t, corps.type == NkTypeCorps::NK_DYNAMIQUE, sommets, NK_COLLISION_SOMMETS_MAX + 1u);
+				const physics::NkBodyId bid = monde.CreateBody(def, forme);
+				if (bid == physics::NK_INVALID_BODY) {
+					return bid;
+				}
+				// La MASSE demandee. Le solveur la deduit de la densite et de l'aire
+				// (une caisse de 60 cm pesait 0,36 kg, et un filet d'eau la faisait
+				// voler) : on la pose, et l'inertie suit dans la meme proportion.
+				if (physics::NkRigidBody *b = monde.GetBody(bid)) {
+					if (b->type == physics::NkBodyType::DYNAMIC && corps.masse > 0.f && b->invMass > 0.f) {
+						const float32 k = (1.f / b->invMass) / corps.masse; // ancienne / nouvelle
+						b->invMass = 1.f / corps.masse;
+						b->invInertiaDiag = b->invInertiaDiag * k;
+					}
+				}
+				return bid;
 			}
 
 			// ---- Les champs des composants d'Unkeny que la photo porte ----------
@@ -235,6 +300,15 @@ namespace nkentseu {
 				const NkChampSauve *champs = NkChampsScript2D(n);
 				PhotographierAussi<NkScript2D>("NkScript2D", champs, n);
 			}
+			// Le MAILLAGE 2D (2026-10-02, R31, Maillage/NkUnkenyMaillage.h) : APRES les
+			// scripts, meme raison. Sommets, triangles, parties et liens, champ par
+			// champ ; l'etat de jeu de ses parties n'y est pas (transitoire).
+			{
+				uint32 n = 0;
+				const NkChampSauve *champs = NkChampsMaillage2D(n);
+				PhotographierAussi<NkMaillage2D>("NkMaillage2D", champs, n);
+			}
+			mCorpsLibres.Clear();
 			// Les calques de collision repartent de « tout touche tout ».
 			mCalques = NkCalquesCollision2D();
 			mCorpsEteints.Clear();
@@ -307,6 +381,7 @@ namespace nkentseu {
 			}
 			mAccumulateur = 0.f;
 			mDernierNbPas = 0;
+			mCorpsLibres.Clear();
 			// Une scene refaite repart eteinte et sans particules : l'eclairage
 			// d'un niveau ne doit pas survivre dans le suivant.
 			mEclairage = NkEclairage2D();
@@ -363,6 +438,11 @@ namespace nkentseu {
 						mParticules->SupprimerCorps(static_cast<uint32>(ci));
 					}
 				}
+			}
+			// (2026-10-02, R31) Et les corps des PARTIES d'un maillage (libres, liens,
+			// ancre, matiere des parties molles).
+			if (NkMaillage2D *ml = mMonde.Get<NkMaillage2D>(id)) {
+				NkMaillageDetruirePhysique(*this, *ml, true);
 			}
 			// Les enfants restent, a leur place : un lien vers une entite morte se
 			// lirait « racine » quand meme (NkHierarchy.h), mais leur NkLocal2D
@@ -457,49 +537,12 @@ namespace nkentseu {
 				return true;
 			}
 
-			physics::NkBodyDef def;
-			switch (corps.type) {
-				case NkTypeCorps::NK_STATIQUE: def.type = physics::NkBodyType::STATIC; break;
-				case NkTypeCorps::NK_CINEMATIQUE: def.type = physics::NkBodyType::KINEMATIC; break;
-				default: def.type = physics::NkBodyType::DYNAMIC; break;
-			}
-			def.position = math::NkVec3f(t->position.x, t->position.y, 0.f);
-			def.orientation = DepuisAngleZ(t->rotation);
-			def.linearDamping = corps.amortissementLineaire;
-			def.angularDamping = corps.amortissementAngulaire;
-			def.gravityScale = corps.echelleGravite;
-			def.material.dynamicFriction = corps.friction;
-			def.material.staticFriction = corps.friction * 1.2f;
-			def.material.restitution = corps.rebond;
-			def.layer = col->couche;
-			// (2026-10-01) La matrice des calques s'ajoute au masque propre : par
-			// defaut elle laisse tout passer (NkMasqueCalques2D).
-			def.mask = col->masque & NkMasqueCalques2D(mCalques, col->couche);
-			if (corps.rotationBloquee) {
-				def.flags |= physics::NK_BODY_FIXED_ROT;
-			}
-			if (col->declencheur) {
-				def.flags |= physics::NK_BODY_TRIGGER;
-			}
-
-			math::NkVec3f sommets[NK_COLLISION_SOMMETS_MAX + 1u];
-			const collision::NkShape forme =
-				VersShape(*col, *t, corps.type == NkTypeCorps::NK_DYNAMIQUE, sommets, NK_COLLISION_SOMMETS_MAX + 1u);
-			const physics::NkBodyId bid = mPhysique->CreateBody(def, forme);
+			// (2026-10-02) Le geste est CreerCorpsDans, partage avec les corps libres
+			// des parties de maillage : materiau, masse, calques, au bit pres.
+			const physics::NkBodyId bid = CreerCorpsDans(*mPhysique, mCalques, *t, *col, corps, 0u);
 			if (bid == physics::NK_INVALID_BODY) {
 				logger.Error("[unkeny] le solveur a refuse le corps");
 				return false;
-			}
-
-			// La MASSE demandee. Le solveur la deduit de la densite et de l'aire
-			// (une caisse de 60 cm pesait 0,36 kg, et un filet d'eau la faisait
-			// voler) : on la pose, et l'inertie suit dans la meme proportion.
-			if (physics::NkRigidBody *b = mPhysique->GetBody(bid)) {
-				if (b->type == physics::NkBodyType::DYNAMIC && corps.masse > 0.f && b->invMass > 0.f) {
-					const float32 k = (1.f / b->invMass) / corps.masse; // ancienne / nouvelle
-					b->invMass = 1.f / corps.masse;
-					b->invInertiaDiag = b->invInertiaDiag * k;
-				}
 			}
 			NkCorps2D copie = corps;
 			copie.corpsId = bid;
@@ -638,6 +681,11 @@ namespace nkentseu {
 			// L'activite AVANT tout : un enfant rattache a un parent eteint depuis
 			// le dernier pas sort du solveur avant de toucher quoi que ce soit.
 			AppliquerActivite();
+			// (2026-10-02, R31) La physique des PARTIES de maillage nait au premier pas
+			// d'une scene physique (et meurt quand son entite s'eteint).
+			if (mPhysique != nullptr) {
+				NkMaillagesConstruire(*this);
+			}
 			if (mConfig.pasFixe > 0.f) {
 				mAccumulateur += deltaTime;
 				while (mAccumulateur >= mConfig.pasFixe && mDernierNbPas < mConfig.pasMaxParTrame) {
@@ -645,6 +693,8 @@ namespace nkentseu {
 					// integree dans ce pas, pas dans le suivant.
 					LancerSystemes(NkPhaseSysteme::NK_PAS_FIXE, mConfig.pasFixe);
 					if (mPhysique != nullptr) {
+						// Les ressorts des liens elastiques entre parties, les ancres.
+						NkMaillagesAvantPasFixe(*this, mConfig.pasFixe);
 						// Les particules AVANT les rigides : leurs impulses sont
 						// integrees par le solveur rigide dans le meme pas
 						// (NkParticules2D.h).
@@ -652,6 +702,8 @@ namespace nkentseu {
 							mParticules->Pas(mConfig.pasFixe, mPhysique);
 						}
 						mPhysique->Step(mConfig.pasFixe);
+						// Les liens entre parties qui cassent.
+						NkMaillagesApresPasFixe(*this, mConfig.pasFixe);
 						Relever();
 						ReleverCorpsMous();
 					}
@@ -779,10 +831,7 @@ namespace nkentseu {
 			// Corps -> entite : refait ici, seulement quand il y a quelque chose a
 			// traduire. Un index tenu a jour a chaque AjouterCorps / Detruire
 			// serait plus rapide et deux fois plus fragile.
-			mCorpsEntite.Clear();
-			mMonde.Query<NkCorps2D>().ForEach([this](ecs::NkEntityId id, NkCorps2D &c) {
-				mCorpsEntite.PushBack(NkCorpsEntite{c.corpsId, id});
-			});
+			RefaireCorpsEntite();
 			auto entite = [this](physics::NkBodyId b) {
 				for (uint32 i = 0; i < mCorpsEntite.Size(); ++i) {
 					if (mCorpsEntite[i].corps == b) {
@@ -816,10 +865,7 @@ namespace nkentseu {
 			}
 			// Meme table corps rigide -> entite que Relever, refaite ici pour la meme
 			// raison : seulement quand il y a quelque chose a traduire.
-			mCorpsEntite.Clear();
-			mMonde.Query<NkCorps2D>().ForEach([this](ecs::NkEntityId id, NkCorps2D &c) {
-				mCorpsEntite.PushBack(NkCorpsEntite{c.corpsId, id});
-			});
+			RefaireCorpsEntite();
 			auto rigide = [this](uint32 b) {
 				for (uint32 i = 0; i < mCorpsEntite.Size(); ++i) {
 					if (mCorpsEntite[i].corps == b) {
@@ -958,7 +1004,9 @@ namespace nkentseu {
 			if (ci < 0) {
 				return ecs::NkEntityId::Invalid();
 			}
-			return ecs::NkEntityId::Unpack(mParticules->corps[static_cast<uint32>(ci)].utilisateur);
+			// (2026-10-02, R31) La matiere d'une PARTIE de maillage porte la marque
+			// NK_CORPS_MOU_DE_MAILLAGE : ses contacts vont a l'entite du maillage.
+			return ecs::NkEntityId::Unpack(mParticules->corps[static_cast<uint32>(ci)].utilisateur & ~NK_CORPS_MOU_DE_MAILLAGE);
 		}
 
 		void NkScene::SynchroniserCorpsMous() {
@@ -1104,8 +1152,14 @@ namespace nkentseu {
 						mPhysique->DestroyBody(c->corpsId);
 					}
 				}
+				// (2026-10-02, R31) Les corps des parties de maillage ; leur matiere,
+				// elle, part avec le monde de particules remplace juste apres.
+				if (NkMaillage2D *ml = mMonde.Get<NkMaillage2D>(ids[i])) {
+					NkMaillageDetruirePhysique(*this, *ml, false);
+				}
 				mMonde.Destroy(ids[i]);
 			}
+			mCorpsLibres.Clear();
 			mCacheUid.Clear();
 			mCorpsEteints.Clear();
 			if (mParticules != nullptr) {
@@ -1261,6 +1315,14 @@ namespace nkentseu {
 			//    le local, parents d'abord. Une photo est toujours coherente : ce
 			//    pas n'y change rien, et la restauration reste exacte au bit pres.
 			RecalerEnfants(faites);
+			// (2026-10-02, R31) L'etat de JEU d'un maillage (ses corps de parties) a
+			// ete recopie par la photo : ces corps n'existent pas ici. Il renaitra au
+			// premier pas (NkMaillagesConstruire).
+			for (uint32 i = 0; i < faites.Size(); ++i) {
+				if (NkMaillage2D *ml = mMonde.Get<NkMaillage2D>(faites[i])) {
+					NkMaillageOublierPhysique(*ml);
+				}
+			}
 			if (crees != nullptr) {
 				*crees = faites;
 			}
@@ -1440,6 +1502,151 @@ namespace nkentseu {
 			const NkCorps2D *c = mMonde.Get<NkCorps2D>(id);
 			return c != nullptr && c->type == NkTypeCorps::NK_DYNAMIQUE && mPhysique != nullptr &&
 				   mPhysique->GetBody(c->corpsId) != nullptr;
+		}
+
+		// =====================================================================
+		// LES CORPS LIBRES (2026-10-02, R31 : les parties d'un maillage 2D)
+		// =====================================================================
+		void NkScene::RefaireCorpsEntite() {
+			mCorpsEntite.Clear();
+			mMonde.Query<NkCorps2D>().ForEach([this](ecs::NkEntityId id, NkCorps2D &c) {
+				mCorpsEntite.PushBack(NkCorpsEntite{c.corpsId, id});
+			});
+			for (uint32 i = 0; i < mCorpsLibres.Size(); ++i) {
+				mCorpsEntite.PushBack(mCorpsLibres[i]);
+			}
+		}
+
+		physics::NkBodyId NkScene::CreerCorpsLibre(const NkTransform2D &t, const NkCollisionneur2D &col, const NkCorps2D &corps,
+												   ecs::NkEntityId entite, uint32 groupe) {
+			if (mPhysique == nullptr) {
+				return physics::NK_INVALID_BODY;
+			}
+			const physics::NkBodyId bid = CreerCorpsDans(*mPhysique, mCalques, t, col, corps, groupe);
+			if (bid != physics::NK_INVALID_BODY) {
+				mCorpsLibres.PushBack(NkCorpsEntite{bid, entite});
+			}
+			return bid;
+		}
+
+		void NkScene::DetruireCorpsLibre(physics::NkBodyId id) {
+			if (mPhysique == nullptr || id == physics::NK_INVALID_BODY) {
+				return;
+			}
+			// ⚠️ LES LIENS SONT ETEINTS, PAS RETIRES. NkPhysicsWorld::DestroyJoint
+			//    retrouve un lien par « indice + 1 » : en retirer un decale tous les
+			//    suivants, et leurs identifiants designent alors le voisin. Un lien
+			//    eteint ne coute qu'un test par pas.
+			NkVector<physics::NkJoint> &liens = mPhysique->Joints();
+			for (uint32 i = 0; i < liens.Size(); ++i) {
+				if (liens[i].a == id || liens[i].b == id) {
+					liens[i].enabled = false;
+				}
+			}
+			// Les particules qui y etaient attachees le lachent.
+			if (mParticules != nullptr) {
+				mParticules->Detacher(id);
+			}
+			mPhysique->DestroyBody(id);
+			for (uint32 i = 0; i < mCorpsLibres.Size(); ++i) {
+				if (mCorpsLibres[i].corps == id) {
+					mCorpsLibres.Erase(mCorpsLibres.Begin() + i);
+					break;
+				}
+			}
+		}
+
+		bool NkScene::PoseCorps(physics::NkBodyId id, NkVec2f &position, float32 &angle) const {
+			const physics::NkRigidBody *b = mPhysique != nullptr ? mPhysique->GetBody(id) : nullptr;
+			if (b == nullptr) {
+				return false;
+			}
+			position = NkVec2f(b->position.x, b->position.y);
+			angle = AngleZ(b->orientation);
+			return true;
+		}
+
+		NkVec2f NkScene::VitesseCorpsEnPoint(physics::NkBodyId id, const NkVec2f &point) const {
+			const physics::NkRigidBody *b = mPhysique != nullptr ? mPhysique->GetBody(id) : nullptr;
+			if (b == nullptr) {
+				return NkVec2f(0.f, 0.f);
+			}
+			// v + w x r, dans le plan : w = (0, 0, wz).
+			const float32 wz = b->angularVelocity.z;
+			const float32 rx = point.x - b->position.x, ry = point.y - b->position.y;
+			return NkVec2f(b->linearVelocity.x - wz * ry, b->linearVelocity.y + wz * rx);
+		}
+
+		bool NkScene::AppliquerForceCorps(physics::NkBodyId id, const NkVec2f &force, const NkVec2f &point) {
+			physics::NkRigidBody *b = mPhysique != nullptr ? mPhysique->GetBody(id) : nullptr;
+			if (b == nullptr || b->type != physics::NkBodyType::DYNAMIC || !(force.x == force.x && force.y == force.y)) {
+				return false;
+			}
+			b->flags &= ~static_cast<uint32>(physics::NK_BODY_SLEEPING);
+			b->sleepTimer = 0.f;
+			b->ApplyForceAtPoint(math::NkVec3f(force.x, force.y, 0.f), math::NkVec3f(point.x, point.y, 0.f));
+			return true;
+		}
+
+		bool NkScene::MenerCorps(physics::NkBodyId id, const NkVec2f &position, float32 angle, float32 dt) {
+			physics::NkRigidBody *b = mPhysique != nullptr ? mPhysique->GetBody(id) : nullptr;
+			if (b == nullptr || dt <= 0.f) {
+				return false;
+			}
+			const float32 a0 = AngleZ(b->orientation);
+			float32 da = angle - a0;
+			while (da > 3.14159265f) {
+				da -= 6.2831853f;
+			}
+			while (da < -3.14159265f) {
+				da += 6.2831853f;
+			}
+			b->linearVelocity = math::NkVec3f((position.x - b->position.x) / dt, (position.y - b->position.y) / dt, 0.f);
+			b->angularVelocity = math::NkVec3f(0.f, 0.f, da / dt);
+			return true;
+		}
+
+		bool NkScene::LierCorps(physics::NkBodyId a, physics::NkBodyId b, const NkVec2f &pivot, bool soudure) {
+			if (mPhysique == nullptr || mPhysique->GetBody(a) == nullptr || mPhysique->GetBody(b) == nullptr) {
+				return false;
+			}
+			const math::NkVec3f p(pivot.x, pivot.y, 0.f);
+			const physics::NkJointId j = soudure ? mPhysique->CreateWeldJoint(a, b, p) : mPhysique->CreateBallJoint(a, b, p);
+			return j != physics::NK_INVALID_JOINT;
+		}
+
+		float32 NkScene::ForceLien(physics::NkBodyId a, physics::NkBodyId b) const {
+			if (mPhysique == nullptr) {
+				return -1.f;
+			}
+			const NkVector<physics::NkJoint> &liens = mPhysique->Joints();
+			for (uint32 i = 0; i < liens.Size(); ++i) {
+				const physics::NkJoint &j = liens[i];
+				if (!j.enabled || !((j.a == a && j.b == b) || (j.a == b && j.b == a))) {
+					continue;
+				}
+				// L'impulsion accumulee du dernier sous-pas, rapportee a sa duree.
+				const int32 sp = mPhysique->Config().subSteps > 0 ? mPhysique->Config().subSteps : 1;
+				const float32 h = mConfig.pasFixe / static_cast<float32>(sp);
+				const float32 i2 = j.impulse.x * j.impulse.x + j.impulse.y * j.impulse.y;
+				return h > 0.f ? math::NkSqrt(i2) / h : 0.f;
+			}
+			return -1.f;
+		}
+
+		bool NkScene::CouperLien(physics::NkBodyId a, physics::NkBodyId b) {
+			if (mPhysique == nullptr) {
+				return false;
+			}
+			NkVector<physics::NkJoint> &liens = mPhysique->Joints();
+			for (uint32 i = 0; i < liens.Size(); ++i) {
+				physics::NkJoint &j = liens[i];
+				if (j.enabled && ((j.a == a && j.b == b) || (j.a == b && j.b == a))) {
+					j.enabled = false; // eteint, pas retire (voir DetruireCorpsLibre)
+					return true;
+				}
+			}
+			return false;
 		}
 
 	} // namespace unkeny

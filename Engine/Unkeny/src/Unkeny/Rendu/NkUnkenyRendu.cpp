@@ -9,6 +9,7 @@
 
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKMath/NkEarcut.h"
+#include "Unkeny/Maillage/NkUnkenyMaillagePhysique.h"
 
 namespace nkentseu {
 	namespace unkeny {
@@ -27,12 +28,27 @@ namespace nkentseu {
 			/// une requete NKECS peut deplacer les donnees entre archetypes, et
 			/// un pointeur retenu pointerait alors ailleurs.
 			/// (2026-10-01) Un aplat est un sprite OU une forme : un seul tri.
+			/// (2026-10-02) OU un MAILLAGE 2D : son entite (relue apres le tri) et
+			/// la place de ses sommets en monde dans `sommets`.
 			struct Aplat {
 					NkTransform2D t;
 					NkSprite2D s;
 					int32 forme = -1; ///< indice dans la liste des formes, -1 = sprite
 					int32 couche = 0;
+					ecs::NkEntityId maillage;	///< valide : un maillage 2D
+					uint32 premierSommet = 0u; ///< dans la liste des sommets en monde
 			};
+
+			/// La couleur `a` multipliee par `b` (0xRRGGBBAA, canal par canal).
+			uint32 Multiplier(uint32 a, uint32 b) noexcept {
+				uint32 r = 0u;
+				for (int32 k = 0; k < 4; ++k) {
+					const int32 s = 24 - 8 * k;
+					const uint32 x = ((a >> s) & 0xFFu) * ((b >> s) & 0xFFu) + 127u;
+					r |= ((x / 255u) & 0xFFu) << s;
+				}
+				return r;
+			}
 
 			NkColor Opacite(const NkColor &c, float32 o) noexcept {
 				const float32 k = o < 0.f ? 0.f : (o > 1.f ? 1.f : o);
@@ -151,6 +167,36 @@ namespace nkentseu {
 					formes.PushBack(f);
 					aplats.PushBack(a);
 				});
+			// Les MAILLAGES 2D (2026-10-02, R31), meme tri. Le hors-champ se juge sur
+			// leurs sommets EN MONDE : en jeu, un eclat parti loin de son entite se
+			// dessine toujours la ou il est.
+			NkVector<NkVec2f> sommets;
+			scene.Monde().Query<NkTransform2D, NkMaillage2D>().ForEach(
+				[&](ecs::NkEntityId id, NkTransform2D &t, NkMaillage2D &m) {
+					if (!m.visible || m.nbTriangles == 0u || !scene.EstActive(id)) {
+						return;
+					}
+					++stats.entitesVues;
+					const uint32 premier = static_cast<uint32>(sommets.Size());
+					sommets.Resize(premier + m.nbSommets);
+					NkMaillagePositionsMonde(scene, t, m, sommets.Data() + premier);
+					NkVec2f mn = sommets[premier], mx = sommets[premier];
+					for (uint32 i = 1; i < m.nbSommets; ++i) {
+						const NkVec2f &p = sommets[premier + i];
+						mn = NkVec2f(math::NkMin(mn.x, p.x), math::NkMin(mn.y, p.y));
+						mx = NkVec2f(math::NkMax(mx.x, p.x), math::NkMax(mx.y, p.y));
+					}
+					if (!Chevauche(NkRect{mn.x, mn.y, mx.x - mn.x, mx.y - mn.y}, visible)) {
+						sommets.Resize(premier);
+						return;
+					}
+					Aplat a;
+					a.t = t;
+					a.couche = m.couche;
+					a.maillage = id;
+					a.premierSommet = premier;
+					aplats.PushBack(a);
+				});
 
 			// ⚠️ TRI PAR COUCHE. NKECS ne garantit aucun ordre d'iteration ; sans
 			// ce tri, l'empilement change quand on ajoute un composant a une
@@ -174,6 +220,14 @@ namespace nkentseu {
 				if (aplats[i].forme >= 0) {
 					NkDessinerRenduForme2D(dl, cam, t, formes[static_cast<uint32>(aplats[i].forme)]);
 					++stats.entitesDessinees;
+					continue;
+				}
+				if (aplats[i].maillage.IsValid()) {
+					// Relu APRES le tri (aucune requete ne tourne plus) : le pointeur tient.
+					if (const NkMaillage2D *m = scene.Monde().Get<NkMaillage2D>(aplats[i].maillage)) {
+						NkDessinerMaillage2D(dl, cam, *m, sommets.Data() + aplats[i].premierSommet);
+						++stats.entitesDessinees;
+					}
 					continue;
 				}
 
@@ -211,6 +265,48 @@ namespace nkentseu {
 				++stats.entitesDessinees;
 			}
 			return stats;
+		}
+
+		// =====================================================================
+		void NkDessinerMaillage2D(nkgui::NkGuiDrawList &dl, const NkVue2D &cam, const NkMaillage2D &m, const NkVec2f *monde) {
+			if (monde == nullptr || m.nbTriangles == 0u || m.nbSommets < 3u) {
+				return;
+			}
+			NkVec2f ecran[NK_MAILLAGE2D_SOMMETS_MAX];
+			NkColor cols[NK_MAILLAGE2D_SOMMETS_MAX];
+			for (uint32 i = 0; i < m.nbSommets; ++i) {
+				ecran[i] = cam.MondeVersEcran(monde[i]);
+				cols[i] = Couleur(Multiplier(m.couleurs[i], m.teinte));
+			}
+			// L'ORDRE DE DESSIN DES PARTIES : la plus grande `ordre` passe devant ; a
+			// egalite, l'ordre des triangles (tri par insertion : stable).
+			uint32 idx[NK_MAILLAGE2D_TRIANGLES_MAX * 3u];
+			uint32 ordreTri[NK_MAILLAGE2D_TRIANGLES_MAX];
+			for (uint32 t = 0; t < m.nbTriangles; ++t) {
+				ordreTri[t] = t;
+			}
+			auto Ordre = [&m](uint32 t) {
+				const uint32 p = m.partieTriangle[t];
+				return p < m.nbParties ? m.parties[p].ordre : 0;
+			};
+			for (uint32 i = 1; i < m.nbTriangles; ++i) {
+				const uint32 cle = ordreTri[i];
+				int32 j = static_cast<int32>(i) - 1;
+				while (j >= 0 && Ordre(ordreTri[static_cast<uint32>(j)]) > Ordre(cle)) {
+					ordreTri[static_cast<uint32>(j + 1)] = ordreTri[static_cast<uint32>(j)];
+					--j;
+				}
+				ordreTri[static_cast<uint32>(j + 1)] = cle;
+			}
+			for (uint32 i = 0; i < m.nbTriangles; ++i) {
+				const uint32 t = ordreTri[i];
+				for (uint32 k = 0; k < 3u; ++k) {
+					idx[i * 3u + k] = m.triangles[t * 3u + k];
+				}
+			}
+			// UN appel : la texture (ou les couleurs seules) deformee par les sommets,
+			// une couleur par sommet (NkGuiDrawList::AddMesh).
+			dl.AddMesh(m.texId, ecran, m.uvs, cols, static_cast<int32>(m.nbSommets), idx, static_cast<int32>(m.nbTriangles) * 3);
 		}
 
 		// =====================================================================

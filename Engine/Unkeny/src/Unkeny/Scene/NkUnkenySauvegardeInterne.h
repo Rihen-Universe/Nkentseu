@@ -36,6 +36,16 @@ namespace nkentseu {
 			bool LireEntite(const NkArchive &a, NkScene &scene, const NkRessourcesScene &r, NkScene::NkPhotoEntite &e,
 							NkString &erreur);
 
+			/// (2026-10-02, R31) UN composant DECRIT, champ par champ, comme sous
+			/// "jeu" d'une scene (les references par NOM) : l'asset .nkmesh2d
+			/// (Maillage/NkUnkenyMaillageFichier.h) s'ecrit ainsi, et ne peut donc
+			/// pas diverger d'un maillage sauve dans une scene.
+			void EcrireComposant(NkArchive &o, const NkChampSauve *champs, uint32 n, const uint8 *octets,
+								 const NkRessourcesScene &r);
+			/// L'inverse, dans `octets` qui porte DEJA la valeur par defaut.
+			void LireComposant(const NkArchive &o, const NkChampSauve *champs, uint32 n, uint8 *octets, NkScene &scene,
+							   const NkRessourcesScene &r);
+
 		} // namespace interne
 	} // namespace unkeny
 } // namespace nkentseu

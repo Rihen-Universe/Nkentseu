@@ -389,7 +389,9 @@ namespace nkentseu {
 			visible.Resize(nc);
 			for (uint32 c = 0; c < nc; ++c) {
 				couleur[c] = 0xC8C8C8FFu;
-				visible[c] = 1;
+				// (2026-10-02, R31) La matiere d'une PARTIE de maillage : c'est le
+				// maillage qui la dessine (texture deformee), pas ce rendu.
+				visible[c] = (p.corps[c].utilisateur & NK_CORPS_MOU_DE_MAILLAGE) != 0u ? 0u : 1u;
 			}
 			scene.Monde().Query<NkCorpsMou2D>().ForEach([&](ecs::NkEntityId id, NkCorpsMou2D &m) {
 				const int32 ci = p.IndexCorps(m.corpsId);

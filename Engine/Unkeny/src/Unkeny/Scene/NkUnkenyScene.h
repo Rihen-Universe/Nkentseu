@@ -85,6 +85,12 @@ namespace nkentseu {
 
 		class NkScene;
 
+		/// (2026-10-02, R31) La marque, dans NkCorpsP2D::utilisateur, de la matiere
+		/// d'une PARTIE de maillage (le reste du mot : l'entite du maillage, emballee).
+		/// Le rendu des corps mous ne la dessine pas (le maillage la dessine) ;
+		/// EntiteDuCorpsMou rend l'entite du maillage.
+		static constexpr uint64 NK_CORPS_MOU_DE_MAILLAGE = 1ull << 63;
+
 		// =====================================================================
 		// La logique de jeu : SYSTEMES et CONTACTS
 		//
@@ -205,6 +211,46 @@ namespace nkentseu {
 				physics::NkPhysicsWorld *MondePhysique() noexcept {
 					return mPhysique;
 				}
+				const physics::NkPhysicsWorld *MondePhysique() const noexcept {
+					return mPhysique;
+				}
+
+				// --- Corps LIBRES (2026-10-02, R31 : les parties d'un maillage 2D) ---
+				// Des corps qu'AUCUN NkCorps2D ne porte : ceux des parties d'un
+				// maillage (Maillage/NkUnkenyMaillagePhysique.h). Ils passent par le
+				// MEME pont 2D <-> 3D que les autres (ce fichier et son .cpp, seuls).
+
+				/// Un corps rigide libre : meme materiau, meme masse, memes calques
+				/// qu'AjouterCorps. `entite` : celle a qui ses contacts sont rendus
+				/// (NkContact2D). `groupe` : un bit de 16 a 31 ; les corps d'un MEME
+				/// groupe ne se touchent pas (les eclats d'une meme vitre). Un
+				/// collisionneur de couche ou de masque nul ne touche rien.
+				physics::NkBodyId CreerCorpsLibre(const NkTransform2D &t, const NkCollisionneur2D &col, const NkCorps2D &corps,
+												  ecs::NkEntityId entite, uint32 groupe = 0u);
+				/// Detruit un corps libre ; les liens qui le tenaient sont coupes.
+				void DetruireCorpsLibre(physics::NkBodyId id);
+				/// Un bit de groupe NEUF (16 a 31, en tournant) pour CreerCorpsLibre.
+				uint32 NouveauGroupe() noexcept {
+					return 1u << (16u + (mProchainGroupe++ % 16u));
+				}
+				/// La pose 2D d'un corps (libre ou non) : position, angle autour de Z.
+				bool PoseCorps(physics::NkBodyId id, NkVec2f &position, float32 &angle) const;
+				/// La vitesse d'un point (monde) d'un corps.
+				NkVec2f VitesseCorpsEnPoint(physics::NkBodyId id, const NkVec2f &point) const;
+				/// Une force en un point (monde) d'un corps DYNAMIQUE, reveille. Elle ne
+				/// vit qu'un pas fixe (comme AppliquerForce).
+				bool AppliquerForceCorps(physics::NkBodyId id, const NkVec2f &force, const NkVec2f &point);
+				/// Mene un corps CINEMATIQUE a (position, angle) ; sa vitesse est
+				/// deduite sur `dt`, pour que ce qu'il tient suive sans a-coup.
+				bool MenerCorps(physics::NkBodyId id, const NkVec2f &position, float32 angle, float32 dt);
+				/// Un LIEN entre deux corps au point `pivot` (monde) : une SOUDURE
+				/// (position et angle relatifs gardes) ou un PIVOT (rotation libre).
+				bool LierCorps(physics::NkBodyId a, physics::NkBodyId b, const NkVec2f &pivot, bool soudure);
+				/// La force (N) que le lien (a, b) a transmise au dernier pas ; -1 s'il
+				/// n'existe pas (ou s'il est coupe).
+				float32 ForceLien(physics::NkBodyId a, physics::NkBodyId b) const;
+				/// Coupe le lien (a, b). Rend faux s'il n'existait pas.
+				bool CouperLien(physics::NkBodyId a, physics::NkBodyId b);
 
 				// --- Particules (corps mous, fluides) --------------------------
 				/// Le monde de particules, ou nul si `NkSceneConfig::particules` est
@@ -689,6 +735,12 @@ namespace nkentseu {
 						ecs::NkEntityId entite;
 				};
 				NkVector<NkCorpsEntite> mCorpsEntite; ///< refait a chaque releve qui a des evenements
+				/// (2026-10-02, R31) Les corps LIBRES (parties de maillage) et l'entite
+				/// a qui leurs contacts sont rendus.
+				NkVector<NkCorpsEntite> mCorpsLibres;
+				uint32 mProchainGroupe = 0u;
+				/// La table corps -> entite des releves (NkCorps2D, puis corps libres).
+				void RefaireCorpsEntite();
 
 				NkSceneConfig mConfig;
 				ecs::NkWorld mMonde;

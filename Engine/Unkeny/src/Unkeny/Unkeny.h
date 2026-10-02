@@ -47,6 +47,8 @@
 //   Jeu/       vocabulaire de GENRE (jeux a tours) — facultatif
 //   Script/    les SCRIPTS : composant, hote, table C (NkUnkHoteV1), VM des
 //              Blueprints, classes C++ (2026-10-01, document 01 d'UnkenyEditor)
+//   Maillage/  le MAILLAGE 2D : sommets, triangles, UV, parties, physique par
+//              partie, asset .nkmesh2d (2026-10-02, R31 ; document 06)
 //
 // L'ORDRE D'UNE TRAME, et il n'est pas indifferent
 //   1. entrees        -> l'application decide
@@ -65,6 +67,9 @@
 #include "Unkeny/Entree/NkUnkenyEntreesJeu.h"
 #include "Unkeny/Entree/NkUnkenyLiaisons.h"
 #include "Unkeny/Jeu/NkUnkenySieges.h"
+#include "Unkeny/Maillage/NkUnkenyMaillage.h"
+#include "Unkeny/Maillage/NkUnkenyMaillageFichier.h"
+#include "Unkeny/Maillage/NkUnkenyMaillagePhysique.h"
 #include "Unkeny/Monde/NkUnkenyTuiles.h"
 #include "Unkeny/Vues/NkUnkenyVues.h"
 #include "Unkeny/Rendu/NkUnkenyEclairage.h"

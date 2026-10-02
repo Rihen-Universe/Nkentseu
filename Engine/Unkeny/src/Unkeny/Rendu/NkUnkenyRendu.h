@@ -28,6 +28,7 @@
 #pragma once
 
 #include "NKGui/Core/NkGuiContext.h"
+#include "Unkeny/Maillage/NkUnkenyMaillage.h"
 #include "Unkeny/Scene/NkUnkenyFormes.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
 
@@ -53,6 +54,13 @@ namespace nkentseu {
 		/// NkDessinerScene, offert a qui veut une forme hors d'une scene.
 		void NkDessinerRenduForme2D(nkgui::NkGuiDrawList &dl, const NkVue2D &camera, const NkTransform2D &t,
 									const NkRenduForme2D &f);
+
+		/// (2026-10-02, R31) Un MAILLAGE 2D dont les sommets sont DEJA en monde
+		/// (NkMaillagePositionsMonde) : la texture deformee, une couleur par sommet
+		/// (multipliee par la teinte), les parties dans leur ordre de dessin. C'est
+		/// le dessin de NkDessinerScene, offert a la fenetre d'edition.
+		void NkDessinerMaillage2D(nkgui::NkGuiDrawList &dl, const NkVue2D &camera, const NkMaillage2D &m,
+								  const NkVec2f *monde);
 
 		/// La meme forme en VIGNETTE, inscrite dans le rectangle `r` (en pixels) :
 		/// les icones du panneau « Placer des acteurs ».
