@@ -526,6 +526,9 @@ namespace nkentseu {
 				/// (02/10) Le style de menu de l'hote (NKCode : le menu ≡ de la Synthese).
 				/// Inactif par defaut : rien ne change ailleurs.
 				NkGuiMenuStyle menuStyle;
+				/// (02/10) Le rectangle de la DERNIERE entree de menu posee (grisee ou non) :
+				/// l'hote y accroche l'info-bulle qui dit POURQUOI une entree est grisee.
+				NkRect menuDernierItem{0.f, 0.f, 0.f, 0.f};
 
 				// IDs d'interaction
 				NkGuiId hotId = NKGUI_ID_NONE;	   ///< widget survolé (greedy : dernier soumis = au-dessus)

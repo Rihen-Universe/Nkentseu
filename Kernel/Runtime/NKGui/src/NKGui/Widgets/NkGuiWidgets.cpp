@@ -5967,6 +5967,7 @@ namespace nkentseu {
 			const float32 h = style ? ms.hauteur : ctx.ItemHeight();
 			const NkRect r = ctx.NextItemRect(0.f, h);
 			const NkGuiId id = ctx.GetId(label);
+			ctx.menuDernierItem = r;
 
 			// Mesure pour l'auto-dimensionnement du menu courant.
 			if (L >= 0 && ctx.menuMeasureId[L] != NKGUI_ID_NONE) {
