@@ -25,7 +25,7 @@ après le code et ses bancs. Tout ce qui est dit « fait » est **exercé** par
 
 | geste | où |
 |---|---|
-| poser un squelette | **Détails > Ajouter un composant > Animation > Squelette 2D : Humanoïde (de face) / Quadrupède / Oiseau / Créature libre / Humanoïde de profil**, ou **Squelette 2D vide** ; clic droit sur une entité à maillage > **Poser un squelette 2D (humanoïde)**. Sans maillage, il est d'abord créé depuis le sprite (ou la forme) ; le modèle est mis à la boîte du maillage ; les poids sont posés par la **chaleur**. La fenêtre s'ouvre sur l'outil Os. |
+| poser un squelette | **Détails > Ajouter un composant > Animation > Squelette 2D (modèle de départ) ▸ Humanoïde (de face) / Quadrupède / Oiseau / Créature libre / Humanoïde de profil**, ou **Squelette 2D vide** (un sous-menu : le menu tient sur un écran de 760 px) ; clic droit sur une entité à maillage > **Poser un squelette 2D (humanoïde)**. Sans maillage, il est d'abord créé depuis le sprite (ou la forme) ; le modèle est mis à la boîte du maillage ; les poids sont posés par la **chaleur**. La fenêtre s'ouvre sur l'outil Os. |
 | ouvrir la fenêtre | carte **Squelette 2D** > **Éditer le squelette…** ; clic droit > **Éditer le squelette 2D…** — c'est la **fenêtre du maillage** (document 06), quatre outils de plus |
 | **Os (B)** | glisser dans le vide = un os, **enfant de l'os choisi** ; **Maj + glisser depuis le bout de l'os choisi** = un os **chaîné** ; la **tête** d'un os le déplace, sa **queue** le tourne et l'allonge (le **repos**) ; panneau : **Nom**, **Angle**, **Longueur**, **X / Y** (repère du parent), **Symétrie G/D**, **Supprimer l'os** (Suppr) ; **Remplacer par un modèle : Face, Profil, Quadrup., Oiseau, Créature** |
 | **Poids (W)** | clic sur une **tête** = l'os à peindre (ou la liste) ; **glisser = peindre** (Maj, ou la case **Retirer**, enlève) ; **Rayon**, **Force** ; **Auto : chaleur**, **Auto : distance**, **Par parties** (une partie au nom d'un os = cet os) ; **Normaliser** ; la vue montre la **chaleur** du poids (bleu 0 → vert → rouge 1) |
@@ -160,7 +160,7 @@ pistes d'os et ses poses-clés ; le Contenu et le lanceur connaissent `.nkskel` 
   accrochée** (q5n : sans particules, rien ne pend) ; IK en jeu ; auto-poids ;
   Arrêter.
 - **BANC SQUELETTE ÉDITEUR** (`NkEditeurBancSquelette.cpp`, sur la vraie trame) :
-  **22/22** — Ajouter un composant + Ctrl+Z / Ctrl+Y ; le menu et ses cinq modèles,
+  **22/22** — Ajouter un composant + Ctrl+Z / Ctrl+Y ; le sous-menu et ses cinq modèles,
   la carte ; **Maj + glisser** chaîne un os, Ctrl+Z ; **IK à la souris** (la main
   arrive sur sa cible, le coude garde son sens, **Ctrl+Z** rend la pose ; e4n : la
   même pose écrite sans retenir, le témoin de Ctrl+Z voit ÉCHEC) ; pinceau + Ctrl+Z ;

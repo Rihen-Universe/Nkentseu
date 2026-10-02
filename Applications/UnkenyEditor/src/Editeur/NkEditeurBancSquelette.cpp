@@ -391,7 +391,15 @@ namespace nkentseu {
 					NkEditeurOuvrirMenu(c, NkMenuEditeur::NK_COMPOSANT, nkgui::NkRect{400.f, 200.f, 10.f, 10.f});
 				}
 				T.Trame();
-				const bool cinq = LigneMenu(ui, "Squelette 2D : Humanoïde (de face)") != nullptr && LigneMenu(ui, "Squelette 2D : Quadrupède") != nullptr &&
+				// « Ajouter un composant » montre UNE ligne, un sous-menu : ses modeles.
+				const bool sousMenu = LigneMenu(ui, "Squelette 2D (modèle de départ)") != nullptr;
+				T.Fermer();
+				{
+					NkEditeurCadre c = T.Cadre();
+					NkEditeurOuvrirMenu(c, NkMenuEditeur::NK_COMPOSANT_SQUELETTE, nkgui::NkRect{400.f, 200.f, 10.f, 10.f});
+				}
+				T.Trame();
+				const bool cinq = sousMenu && LigneMenu(ui, "Squelette 2D : Humanoïde (de face)") != nullptr && LigneMenu(ui, "Squelette 2D : Quadrupède") != nullptr &&
 								  LigneMenu(ui, "Squelette 2D : Oiseau") != nullptr && LigneMenu(ui, "Squelette 2D : Créature libre") != nullptr &&
 								  LigneMenu(ui, "Squelette 2D : Humanoïde de profil") != nullptr && LigneMenu(ui, "Squelette 2D vide") != nullptr;
 				// Le clic sur « profil » (la vraie trame) pose le modele et ouvre la fenetre.
@@ -404,7 +412,7 @@ namespace nkentseu {
 				b = ParNom(m.scene, "Bodofia");
 				const NkDocMaillage *d = NkEditeurDocMaillageActif(ui);
 				Temoin(cinq && Sq(m, b) != nullptr && unkeny::NkSqueletteTrouverOs(*Sq(m, b), "PiedD") >= 0 && d != nullptr && d->outil == NkOutilMaillage::NK_OS,
-					   "(e2) le menu : cinq modeles et le vide ; « profil » pose et ouvre l'outil Os", 0.f);
+					   "(e2) le sous-menu : cinq modeles et le vide ; « profil » pose et ouvre l'outil Os", 0.f);
 				const NkDocumentOuvert page = NkEditeurDocumentActif(ui);
 				NkEditeurActiverDocument(m, ui, NkDocScene());
 				ui.ongletDroite = 0;

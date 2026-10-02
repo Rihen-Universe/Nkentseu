@@ -714,6 +714,17 @@ namespace nkentseu {
 						}
 						break;
 					}
+					case NkMenuEditeur::NK_COMPOSANT_SQUELETTE: {
+						// (2026-10-02, R30) Le modele de depart : il se met a la boite du
+						// maillage (cree depuis le sprite ou la forme s'il manque).
+						static const char *const kModeles[5] = {"Humanoïde (de face)", "Quadrupède", "Oiseau", "Créature libre",
+																"Humanoïde de profil"};
+						for (int32 k = 0; k < 5; ++k) {
+							out.PushBack(Entree(NkString::Format("Squelette 2D : %s", kModeles[k]).CStr(), NK_A_SQUELETTE + k));
+						}
+						out.PushBack(Entree("Squelette 2D vide (os à poser)", NK_A_SQUELETTE_VIDE));
+						break;
+					}
 					case NkMenuEditeur::NK_COMPOSANT_MOU:
 						for (int32 i = 0; i < static_cast<int32>(NkActeurSim::NK_COUNT); ++i) {
 							const NkInfoActeurSim &info = NkActeurSimInfo(static_cast<NkActeurSim>(i));
@@ -792,13 +803,9 @@ namespace nkentseu {
 						Ligne(NkComposantEditeur::NK_ANIMATION, "Animation (sprites)");
 						// (2026-10-02, R30) Le SQUELETTE 2D : un modele de depart, ou vide. Sans
 						// maillage, il est cree depuis le sprite (ou la forme) d'abord.
+						// Une ligne, un sous-menu : le menu tient sur un ecran de 760 px.
 						if (squelette) {
-							static const char *const kModeles[5] = {"Humanoïde (de face)", "Quadrupède", "Oiseau", "Créature libre",
-																	"Humanoïde de profil"};
-							for (int32 k = 0; k < 5; ++k) {
-								out.PushBack(Entree(NkString::Format("Squelette 2D : %s", kModeles[k]).CStr(), NK_A_SQUELETTE + k));
-							}
-							out.PushBack(Entree("Squelette 2D vide (os à poser)", NK_A_SQUELETTE_VIDE));
+							out.PushBack(SousMenu("Squelette 2D (modèle de départ)", NkMenuEditeur::NK_COMPOSANT_SQUELETTE));
 						}
 						if (animateur) {
 							// Les modeles enregistres (« plateforme » toujours), puis les

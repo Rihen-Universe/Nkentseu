@@ -101,7 +101,9 @@ namespace nkentseu {
 			// L'etape 2 d'Unreal (2026-10-01, document 02 §5) : AJOUTES A LA FIN.
 			NK_TEXTURE_SPRITE, ///< la liste deroulante de la texture d'un sprite (Details)
 			// R33 (2026-10-01) : AJOUTES A LA FIN.
-			NK_COMPOSANT_MOU ///< sous-menu « Corps mou » de « Ajouter un composant » : la matiere
+			NK_COMPOSANT_MOU, ///< sous-menu « Corps mou » de « Ajouter un composant » : la matiere
+			// R30 (2026-10-02) : AJOUTE A LA FIN.
+			NK_COMPOSANT_SQUELETTE ///< sous-menu « Squelette 2D » : le modele de depart (ou vide)
 		};
 
 		/// La largeur de « Placer des acteurs » REPLIE : sa colonne d'onglets.
