@@ -15,6 +15,20 @@ Contenu (src/NKConverse/) :
                             seul a dependre de NKNetwork.
   NkConverseChat.h       => la conversation : tours, historique
   NkConverseChatAsync.h  => l'appel qui ne gele pas l'interface
+  NkConverseJson.h       => (2026-10-01) un arbre JSON a pool : lire, parcourir,
+                            reecrire, fusionner (les reponses a OUTILS sont imbriquees)
+  NkConverseTransport.h  => (2026-10-01) une requete HTTP lue EN FLUX (NKNetwork),
+                            ou par curl quand HTTPS n'est pas compile -- la cle
+                            dans un FICHIER temporaire, jamais en ligne de commande
+  NkConverseFournisseurs.h => (2026-10-01) LES FOURNISSEURS, une seule couche :
+                            Ollama, serveur compatible OpenAI, API Anthropic, CLI
+                            Claude, processus local ; reglages et cles HORS du
+                            depot ; liste des modeles ; test de connexion ;
+                            conversation en flux avec OUTILS (natifs ou texte)
+  NkConverseChatFlux.h   => (2026-10-01) la conversation en flux sur un fil de
+                            travail, et la sonde (lister / tester) qui ne gele pas
+  NkConverseFauxServeur.h => (2026-10-01) un faux serveur LOCAL qui parle Ollama,
+                            OpenAI et Anthropic : les bancs, sans rien installer
   NkConverse.cpp         => AUCUNE logique : il inclut les en-tetes dans un
                             contexte VIDE, ce qui PROUVE la regle 2 ci-dessous.
 

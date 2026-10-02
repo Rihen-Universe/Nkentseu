@@ -177,6 +177,7 @@ namespace nkentseu {
 			  mEntrees(memory::NkMakeUnique<NkEditeurEntrees>()), mConstruction(memory::NkMakeUnique<NkEditeurConstruction>()),
 			  mSelecteur(memory::NkMakeUnique<NkEditeurSelecteurEtat>()),
 			  mScripts(memory::NkMakeUnique<NkEditeurScripts>()),
+			  mIA(memory::NkMakeUnique<NkEditeurIA>()),
 			  mTheme(editorkit::NkTheme::Dark()) {
 			NkEditeurEntreesParDefaut(*mEntrees);
 			mPalette = NkEditeurPalette(mTheme);
@@ -445,6 +446,27 @@ namespace nkentseu {
 				if (args[i].StartsWith("--captures-formes=")) {
 					return NkOptional<int>(NkEditeurCapturesFormes(NkString(args[i].SubStr(18)).CStr()));
 				}
+				// (2026-10-01, R18) L'IA : --ia ouvre le panneau a droite (une capture le
+				// montre sans souris) ; --ia-reglages ouvre aussi la fenetre des
+				// fournisseurs ; --captures-ia=DOSSIER : les captures hors ecran.
+				// --ia : l'IA au premier plan, la ou elle vit (onglet ou a part) ;
+				// --ia=onglet / --ia=panneau / --ia=replie imposent la disposition.
+				if (args[i] == "--ia" || args[i].StartsWith("--ia=")) {
+					mIADepart = args[i] == "--ia" ? NkString("devant") : NkString(args[i].SubStr(5));
+					continue;
+				}
+				if (args[i] == "--ia-reglages") {
+					mIADepart = NkString("devant");
+					mIAReglagesDepart = true;
+					continue;
+				}
+				// --banc-ia : le banc de l'IA seul (le --selftest le joue aussi).
+				if (args[i] == "--banc-ia") {
+					return NkOptional<int>(NkEditeurLancerBancIA());
+				}
+				if (args[i].StartsWith("--captures-ia=")) {
+					return NkOptional<int>(NkEditeurCapturesIA(NkString(args[i].SubStr(14)).CStr()));
+				}
 				// (2026-10-01) Les pages Animation et Animateur, hors ecran (NkEditeurPagesAnim.h).
 				if (args[i].StartsWith("--captures-animation=")) {
 					return NkOptional<int>(NkEditeurCapturesAnimation(NkString(args[i].SubStr(21)).CStr()));
@@ -492,10 +514,12 @@ namespace nkentseu {
 					const int32 scripts = unkeny::NkUnkenyLancerBancScripts() | NkEditeurLancerBancScripts();
 					// Les cartes, assets, prefabs et effets (01/10, R33 / R34) : a part.
 					const int32 assets = NkEditeurLancerBancAssets();
+					// L'IA integree (01/10, R18) : un faux serveur Ollama / OpenAI local.
+					const int32 ia = NkEditeurLancerBancIA();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
 									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
 									   ecran != 0 || terminal != 0 || ue5 != 0 || formes != 0 || animation != 0 ||
-									   scripts != 0 || assets != 0;
+									   scripts != 0 || assets != 0 || ia != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une
@@ -670,6 +694,26 @@ namespace nkentseu {
 			NkEditeurDemarrerPlacer(m, *mUi);
 			// Les SCRIPTS (2026-10-01) : l'hote sur la scene, les actions du joueur 1.
 			NkEditeurScriptsDemarrer(*mScripts, m, &mEntrees->jeu.Actions(0), &mEntrees->jeu.Liaisons());
+			// L'IA (2026-10-01, R18) : les fournisseurs de <AppData>/Nkentseu/IA.
+			NkEditeurIADemarrer(*mIA, m);
+			// La disposition RETENUE (onglet / a part / replie), puis ce que la ligne
+			// de commande impose -- une capture doit etre reproductible.
+			NkEditeurIALireDisposition(*mIA, *mUi);
+			if (mIADepart == "onglet" || mIADepart == "panneau" || mIADepart == "replie") {
+				mUi->iaPlace = mIADepart == "onglet" ? 0 : 1;
+				mUi->iaReplie = mIADepart == "replie";
+				mUi->voirIA = true;
+			}
+			if (!mIADepart.Empty() && mUi->iaPlace == 0) {
+				mUi->voirDetails = true;
+				mUi->ongletDroite = NK_ONGLET_IA;
+			} else if (mIADepart == "devant" || mIADepart == "panneau") {
+				mUi->voirIA = true;
+				mUi->iaReplie = false;
+			}
+			if (mIAReglagesDepart) {
+				NkEditeurIAOuvrirReglages(*mIA, -1);
+			}
 			if (m.simuler) {
 				NkEditeurJouer(m);
 			}
@@ -691,7 +735,7 @@ namespace nkentseu {
 			// la boite et la fenetre Construire.
 			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN ||
 								mUi->panneauEntrees || mConstruction->ouverte || NkEditeurSelecteurOuvert(mSelecteur.Get()) ||
-								!mUi->contenuASupprimer.Empty();
+								!mUi->contenuASupprimer.Empty() || NkEditeurReglagesIAOuverts(*mModele);
 			// Les entrees de la scene vivent a cote d'elle (.nkentrees) : relues
 			// quand la scene change de chemin (Ouvrir).
 			NkEditeurEntreesSuivreScene(*mEntrees, NkEditeurEntreesCheminScene(*mModele).CStr());
@@ -788,7 +832,7 @@ namespace nkentseu {
 			// jeu (NkEditeurEntrees.h). Ce qu'il prend, NKGui ne le voit pas.
 			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN ||
 								mUi->panneauEntrees || mConstruction->ouverte || NkEditeurSelecteurOuvert(mSelecteur.Get()) ||
-								!mUi->contenuASupprimer.Empty();
+								!mUi->contenuASupprimer.Empty() || NkEditeurReglagesIAOuverts(*mModele);
 			if (NkEditeurEntreesEvenement(*mEntrees, mModele->etat, event, mUi->viseur, occupe)) {
 				return false;
 			}
@@ -935,6 +979,7 @@ namespace nkentseu {
 				static const NkRaccourci kCtrl[] = {
 					{NkGuiKey::N, NK_A_NOUVEAU},		   {NkGuiKey::O, NK_A_OUVRIR},	  {NkGuiKey::S, NK_A_ENREGISTRER},
 					{NkGuiKey::E, NK_A_NOUVELLE_ENTITE}, {NkGuiKey::D, NK_A_DUPLIQUER}, {NkGuiKey::Q, NK_A_QUITTER},
+					{NkGuiKey::I, NK_A_VOIR_IA}, // 2026-10-01, R18 : le panneau IA
 				};
 				for (const NkRaccourci &r : kCtrl) {
 					if (in.KeyPressed(r.touche)) {
@@ -1036,7 +1081,10 @@ namespace nkentseu {
 			//    meme temps que la boite.
 			// La fenetre « Construire » est modale de la meme facon.
 			// Le selecteur de fichiers (NkEditeurSelecteur.h) aussi.
-			const bool modale = ui.confirmation != NK_A_AUCUNE || construction.ouverte || choix || !ui.contenuASupprimer.Empty();
+			// (2026-10-01, R18) La fenetre des reglages de l'IA est modale, elle aussi.
+			const bool reglagesIA = NkEditeurReglagesIAOuverts(c.m);
+			const bool modale = ui.confirmation != NK_A_AUCUNE || construction.ouverte || choix || !ui.contenuASupprimer.Empty() ||
+								reglagesIA;
 			if (modale) {
 				ui.menu = NkMenuEditeur::NK_AUCUN;
 				ui.nomFocus = false;
@@ -1093,11 +1141,16 @@ namespace nkentseu {
 				NkEditeurDessinerPlacer(c); // 2026-10-01 : Placer des acteurs, a gauche
 				NkEditeurDessinerOutliner(c);
 				NkEditeurDessinerDetails(c);
+				NkEditeurDessinerIA(c); // 2026-10-01, R18 : l'IA, a droite
 				NkEditeurDessinerTiroir(c);
 				NkEditeurCloisons(c);
 				NkEditeurDessinerBarreOutils(c);
 			}
 			NkEditeurDessinerStatut(c);
+			// L'IA AVANCE A CHAQUE TRAME, panneau ouvert ou non : un tour en vol
+			// continue (le flux, les outils), et c'est ici -- sur le fil de
+			// l'interface -- que ses actions touchent la scene.
+			NkEditeurIATrame(c);
 			// Les onglets sont sous la barre de titre, donc SOUS ses menus
 			// deroulants : ils suivent le masquage du corps.
 			NkEditeurDessinerOnglets(c);
@@ -1125,6 +1178,7 @@ namespace nkentseu {
 				}
 				NkEditeurDessinerConfirmation(c);
 				NkEditeurDessinerSuppressionContenu(c);
+				NkEditeurDessinerReglagesIA(c);
 				NkEditeurDessinerConstruire(c, construction);
 				if (choix) {
 					Rendre(c.ctx.input, vrais);

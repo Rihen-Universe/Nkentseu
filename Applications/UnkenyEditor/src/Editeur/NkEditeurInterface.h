@@ -259,13 +259,21 @@ namespace nkentseu {
 			NK_A_SCRIPT = 2200, ///< + NkActionScript
 			// « Ajouter un composant > Animateur » (2026-10-01, R33) : la plage 2300-2399.
 			NK_A_ANIMATEUR = 2300,		  ///< + i (< 50) : le modele enregistre NkNomModeleAnimateur(i)
-			NK_A_ANIMATEUR_FICHIER = 2350 ///< + k (< 50) : le controleur controleursProposes[k] (.nkanimctl)
+			NK_A_ANIMATEUR_FICHIER = 2350, ///< + k (< 50) : le controleur controleursProposes[k] (.nkanimctl)
+			// L'IA INTEGREE (2026-10-01, R18, Ia/NkEditeurIA.h) : la plage 2500-2549.
+			NK_A_VOIR_IA = 2500,	 ///< Fenetre > IA (Ctrl+I) : l'onglet IA au premier plan, ou le panneau a part
+			NK_A_REGLAGES_IA = 2501, ///< Fenetre > Reglages de l'IA : les fournisseurs de modeles
+			NK_A_IA_PLACE = 2502,	 ///< onglet du groupe Details | Monde <-> panneau a part (et retour)
+			NK_A_IA_REPLIER = 2503	 ///< le panneau a part se replie en bande (et se deplie)
 		};
 		// Les plages ne se chevauchent pas : verifie a la compilation, la ou elles
 		// sont declarees.
 		static_assert(NK_A_TEXTURE_SPRITE + 100 <= NK_A_SCRIPT && NK_A_SCRIPT + 100 <= NK_A_ANIMATEUR &&
-						  NK_A_ANIMATEUR + 50 <= NK_A_ANIMATEUR_FICHIER && NK_A_ANIMATEUR_FICHIER + 50 <= NK_A_ANIM_ANIMATION,
+						  NK_A_ANIMATEUR + 50 <= NK_A_ANIMATEUR_FICHIER && NK_A_ANIMATEUR_FICHIER + 50 <= NK_A_ANIM_ANIMATION && NK_A_ANIM_ANIMATION + 100 <= NK_A_VOIR_IA,
 					  "deux plages d'actions se chevauchent (NkEditeurInterface.h)");
+
+		/// (2026-10-01, R18) L'onglet IA du groupe Details | Monde : `ongletDroite`.
+		constexpr int32 NK_ONGLET_IA = 2;
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
 		struct NkEntreeMenu {
@@ -317,6 +325,9 @@ namespace nkentseu {
 				nkgui::NkRect barreVue{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect viseur{0.f, 0.f, 0.f, 0.f};	 ///< la vue sous sa barre
 				nkgui::NkRect details{0.f, 0.f, 0.f, 0.f};
+				/// (2026-10-01, R18) LE PANNEAU IA, a DROITE de tout (a droite des
+				/// Details, comme un panneau ancre d'UE5). Vide s'il est ferme.
+				nkgui::NkRect ia{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect tiroir{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect statut{0.f, 0.f, 0.f, 0.f};
 
@@ -328,6 +339,24 @@ namespace nkentseu {
 				int32 cloisonTenue = -1;
 				bool voirOutliner = true;
 				bool voirDetails = true;
+				/// (2026-10-01, R18 + la precision de Rihen : « il doit aussi etre
+				/// retractable, ou se poser comme onglet a cote de Details et Monde »)
+				/// OU VIT LE PANNEAU IA :
+				///   0  un ONGLET « IA » du groupe Details | Monde (le DEFAUT) ;
+				///   1  un panneau A PART, a droite de tout, que son chevron REPLIE en
+				///      une bande etroite (`iaReplie`) et que sa croix ferme (`voirIA`).
+				/// L'etat choisi est RETENU d'une session a l'autre (<AppData>/
+				/// Nkentseu/IA/unkeny_panneau.txt, NkEditeurIARetenirDisposition).
+				int32 iaPlace = 0;
+				bool iaReplie = false;
+				/// Les boutons « Detacher / Rattacher » et le chevron, a la derniere
+				/// trame : le banc et les captures y visent.
+				nkgui::NkRect iaBoutonPlace{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect iaBoutonRepli{0.f, 0.f, 0.f, 0.f};
+				/// Le panneau a part est-il ouvert ? (Sans objet en onglet : l'onglet
+				/// est toujours dans le groupe, comme Monde.)
+				bool voirIA = true;
+				float32 largeurIA = 400.f;
 				bool voirTiroir = true;
 
 				// --- Le menu ouvert ---------------------------------------------

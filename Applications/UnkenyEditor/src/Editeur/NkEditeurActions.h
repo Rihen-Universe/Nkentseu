@@ -158,6 +158,12 @@ namespace nkentseu {
 		bool NkEditeurRefaire(NkEditeurModele &m);
 		/// Oublie l'historique (nouvelle scene, ouverture).
 		void NkEditeurOublierHistorique(NkEditeurModele &m);
+		/// (2026-10-01, IA R18) Retient l'etat d'un FICHIER (contenu, ou absence)
+		/// dans la DERNIERE photo de l'historique : Ctrl+Z le rendra (et Ctrl+Y
+		/// remettra l'ecriture). A appeler APRES NkEditeurRetenir et AVANT
+		/// d'ecrire ou d'effacer. Un fichier deja retenu dans ce geste garde son
+		/// etat le plus ANCIEN.
+		void NkEditeurRetenirFichier(NkEditeurModele &m, const char *chemin);
 
 		// --- L'entite active (2026-10-01, la case de l'en-tete des Details) -------
 		/// Allume / eteint l'entite DANS LE JEU (NkScene::Activer, NkUnkenyActif.h) :

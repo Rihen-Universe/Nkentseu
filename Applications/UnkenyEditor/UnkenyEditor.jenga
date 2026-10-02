@@ -79,7 +79,12 @@ with project("UnkenyEditor"):
          # Windows (clang + ld de msys2) ne le tire pas tout seul : sans lui,
          # « undefined reference to media::NkOpusFile::Decode » (mesure du
          # 2026-09-29). GemCrush le declare de la meme facon.
-         "NKMedia"],
+         "NKMedia",
+         # NKConverse (2026-10-01, R18) : l'IA INTEGREE parle aux fournisseurs de
+         # modeles (Ollama, serveur compatible OpenAI, Claude) par la couche
+         # PARTAGEE -- aucun protocole n'est ecrit dans l'editeur. Il tire
+         # NKNetwork (le flux HTTP) et NKThreading (le fil de la conversation).
+         "NKConverse"],
         # NKGraph (en-tete pur, sans cible) : les Blueprints (Script/NkBpCatalogue)
         # en sont la couche 3 -- le premier consommateur reel (document 01, G6).
         extra_includes=["src", "%{NKGlad.location}/include", "%{wks.location}/Externals",
