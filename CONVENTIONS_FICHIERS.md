@@ -116,6 +116,7 @@ Deux repères pour ce jour-là, tirés de l'état de l'art :
 | `Script` (16) | **`.nkscript`** | script |
 | `Scene` (18) | **`.nkscene`** | une scène (entités, hiérarchie, état de la simulation) — ajouté le 2026-09-29 (17 à l'origine, passé à 18 à la fusion : `AnimationController` avait pris 17 ; aucun fichier n'écrivait ce numéro) |
 | `SaveGame` (19) | **`.nksave`** | une sauvegarde de PARTIE — ajouté le 2026-09-29 |
+| `Mesh2D` (20) | **`.nkmesh2d`** | un maillage 2D d'Unkeny : texture plane déformée, parties (chacune sa physique), liens, ordre de dessin, poids d'os (R30) — ajouté le 2026-10-02 (R31) |
 | `Custom` (255) | **`.nkasset`** | nature non standard |
 
 **`Scene` et `SaveGame` (2026-09-29).** `.nkscene` était déjà l'extension des scènes
@@ -125,6 +126,15 @@ pas une scène qu'on édite — on ne la dépose pas au même endroit, on ne l'o
 dans le même outil — d'où sa propre extension (règle du § 1). Un `.nkscene` ou un
 `.nksave` écrit en JSON porte sa nature dans son champ `format`, comme un asset
 binaire la porte dans son en-tête : c'est lui la vérité.
+
+**`Mesh2D` (2026-10-02, R31).** Pourquoi pas le `.nkmesh` avec une « marque 2D » : le
+`.nkmesh` est le StaticMesh 3D que NKRenderer consomme (Noge, NKCraft) ; le maillage 2D
+d'Unkeny ne se dépose pas au même endroit (Unkeny rend par NKCanvas, exclusif de
+NKRenderer) et ne produit pas la même chose (des parties avec leur physique, des liens,
+des poids d'os contraints au plan). Une marque dans le contenu ferait dire deux choses à
+une extension — ce que le corollaire du § 1 refuse. C'est du JSON qui porte son
+`"format": "unkeny.maillage2d"`, écrit par le même code que le maillage d'une scène
+(`Applications/UnkenyEditor/design/06-maillage-2d.md` § 2.4).
 
 **`.nkasset` reste accepté EN LECTURE** (compatibilité avec l'existant), mais
 n'est **plus écrit** — sauf pour `Custom`, dont c'est justement la nature.
