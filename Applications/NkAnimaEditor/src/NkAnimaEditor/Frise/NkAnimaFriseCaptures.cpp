@@ -9,6 +9,7 @@
 // celles d'« apres » : il appelle TimelinePanel::OnUI, quel qu'en soit le corps.
 // =============================================================================
 #include "Frise/NkAnimaFrise.h"
+#include "Frise/NkAnimaGraphe.h"
 
 #include "AnimBridge.h"
 #include "NKFileSystem/NkDirectory.h"
@@ -117,6 +118,50 @@ namespace nkanima {
 		NkAnimaThemeFrise(editorkit::NkTheme::Light());
 		erreurs += Capturer(panneau, police, policeOk, W, H, fichier("13_nkanima_frise_clair.png"), 2) ? 0 : 1;
 		nkentseu::NkFile::Delete(fichier("tmp.png").CStr());
+		// (02/10) 4. LE GRAPHE D'ETATS partage, son APERCU dans la vue 3D : le
+		//    controleur avance (une seconde), la pose part dans la vue, l'etat s'allume.
+		{
+			NkAnimaGrapheApercu() = true;
+			const NkString chemin = fichier("16_nkanima_graphe_apercu.png");
+			bool ok = false;
+			for (int32 k = 0; k < 31; ++k) {
+				nkgui::NkGuiContext ctx;
+				ctx.viewW = W;
+				ctx.viewH = H;
+				if (policeOk) {
+					ctx.font = &police;
+				}
+				ctx.BeginFrame(1.f / 30.f);
+				ctx.BeginLayout({0.f, 0.f, (float32)W, (float32)H});
+				ctx.DL().Reset();
+				editorkit::NkEditorFrameContext ec;
+				ec.ui = &ctx;
+				ec.dt = 1.f / 30.f;
+				NkAnimaDessinerGraphe(ec, 0.f, 0.f, (float32)W, (float32)H, editorkit::NkTheme::Dark(), "NkAnimaEditor_banc");
+				if (k + 1 < 31) {
+					continue;
+				}
+				nkgui::NkGuiDrawListRaster ras;
+				if (ras.Init(W, H)) {
+					ras.Effacer(0xFF101010u);
+					if (policeOk) {
+						ras.PoserTexture(police.TexId(), police.pixels, police.atlasW, police.atlasH, 1);
+					}
+					ras.Rasteriser(ctx.dl);
+					ras.Rasteriser(ctx.dlOverlay);
+					NkImage img = NkImage::Wrap(const_cast<uint8 *>(ras.Pixels()), W, H, NkImagePixelFormat::NK_RGBA32);
+					ok = img.SavePNG(chemin.CStr());
+				}
+			}
+			const editorkit::NkStateGraphModel &g = NkAnimaGrapheModele();
+			const bool allume = g.live && g.liveState != 0;
+			std::printf("  capture %s : %s\n", chemin.CStr(), ok ? "ok" : "ECHEC");
+			std::printf("  [%s] apercu du controleur : pose dans la vue 3D (%s), etat allume (%s)\n",
+						AnimApercuActif() && allume ? " OK " : "ECHEC", AnimApercuActif() ? "oui" : "non", allume ? "oui" : "non");
+			erreurs += ok && AnimApercuActif() && allume ? 0 : 1;
+			NkAnimaGrapheCache();
+			erreurs += AnimApercuActif() ? 1 : 0; // l'onglet cache rend la pose du lecteur
+		}
 		return erreurs == 0 ? 0 : 1;
 	}
 
