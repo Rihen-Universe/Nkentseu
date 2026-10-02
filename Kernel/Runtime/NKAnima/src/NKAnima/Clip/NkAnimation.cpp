@@ -512,6 +512,19 @@ namespace nkentseu {
 					for (uint32 j = 0; j < nt; ++j)
 						c.jointTopo[j] = r.u32();
 				}
+				// (R30, 02/10) Le fichier n'ecrit pas jointNames, mais chaque piste d'os
+				// porte le NOM de son os : les noms du squelette en reviennent (les
+				// masques par os, le reciblage, la frise et le squelette 2D d'Unkeny
+				// retrouvent leurs os par nom). Un clip sans noms reste sans noms.
+				c.jointNames.Clear();
+				bool nomme = false;
+				for (uint32 b = 0; b < nb; ++b)
+					nomme = nomme || !c.boneTracks[b].name.Empty();
+				if (nomme) {
+					c.jointNames.Resize(nb);
+					for (uint32 b = 0; b < nb; ++b)
+						c.jointNames[b] = c.boneTracks[b].name;
+				}
 				return nb;
 			}
 		} // namespace
