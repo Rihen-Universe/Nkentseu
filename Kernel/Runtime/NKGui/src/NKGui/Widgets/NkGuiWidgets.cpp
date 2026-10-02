@@ -1586,17 +1586,25 @@ namespace nkentseu {
 				NkGuiNoter(ctx, NkGuiNature::Separateur, NKGUI_ID_NONE, "", rv, NK_GUI_ETAT_AUCUN);
 				return;
 			}
-			const NkRect r = ctx.NextItemRect(0.f, 1.f);
-			ctx.DL().AddRectFilled({r.x, r.y, r.w, 1.f}, ctx.theme.border);
+			const int32 L = ctx.curPopupLevel;
+			// (02/10) Le style de menu d'un hote (NkGuiMenuStyle) : un trait de 1 px au
+			// milieu d'une bande de `separateur` px, retire de 8 px de chaque cote.
+			const NkGuiMenuStyle &ms = ctx.menuStyle;
+			const bool style = ms.actif && L >= ms.niveau;
+			const float32 sh = style ? ms.separateur : 1.f;
+			const NkRect r = ctx.NextItemRect(0.f, sh);
+			if (style)
+				ctx.DL().AddRectFilled({r.x + 8.f, r.y + (sh - 1.f) * 0.5f, r.w - 16.f, 1.f}, ms.trait);
+			else
+				ctx.DL().AddRectFilled({r.x, r.y, r.w, 1.f}, ctx.theme.border);
 			// Sans lui, deux groupes d'un menu se lisent comme une liste plate :
 			// le releve perdrait le decoupage que l'oeil voit a l'ecran.
 			NkGuiNoter(ctx, NkGuiNature::Separateur, NKGUI_ID_NONE, "", r, NK_GUI_ETAT_AUCUN);
 			// Dans un menu deroulant auto-dimensionne : contribue a la hauteur
 			// mesuree — sinon chaque separateur « vole » sa hauteur consommee et
 			// le DERNIER item du menu sort du popup (partiellement invisible).
-			const int32 L = ctx.curPopupLevel;
 			if (L >= 0 && ctx.menuMeasureId[L] != NKGUI_ID_NONE)
-				ctx.menuMeasureH[L] += 1.f + ctx.layout.itemSpacingY;
+				ctx.menuMeasureH[L] += sh + ctx.layout.itemSpacingY;
 		}
 
 		// ════════════════════ CONTENEURS DE LAYOUT ════════════════════
@@ -5428,8 +5436,17 @@ namespace nkentseu {
 			// clip du menu parent, ET sa bordure (bords droit/bas) ne doit pas être
 			// rognée par un scissor serré == rect. Puis clip serré pour le CONTENU seul.
 			ctx.DL().PushClipRect({0.f, 0.f, 1.0e9f, 1.0e9f}, false); // plein écran
-			ctx.DL().AddRectFilled(rect, ctx.theme.panel, ctx.theme.rounding);
-			ctx.DL().AddRect(rect, ctx.theme.border, 1.f, ctx.theme.rounding);
+			if (ctx.menuStyle.colonneEnCours) {
+				// (02/10) La COLONNE d'un panneau de menus (NkGuiMenuStyle::colonne) : elle
+				// est DANS le panneau de l'hote, qui porte deja le fond arrondi et le
+				// contour -- ni cadre ni coins propres ; un trait la separe a gauche.
+				ctx.menuStyle.colonneEnCours = false;
+				ctx.DL().AddRectFilled(rect, ctx.theme.panel, 0.f);
+				ctx.DL().AddRectFilled({rect.x, rect.y, 1.f, rect.h}, ctx.menuStyle.trait);
+			} else {
+				ctx.DL().AddRectFilled(rect, ctx.theme.panel, ctx.theme.rounding);
+				ctx.DL().AddRect(rect, ctx.theme.border, 1.f, ctx.theme.rounding);
+			}
 			ctx.DL().PopClipRect();
 			ctx.DL().PushClipRect(rect, false); // contenu
 			ctx.BeginLayout(rect);
@@ -5766,6 +5783,13 @@ namespace nkentseu {
 				}
 			}
 
+			// (02/10) Le style de menu d'un hote (NkGuiMenuStyle) : entree, icone, chevron,
+			// et -- depuis le niveau de son panneau -- le sous-menu DANS sa colonne.
+			const NkGuiMenuStyle &ms = ctx.menuStyle;
+			const bool style = !inBar && ms.actif && ctx.curPopupLevel >= ms.niveau;
+			const bool enColonne = style && ctx.curPopupLevel == ms.niveau && ms.colonne.w > 0.f;
+			const float32 gouttiere = (style && ms.icone > 0.f) ? ms.icone + ms.ecart : 0.f;
+
 			NkRect titleR;
 			NkVec2 popupAt;
 			NkRect anchor;
@@ -5778,12 +5802,12 @@ namespace nkentseu {
 				popupAt = {titleR.x, titleR.y + titleR.h}; // popup SOUS le titre
 				anchor = ctx.menuBarRect;				   // toute la barre = ancre
 			} else {
-				const float32 h = ctx.ItemHeight();
+				const float32 h = style ? ms.hauteur : ctx.ItemHeight();
 				titleR = ctx.NextItemRect(0.f, h);
 				const int32 L = ctx.curPopupLevel; // mesure dans le menu parent
 				if (L >= 0 && ctx.menuMeasureId[L] != NKGUI_ID_NONE) {
-					if (tw + 34.f > ctx.menuMeasureW[L])
-						ctx.menuMeasureW[L] = tw + 34.f;
+					if (tw + 34.f + gouttiere > ctx.menuMeasureW[L])
+						ctx.menuMeasureW[L] = tw + 34.f + gouttiere;
 					ctx.menuMeasureH[L] += h + ctx.layout.itemSpacingY;
 				}
 				// Flyout au bord DROIT du menu parent (rect réel), sans chevaucher
@@ -5831,6 +5855,28 @@ namespace nkentseu {
 										   (hov ? NK_GUI_ETAT_SURVOLE : 0)));
 
 			// Titre / entrée.
+			if (style) {
+				// (02/10) Style de l'hote : survol doux arrondi, icone dans sa colonne, le
+				// libelle garde sa couleur, chevron au trait (celui de la maquette D).
+				if (hov || open)
+					ctx.DL().AddRectFilled(titleR, ms.survol, ms.rayon);
+				float32 tx = titleR.x + ms.retrait;
+				const float32 cy = titleR.y + titleR.h * 0.5f;
+				if (gouttiere > 0.f) {
+					NkColor ti = ms.teinte;
+					const uint32 tex = ms.iconeDe ? ms.iconeDe(ms.iconeUser, label, LabelEnd(label), &ti) : 0u;
+					if (tex)
+						ctx.DL().AddImage(tex, {tx, cy - ms.icone * 0.5f, ms.icone, ms.icone}, {0.f, 0.f}, {1.f, 1.f},
+										  ti);
+					tx += gouttiere;
+				}
+				if (ctx.font && ctx.font->Valid())
+					ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {tx, CenteredBaseline(ctx, titleR)}, label,
+									 ms.texte, -1.f, 0.f, LabelEnd(label));
+				const float32 a = 3.5f, cx = titleR.x + titleR.w - 12.f;
+				ctx.DL().AddLine({cx - a * 0.5f, cy - a}, {cx + a * 0.5f, cy}, ms.discret, 1.4f);
+				ctx.DL().AddLine({cx + a * 0.5f, cy}, {cx - a * 0.5f, cy + a}, ms.discret, 1.4f);
+			} else {
 			if (hov || open)
 				ctx.DL().AddRectFilled(titleR, ctx.theme.buttonHover, inBar ? 0.f : 3.f);
 			if (inBar) {
@@ -5843,12 +5889,19 @@ namespace nkentseu {
 				ctx.DL().AddTriangleFilled({cc.x - a * 0.6f, cc.y - a}, {cc.x - a * 0.6f, cc.y + a},
 										   {cc.x + a * 0.8f, cc.y}, ctx.theme.text);
 			}
+			} // style historique
 			if (!open)
 				return false;
 
 			// Popup auto-dimensionné, rabattu si débordement.
 			const NkVec2 sz = MenuSizeGet(ctx, id);
 			NkRect pr = {popupAt.x, popupAt.y, sz.x, sz.y};
+			if (enColonne) {
+				// (02/10) DANS LA COLONNE DU PANNEAU : jamais un menu surgissant hors de
+				// lui. L'ancre reste celle du panneau (un clic dedans ne ferme rien).
+				pr = ms.colonne;
+				ctx.menuStyle.colonneEnCours = true;
+			} else {
 			if (pr.x + pr.w > static_cast<float32>(ctx.viewW))
 				pr.x = (inBar ? (titleR.x + titleR.w - pr.w) : (titleR.x - pr.w + 2.f));
 			if (pr.x < 0.f)
@@ -5857,12 +5910,39 @@ namespace nkentseu {
 				pr.y = static_cast<float32>(ctx.viewH) - pr.h;
 			if (pr.y < 0.f)
 				pr.y = 0.f;
+			}
 
 			const bool o = BeginPopupLevel(ctx, id, level, pr, anchor);
+			ctx.menuStyle.colonneEnCours = false;
 			if (o) {
 				ctx.menuMeasureId[level] = id;
 				ctx.menuMeasureW[level] = 0.f;
 				ctx.menuMeasureH[level] = 0.f;
+				if (enColonne) {
+					// Le titre de la colonne : le libelle du sous-menu, en capitales
+					// (« OUVRIR RÉCENT » dans la maquette), discret.
+					if (ctx.font && ctx.font->Valid() && ms.titreColonne > 0.f) {
+						char cap[96];
+						int32 n = 0;
+						const char *fin = LabelEnd(label);
+						for (const char *c = label; c < fin && n + 2 < (int32)sizeof(cap); ++c) {
+							unsigned char b = (unsigned char)*c;
+							if (b >= 'a' && b <= 'z')
+								b = (unsigned char)(b - 32);
+							else if (b >= 0xA0 && b <= 0xBE && b != 0xB7 && n > 0 && (unsigned char)cap[n - 1] == 0xC3)
+								b = (unsigned char)(b - 0x20); // é è à ç ... -> É È À Ç (UTF-8, bloc Latin-1)
+							cap[n++] = (char)b;
+						}
+						cap[n] = 0;
+						const NkRect tr = {pr.x + 14.f, pr.y + 4.f, pr.w - 20.f, ms.titreColonne - 6.f};
+						ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {tr.x, CenteredBaseline(ctx, tr)}, cap,
+										 ms.discret);
+					}
+					// Les entrees de la colonne : bord a bord, comme celles du panneau.
+					ctx.layout.itemSpacingY = 0.f;
+					ctx.layout.padding = 6.f;
+					ctx.BeginLayout({pr.x, pr.y + ms.titreColonne, pr.w, pr.h - ms.titreColonne});
+				}
 			}
 			return o;
 		}
@@ -5879,18 +5959,22 @@ namespace nkentseu {
 
 		bool MenuItem(NkGuiContext &ctx, const char *label, const char *shortcut, bool enabled,
 					  bool checked) noexcept {
-			const float32 h = ctx.ItemHeight();
+			const int32 L = ctx.curPopupLevel;
+			// (02/10) Le style de menu d'un hote (NkGuiMenuStyle) : inactif, rien ne change.
+			const NkGuiMenuStyle &ms = ctx.menuStyle;
+			const bool style = ms.actif && L >= ms.niveau;
+			const float32 gouttiere = (style && ms.icone > 0.f) ? ms.icone + ms.ecart : 0.f;
+			const float32 h = style ? ms.hauteur : ctx.ItemHeight();
 			const NkRect r = ctx.NextItemRect(0.f, h);
 			const NkGuiId id = ctx.GetId(label);
-			const int32 L = ctx.curPopupLevel;
 
 			// Mesure pour l'auto-dimensionnement du menu courant.
 			if (L >= 0 && ctx.menuMeasureId[L] != NKGUI_ID_NONE) {
 				const float32 lw = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(label, LabelEnd(label)) : 40.f;
 				const float32 sw =
 					(shortcut && ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(shortcut) + 30.f : 12.f;
-				if (lw + sw > ctx.menuMeasureW[L])
-					ctx.menuMeasureW[L] = lw + sw;
+				if (lw + sw + gouttiere > ctx.menuMeasureW[L])
+					ctx.menuMeasureW[L] = lw + sw + gouttiere;
 				ctx.menuMeasureH[L] += h + ctx.layout.itemSpacingY;
 			}
 
@@ -5898,7 +5982,10 @@ namespace nkentseu {
 			if (enabled) {
 				clicked = ctx.ButtonBehavior(id, r, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
 				if (hov) {
-					ctx.DL().AddRectFilled(r, ctx.theme.selection, 3.f);
+					if (style)
+						ctx.DL().AddRectFilled(r, ms.survol, ms.rayon);
+					else
+						ctx.DL().AddRectFilled(r, ctx.theme.selection, 3.f);
 					// Survol d'un item simple → referme tout sous-menu de ce niveau.
 					if (ctx.popupDepth > L + 1)
 						ctx.popupDepth = L + 1;
@@ -5914,14 +6001,32 @@ namespace nkentseu {
 										   (hov ? NK_GUI_ETAT_SURVOLE : 0)),
 					   shortcut);
 
-			const NkColor lc = !enabled ? ctx.theme.textDisabled : hov ? NkColor{255, 255, 255, 255} : ctx.theme.text;
+			const NkColor lc = style	   ? (enabled ? ms.texte : ms.grise)
+							   : !enabled ? ctx.theme.textDisabled
+							   : hov	   ? NkColor{255, 255, 255, 255}
+										   : ctx.theme.text;
+			float32 lx = r.x + 8.f;
+			if (style) {
+				lx = r.x + ms.retrait;
+				if (gouttiere > 0.f) { // l'icone de l'entree (la place reste quand il n'y en a pas)
+					NkColor ti = ms.teinte;
+					const uint32 tex = ms.iconeDe ? ms.iconeDe(ms.iconeUser, label, LabelEnd(label), &ti) : 0u;
+					if (tex) {
+						if (!enabled) // une entree sans backend : son icone s'eteint avec elle
+							ti.a = (uint8)(ti.a * 0.45f);
+						ctx.DL().AddImage(tex, {lx, r.y + (r.h - ms.icone) * 0.5f, ms.icone, ms.icone}, {0.f, 0.f},
+										  {1.f, 1.f}, ti);
+					}
+					lx += gouttiere;
+				}
+			}
 			if (ctx.font && ctx.font->Valid()) {
-				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + 8.f, CenteredBaseline(ctx, r)}, label, lc, -1.f, 0.f, LabelEnd(label));
+				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {lx, CenteredBaseline(ctx, r)}, label, lc, -1.f, 0.f, LabelEnd(label));
 				if (shortcut) {
 					const float32 sw = ctx.font->MeasureWidth(shortcut);
 					ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
 									 {r.x + r.w - sw - 10.f, CenteredBaseline(ctx, r)}, shortcut,
-									 ctx.theme.textDisabled);
+									 style ? ms.discret : ctx.theme.textDisabled);
 				}
 			}
 			// ⚠️ LA COCHE EST DESSINEE, PAS ECRITE. Un caractère « ✓ » dépendrait de
