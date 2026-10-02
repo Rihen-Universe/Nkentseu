@@ -212,8 +212,8 @@ namespace nkentseu {
 		inline const char *const *SideLeftGroup(int32 &n) {
 			static const char *kG[] = {"Explorateur", "Recherche",	 "Controle de version",
 									   "Debogueur",	  "Live Collab", "Extensions",
-									   "Profiler",	  "Structure"};
-			n = 8;
+									   "Profiler",	  "Structure",	 "Jenga"};
+			n = 9;
 			return kG;
 		}
 
@@ -470,6 +470,7 @@ namespace nkentseu {
 				void OnUI(NkEditorFrameContext &ec) override {
 					auto &ctx = ec.Ui();
 					auto &dl = ctx.DL();
+					NkSegmentsEnTete(ctx, "Recherche"); // (01/10) Synthese : segments de vues
 					const float32 w = ctx.ContentWidth();
 					const float32 rowH = ctx.ItemHeight() + ctx.S(6.f);
 					float32 x0 = ctx.layout.cursor.x, y = ctx.layout.cursor.y;

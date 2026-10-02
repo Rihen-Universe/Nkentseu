@@ -495,6 +495,7 @@ inline void NkAppliquerApparence(NkEditorFrameContext &ec, NkHomeState *home) {
 	NkAppliquerPaletteNkCol(e.col);
 	editorkit::NkEditorShell *sh = home->dlg ? home->dlg->shell : nullptr;
 	NkCodeState *st = home->dlg ? home->dlg->st : nullptr;
+	NkSegmentsShell() = sh; // (01/10) les segments de vues de la Synthese
 	if (sh) {
 		// Le theme du KIT d'abord (il convertit aussi vers ctx.theme) ; le theme du
 		// dessin est ensuite ecrit EN ENTIER par-dessus : aucun champ n'en herite.

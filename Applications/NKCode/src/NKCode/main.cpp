@@ -29,6 +29,7 @@
 #include "NKCode/Shell/NkAppIcons.h"
 #include "NKCode/Shell/NkAppCommands.h"
 #include "NKCode/Shell/NkEditeurVide.h" // (01/10) la page de l'editeur vide
+#include "NKCode/Shell/NkVuesSynthese.h" // (01/10) vues Jenga et Extensions
 #include "NKCode/Shell/NkOpenWindows.h" // registre des fenetres ouvertes (restauration au lancement)
 #include "NKCode/Project/NkLogSink.h"
 #include "NKImage/NKImage.h"
@@ -360,7 +361,10 @@ int nkmain(const NkEntryState &state) {
 		std::getenv("NK_TERM_TAPER"))
 		shell->SetApresImage(&NkCrochetsPanneauIA, shell.Get());
 	static ScaffoldPanel pEngine("Moteur", NkEditorDockSide::NK_RIGHT, "Maquette - roadmap #17", sc::kEngine, 1);
-	static ScaffoldPanel pExt("Extensions", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #12", sc::kExtensions, 1);
+	// (01/10) La vue Extensions REELLE (jeux d'icones installables) remplace la
+	// maquette ; la vue « Jenga » (projets du workspace) est celle des segments.
+	static nkcode::NkExtensionsPanel pExt(&g_home);
+	static nkcode::NkJengaPanel pJenga(&g_state);
 	shell->AddPanel(&pSearch);
 	shell->AddPanel(&pProblem);
 	shell->AddPanel(&pGit);
@@ -377,6 +381,7 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&pCollab);
 	shell->AddPanel(&pEngine);
 	shell->AddPanel(&pExt);
+	shell->AddPanel(&pJenga);
 
 	shell->SetActivityHandler(&nkcode::ActivityThunk, shell.Get()); // sidebars exclusives (activity bar)
 	// Drop de fichiers depuis l'OS -> état partagé (consommé par le panneau visé).

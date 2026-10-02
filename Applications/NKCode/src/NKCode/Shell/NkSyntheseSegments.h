@@ -70,6 +70,13 @@ namespace nkentseu {
 			}
 		}
 
+		/// La coquille, posee a chaque image par l'apparence (NkAppCommands.h) : les
+		/// panneaux de gauche n'ont pas tous un pointeur sur elle.
+		inline editorkit::NkEditorShell *&NkSegmentsShell() {
+			static editorkit::NkEditorShell *sh = nullptr;
+			return sh;
+		}
+
 		/// Hauteur de la rangee de segments (marges comprises), px ecran.
 		inline float32 NkSegmentsHauteur(const NkGuiContext &ctx) {
 			return ctx.S(10.f + 34.f + 6.f);
@@ -111,11 +118,23 @@ namespace nkentseu {
 					dl.AddImage(tex, {r.x + (r.w - is) * 0.5f, r.y + (r.h - is) * 0.5f, is, is}, {0, 0}, {1, 1}, c);
 				editorkit::NkTooltip(ctx, atteint && NkGuiRectContains(r, m), v[i].bulle);
 				if (hov && ctx.input.mouseClicked[0] && !estActif) {
-					NkSegmentsOuvrir(sh, v[i].panneau);
+					NkSegmentsOuvrir(sh ? sh : NkSegmentsShell(), v[i].panneau);
 					ctx.input.mouseClicked[0] = false;
 				}
 			}
 			return NkSegmentsHauteur(ctx);
+		}
+
+		/// En tete d'un panneau de gauche (flux NKGui) : dessine les segments s'il le
+		/// faut et RESERVE leur hauteur. Rend vrai si la Synthese est active.
+		inline bool NkSegmentsEnTete(NkGuiContext &ctx, const char *actif) {
+			if (!NkApparenceCourante().dispo.synthese)
+				return false;
+			const NkRect clip = ctx.DL().CurrentClip();
+			const float32 h = NkSegmentsHauteur(ctx);
+			NkSegmentsDessiner(ctx, {clip.x, clip.y, clip.w, h}, NkSegmentsShell(), actif);
+			ctx.NextItemRect(ctx.ContentWidth(), h - (ctx.layout.cursor.y - clip.y > 0.f ? ctx.layout.cursor.y - clip.y : 0.f));
+			return true;
 		}
 
 	} // namespace nkcode
