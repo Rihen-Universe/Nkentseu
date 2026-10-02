@@ -189,6 +189,9 @@ namespace nkentseu {
 			R,
 			S,
 			U,
+			// (02/10, additif en fin) F11 : la lecture plein ecran des visionneuses
+			// de NKCode (« Plein ecran · F11 » de la maquette).
+			F11,
 			Count
 		};
 
