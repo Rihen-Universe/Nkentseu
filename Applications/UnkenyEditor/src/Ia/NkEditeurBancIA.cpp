@@ -30,6 +30,9 @@
 //   (ia11) un chemin hors du projet est refuse, rien n'est ecrit
 //   (ia12) la description est ENGENDREE : elle nomme une entite creee a
 //          l'instant, les noeuds Blueprint, les acteurs
+//   (ia14) ecrire_blueprint relie et COMPILE (un type inconnu : refus nomme) ;
+//          ecrire_script_cpp sans code ecrit le modele de l'editeur ;
+//          modifier_valeurs change une valeur par la sauvegarde ; Ctrl+Z la rend
 //   (ia13) le panneau : un ONGLET du groupe Details | Monde par defaut ;
 //          « Detacher » en fait un panneau a part ; son chevron le REPLIE en
 //          bande ; la disposition est RETENUE ; « Rattacher » le remet en onglet
@@ -101,6 +104,7 @@ namespace nkentseu {
 					bool entiteEnPlus = false, auCentre = false, effet = false, resultatParti = false;
 					uint64 uid = 0u;
 					uint32 avant = 0u; ///< les entites AVANT le geste
+					usize histoAvant = 0u, histoApres = 0u; ///< l'historique avant / apres le geste
 					bool Ok() const {
 						return entiteEnPlus && auCentre && effet && resultatParti;
 					}
@@ -109,6 +113,7 @@ namespace nkentseu {
 				Creation c;
 				const uint32 avant = h.NbEntites();
 				c.avant = avant;
+				c.histoAvant = h.M().historique.annuler.Size();
 				const NkVector<uint64> photo = Uids(h.M());
 				const NkVec2f centre = h.M().scene.Camera().Centre();
 				const uint32 requetes = h.serveur.Requetes();
@@ -117,6 +122,7 @@ namespace nkentseu {
 				h.serveur.PousserTexte(fin, 1);
 				h.Dire("ajoute une caisse au centre");
 				h.Attendre();
+				c.histoApres = h.M().historique.annuler.Size();
 				c.entiteEnPlus = h.NbEntites() == avant + 1u;
 				c.uid = UidDe(h.M(), "Caisse", &photo);
 				const ecs::NkEntityId e = ParUid(h.M(), c.uid);
@@ -137,9 +143,15 @@ namespace nkentseu {
 			/// l'IA -- la caisse part, et la scene revient a son compte d'avant,
 			/// pas a celui d'un geste plus ancien (une annulation qui remonterait
 			/// trop loin retirerait aussi ce qu'on a fait avant).
+			/// ⚠️ LE COMPTE DES ENTITES NE SUFFIT PAS : sans sa photo, Ctrl+Z defait le
+			///    geste PRECEDENT (un fichier ecrit, une couleur...), et la scene peut
+			///    revenir au meme compte par hasard. Le temoin exige donc aussi que
+			///    le geste de l'IA ait pose UNE entree d'historique, et que Ctrl+Z
+			///    retire CELLE-LA.
 			bool AnnulationExacte(NkHarnaisIA &h, const Creation &c) {
 				h.ToucheEditeur(nkgui::NkGuiKey::Z, true);
-				return !ParUid(h.M(), c.uid).IsValid() && h.NbEntites() == c.avant;
+				return c.histoApres == c.histoAvant + 1u && h.M().historique.annuler.Size() == c.histoAvant &&
+					   !ParUid(h.M(), c.uid).IsValid() && h.NbEntites() == c.avant;
 			}
 
 			/// LE TEMOIN DE LA CONFIRMATION (ia7, ce3) : le fichier ATTEND.
@@ -360,6 +372,55 @@ namespace nkentseu {
 				Temoin(Contient(d, "TemoinUnique") && Contient(d, "bp.ev.debut") && Contient(d, "caisse") && Contient(d, "Ctrl+Z") &&
 						   Contient(d, "Documents/GDD.md"),
 					   "(ia12) la description nomme l'entite creee a l'instant, les noeuds, les acteurs", static_cast<float32>(d.Length()));
+			}
+
+			// ── (ia14) les outils qui ECRIVENT : Blueprint compile, script C++, valeurs ──
+			{
+				NkEditeurCadre c = h.T().Cadre();
+				converse::NkAppelOutil bp;
+				bp.nom = NkString("ecrire_blueprint");
+				bp.arguments = NkString(
+					"{\"nom\":\"Salut\",\"noeuds\":[{\"id\":\"debut\",\"type\":\"bp.ev.debut\"},"
+					"{\"id\":\"dire\",\"type\":\"bp.natif:unkeny.journal.afficher\",\"x\":260,\"valeurs\":{\"texte\":\"Bonjour de l'IA\"}}],"
+					"\"liens\":[{\"de\":\"debut\",\"sortie\":\"suite\",\"vers\":\"dire\",\"entree\":\"exec\"}]}");
+				const NkResultatOutilIA rb = NkEditeurIAExecuter(c, bp);
+				Temoin(rb.ok && NkFile::Exists((h.projet + "Contenu/Scripts/Salut.nkbp").CStr()) && Contient(rb.texte, "\"compile\":true"),
+					   "(ia14a) ecrire_blueprint : Debut -> Afficher, relie, COMPILE, Contenu/Scripts/Salut.nkbp");
+				converse::NkAppelOutil faux = bp;
+				faux.nom = NkString("ecrire_blueprint");
+				faux.arguments = NkString("{\"nom\":\"Casse\",\"noeuds\":[{\"id\":\"a\",\"type\":\"bp.inexistant\"}]}");
+				const NkResultatOutilIA rf = NkEditeurIAExecuter(c, faux);
+				Temoin(!rf.ok && Contient(rf.texte, "bp.inexistant") && !NkFile::Exists((h.projet + "Contenu/Scripts/Casse.nkbp").CStr()),
+					   "(ia14b) un type de noeud inconnu : refus NOMME, rien n'est ecrit");
+				converse::NkAppelOutil cpp;
+				cpp.nom = NkString("ecrire_script_cpp");
+				cpp.arguments = NkString("{\"nom\":\"Gardien\"}");
+				const NkResultatOutilIA rc = NkEditeurIAExecuter(c, cpp);
+				const NkString src = NkFile::ReadAllText((h.projet + "Contenu/Scripts/Gardien.cpp").CStr());
+				Temoin(rc.ok && Contient(src, "class Gardien : public nkunk::Script") && Contient(src, "NK_UNKENY_CLASSE_VARIABLES(Gardien") &&
+						   !Contient(src, "NouveauScript"),
+					   "(ia14c) ecrire_script_cpp sans code : le modele commente de l'editeur, classe Gardien");
+				// modifier_valeurs : la couleur du sprite d'une caisse, en « #RRGGBB ».
+				const uint64 uid = UidDe(h.M(), "Caisse_");
+				const ecs::NkEntityId e = ParUid(h.M(), uid);
+				char args[160];
+				std::snprintf(args, sizeof(args), "{\"uid\":%llu,\"valeurs\":{\"sprite\":{\"couleur\":\"#FF0000\"}}}",
+							  static_cast<unsigned long long>(uid));
+				converse::NkAppelOutil mv;
+				mv.nom = NkString("modifier_valeurs");
+				mv.arguments = NkString(args);
+				const NkSprite2D *s0 = e.IsValid() ? h.M().scene.Monde().Get<NkSprite2D>(e) : nullptr;
+				const uint32 avant = s0 ? s0->couleur : 0u;
+				const NkResultatOutilIA rv = NkEditeurIAExecuter(c, mv);
+				const ecs::NkEntityId e2 = ParUid(h.M(), uid);
+				const NkSprite2D *s1 = e2.IsValid() ? h.M().scene.Monde().Get<NkSprite2D>(e2) : nullptr;
+				Temoin(rv.ok && s1 != nullptr && s1->couleur == 0xFF0000FFu && avant != 0xFF0000FFu,
+					   "(ia14d) modifier_valeurs : sprite.couleur « #FF0000 » -> 0xFF0000FF (toute valeur, par la sauvegarde)",
+					   static_cast<float32>(uid));
+				NkEditeurAnnuler(h.M());
+				const ecs::NkEntityId e3 = ParUid(h.M(), uid);
+				const NkSprite2D *s2 = e3.IsValid() ? h.M().scene.Monde().Get<NkSprite2D>(e3) : nullptr;
+				Temoin(s2 != nullptr && s2->couleur == avant, "(ia14e) Ctrl+Z rend la couleur d'avant");
 			}
 
 			// ── (ia13) ou vit le panneau : onglet (defaut), a part, replie ; RETENU ──

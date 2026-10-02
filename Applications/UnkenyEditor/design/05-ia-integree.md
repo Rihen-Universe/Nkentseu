@@ -246,7 +246,7 @@ refuse les outils (400 « does not support tools ») fait **repasser en texte to
 
 ## 8. Preuves
 
-- **Banc** : `UnkenyEditor.exe --banc-ia` (et `--selftest`, à la fin) : **36 témoins
+- **Banc** : `UnkenyEditor.exe --banc-ia` (et `--selftest`, à la fin) : **41 témoins
   verts**, sans Ollama, sans modèle, sans réseau — un faux serveur local sur de vrais
   sockets. (ia1-3) liste, test (ok / modèle absent / serveur absent), clés
   (Bearer, 401, clé absente sans rien envoyer), Anthropic en flux ; (ia4) conversation
@@ -255,7 +255,9 @@ refuse les outils (400 « does not support tools ») fait **repasser en texte to
   une suppression **attend** la confirmation, Refuser / Confirmer, Ctrl+Z rend le
   fichier ; (ia8-9) format texte et repli automatique ; (ia10) OpenAI en flux, le GDD ;
   (ia11) hors du projet refusé ; (ia12) description engendrée ; (ia13) onglet / détaché /
-  replié / retenu / rattaché. **Contre-épreuves** (une mutation, le témoin passe au
+  replié / retenu / rattaché ; (ia14) un Blueprint écrit, relié et **compilé** (un type
+  inconnu : refus nommé), un script C++ au modèle de l'éditeur, une valeur changée par
+  `modifier_valeurs` (« #FF0000 ») et rendue par Ctrl+Z. **Contre-épreuves** (une mutation, le témoin passe au
   rouge) : (ce1) nom d'outil faux, (ce2) sans photo avant l'outil, (ce3) sans
   confirmation, (ce4) réponse en un seul morceau.
 - **Captures** hors écran : `UnkenyEditor.exe --captures-ia=DOSSIER` →
