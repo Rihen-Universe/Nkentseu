@@ -166,4 +166,15 @@ namespace nkanima {
 	int32 AnimJointParent(uint32 j);
 	bool AnimSampleJointLocal(uint32 j, float32 t, float32 pos[3], float32 rotDeg[3], float32 scale[3]);
 
+	// ── (2026-10-02) LE GRAPHE D'ETATS PARTAGE (Frise/NkAnimaGraphe.cpp) ─────────
+	// Le clip charge, OPAQUE (un `const anim::NkAnimationClip *` pour une unite qui
+	// inclut NKAnima sans NKRenderer : Frise/NkAnimaControleur.cpp), et son nom.
+	const void *AnimClipOpaque();
+	const char *AnimClipNom();
+	// L'APERCU du controleur : des matrices de SKINNING qui remplacent la pose du
+	// lecteur dans la vue 3D (et le squelette 2D) tant qu'il est actif.
+	void AnimPoserApercu(const NkVector<nkentseu::math::NkMat4f> &skin);
+	void AnimFinApercu();
+	bool AnimApercuActif();
+
 } // namespace nkanima

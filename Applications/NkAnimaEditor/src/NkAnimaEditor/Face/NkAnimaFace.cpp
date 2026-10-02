@@ -11,6 +11,8 @@
 #include "NkAnimaActions.h"
 #include "NkEditorRHIRenderer.h"
 #include "Panels.h"
+#include "Frise/NkAnimaFrise.h"	 // (02/10) ACCROCHE FRISE : la frise partagee
+#include "Frise/NkAnimaGraphe.h" // (02/10) ACCROCHE GRAPHE : le graphe d'etats partage
 
 #include "NKEditorKit/Components/NkSilhouettes.h"
 #include "NKEditorKit/Famille/NkFamille.h"
@@ -23,6 +25,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib> // (02/10) NKANIMA_TIROIR
 #include <cstring>
 
 #if defined(_WIN32)
@@ -809,6 +812,15 @@ namespace nkanima {
 					return;
 				}
 				static const char *const kOnglets[5] = {"Frise", "Graphe d'états", "Contenu", "Journal", "Terminal"};
+				// (02/10) NKANIMA_TIROIR=N ouvre l'onglet N au depart (captures hors ecran).
+				static bool tiroirLu = false;
+				if (!tiroirLu) {
+					tiroirLu = true;
+					if (const char *t = std::getenv("NKANIMA_TIROIR")) {
+						const int32 n = std::atoi(t);
+						ongletTiroir = n >= 0 && n < 5 ? n : ongletTiroir;
+					}
+				}
 				const float32 h = NkFamilleCotes::kOngletPanneau;
 				(void)NkFamilleOnglets(c, NkRect{zone.x, zone.y, zone.w, h}, kOnglets, 5, ongletTiroir);
 				const NkRect r{zone.x, zone.y + h, zone.w, zone.h - h};
@@ -816,32 +828,35 @@ namespace nkanima {
 				c.ctx.dl.PushClipRect(r, true);
 				if (ongletTiroir == 0) {
 					// ═══ ACCROCHE FRISE ═══════════════════════════════════════════
-					// La frise HISTORIQUE de l'editeur (TimelinePanel, Panels.h) tient
-					// cet onglet. La frise PARTAGEE de NKEditorKit (chantier
-					// editorkit/animation-animateur) la remplacera ICI, dans ce rectangle
-					// `r`, sans rien changer d'autre a la disposition.
+					// (02/10) LA FRISE PARTAGEE de NKEditorKit (Frise/NkAnimaFrise.cpp),
+					// celle de la page Animation d'UnkenyEditor, facon Sequencer d'UE5 :
+					// poses-cles, arbre des os et leurs courbes, transport, plage,
+					// marqueurs. Elle prend tout le rectangle `r`, au theme de la face.
 					NkEditorFrameContext ec;
 					ec.ui = &c.ctx;
 					ec.dt = dt;
-					if (nkgui::BeginChild(c.ctx, "anima.frise", NkRect{r.x + 4.f, r.y + 4.f, r.w - 8.f, r.h - 8.f}, false)) {
-						frise.OnUI(ec); // AnimUpdate(dt) est appele par la frise : une seule fois par image
-						mFriseVue = true;
-						nkgui::EndChild(c.ctx);
-					}
+					NkAnimaThemeFrise(theme);
+					NkAnimaDessinerFriseZone(ec, r.x, r.y, r.w, r.h); // AnimUpdate(dt) : une fois par image
+					mFriseVue = true;
+					NkAnimaGrapheCache();
 				} else if (ongletTiroir == 1) {
 					// ═══ ACCROCHE GRAPHE ══════════════════════════════════════════
-					// Le GRAPHE D'ETATS partage (controleur .nkanimctl) s'ecrit dans
-					// NKEditorKit (chantier editorkit/animation-animateur) : il viendra
-					// ICI, dans `r`. La place est gardee, rien n'est invente.
-					NkFamilleTexteCentre(c.ctx.dl, c.police, r.x + r.w * 0.5f, r.y + r.h * 0.40f,
-										 "Le graphe d'états (contrôleur .nkanimctl) viendra ici.", pal.attenue);
-					NkFamilleTexteCentre(c.ctx.dl, c.petite, r.x + r.w * 0.5f, r.y + r.h * 0.40f + 22.f,
-										 "Composant partagé de NKEditorKit, en cours (chantier animation-animateur).", pal.attenue);
+					// (02/10) LE GRAPHE D'ETATS PARTAGE (Frise/NkAnimaGraphe.cpp), celui
+					// de la page Animateur d'UnkenyEditor : etats, arbres de melange,
+					// couches masquees, courbes de fondu ; .nkanimctl a cote du modele ;
+					// l'apercu joue la pose melangee dans la vue 3D.
+					NkEditorFrameContext ec;
+					ec.ui = &c.ctx;
+					ec.dt = dt;
+					NkAnimaDessinerGraphe(ec, r.x, r.y, r.w, r.h, theme, mModele.CStr());
 				} else if (ongletTiroir == 2) {
+					NkAnimaGrapheCache();
 					(void)NkFamilleDessinerContenu(c, r, contenu, kNatures, static_cast<int32>(sizeof(kNatures) / sizeof(kNatures[0])), dt);
 				} else if (ongletTiroir == 3) {
+					NkAnimaGrapheCache();
 					NkFamilleDessinerJournal(c, r, journal, dt);
 				} else {
+					NkAnimaGrapheCache();
 					terminal.Dessiner(c.ctx, c.ctx.dl, r, theme);
 				}
 				c.ctx.dl.PopClipRect();
