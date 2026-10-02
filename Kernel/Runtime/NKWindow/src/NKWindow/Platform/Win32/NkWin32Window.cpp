@@ -18,6 +18,7 @@
 #include "NKWindow/Platform/Win32/NkWin32DropTarget.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWindowAudit.h" // ce que Win32 ne tient pas, il le DIT
+#include "NKWindow/Core/NkWindowIdentite.h" // l'AUMID : une identite par executable
 #include "NKLogger/NkLog.h" // SetMousePositionClient DIT ses refus : jamais un repli muet
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
@@ -651,25 +652,18 @@ namespace nkentseu {
 		// installee via MSI/EXE installer. Sans AUMID explicite, Windows
 		// generee un AUMID base sur le ProductCode MSI ce qui casse le
 		// lookup d'icone (la fenetre apparait dans la taskbar avec une icone
-		// generique au lieu de celle de Pong). Avec un AUMID stable, Windows
-		// utilise les icones embarquees dans l'exe pour TOUS les contextes
-		// (taskbar, titre fenetre, Alt+Tab, jump list).
-		// L'API est dans shell32.dll/shobjidl.h, dispo depuis Windows 7.
-		// No-op si appel multiple : on set qu'une fois par process.
-		{
-			static bool s_aumidSet = false;
-			if (!s_aumidSet) {
-				// ID stable par defaut. L'application peut override via
-				// NkAppUserModelID env var pour les installations multi-version.
-				const wchar_t *aumid = L"Rihen.Nkentseu.Pong";
-				wchar_t buf[256];
-				DWORD len = GetEnvironmentVariableW(L"NkAppUserModelID", buf, 256);
-				if (len > 0 && len < 256)
-					aumid = buf;
-				SetCurrentProcessExplicitAppUserModelID(aumid);
-				s_aumidSet = true;
-			}
-		}
+		// generique). Avec un AUMID stable, Windows utilise les icones
+		// embarquees dans l'exe pour TOUS les contextes (taskbar, titre
+		// fenetre, Alt+Tab, jump list).
+		// ⚠️ (2026-10-02, Rihen : « je lance NKCode et Unkeny mais les deux
+		//    icones se superposent ») L'IDENTIFIANT ETAIT LE MEME POUR TOUS LES
+		//    PROCESSUS (`Rihen.Nkentseu.Pong`, ecrit en dur) : Windows regroupe
+		//    par AUMID, donc NKCode, UnkenyEditor, Nogee... ne faisaient qu'UN
+		//    bouton dans la barre des taches, avec l'icone du premier lance.
+		//    Chaque executable a desormais le sien (`Rihen.Nkentseu.<exe>`, ou
+		//    celui que l'application declare, ou la variable NkAppUserModelID) :
+		//    NkWindowIdentite.h. Pose une fois par processus.
+		(void)NkWindowAppliquerIdentite();
 
 		WNDCLASSEXW wc = {};
 		wc.cbSize = sizeof(WNDCLASSEXW);
