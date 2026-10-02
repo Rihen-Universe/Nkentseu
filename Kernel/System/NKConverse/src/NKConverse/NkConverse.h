@@ -56,6 +56,12 @@
 #include <cstdlib>
 #include <cstring>
 #if defined(_WIN32)
+	// (2026-10-01) WINSOCK2 AVANT WINDOWS.H : le transport des fournisseurs
+	// (NkConverseTransport.h) et le faux serveur des bancs tirent NKNetwork, qui
+	// inclut winsock2.h. Apres un windows.h deja lu, mingw avertit, et sans
+	// WIN32_LEAN_AND_MEAN les deux versions de winsock se redefinissent l'une
+	// l'autre. L'ordre se tient ici, une fois.
+	#include <winsock2.h>
 	#include <windows.h>
 #endif
 
