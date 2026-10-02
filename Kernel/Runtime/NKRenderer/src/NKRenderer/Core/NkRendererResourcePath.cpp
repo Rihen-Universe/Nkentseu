@@ -1,50 +1,35 @@
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkRendererResourcePath.cpp — cf. l'en-tete : pourquoi une troisieme racine.
+//
+// (2026-10-01, integration) LA RECHERCHE N'EST PLUS ECRITE ICI. Elle s'appuie
+// sur la fonction COMMUNE `NkPath::LocateResource` (NKFileSystem), celle que
+// NKCode, NKUIDesign, Nogee et NogeDemo emploient deja. Deux remontees ecrites
+// deux fois finissent par diverger (ordre des dossiers, nombre de niveaux,
+// Android) ; il n'y en a plus qu'une. L'ordre de `LocateResource` garde le
+// contrat de l'en-tete : le dossier COURANT d'abord, puis l'executable et ses
+// parents -- un lancement depuis la racine voit les memes fichiers qu'avant.
 // =============================================================================
 #include "NkRendererResourcePath.h"
 #include "NKFileSystem/NkPath.h"
-#include "NKFileSystem/NkFile.h"
-#include "NKFileSystem/NkDirectory.h"
 
 namespace nkentseu {
 	namespace renderer {
 
 		namespace {
-			/// Barre finale, separateurs normalises en '/'.
-			NkString AvecBarre(const NkString &s) {
-				NkString r;
-				for (usize i = 0; i < s.Size(); ++i)
-					r.Append(s[i] == '\\' ? '/' : s[i]);
-				if (!r.Empty() && r[r.Size() - 1u] != '/')
-					r.Append('/');
-				return r;
-			}
-
-			bool Existe(const NkString &p) {
-				return !p.Empty() && (NkFile::Exists(p.CStr()) || NkDirectory::Exists(p.CStr()));
-			}
-
-			/// La remontee : le dossier de l'executable, puis ses parents.
-			/// ⚠️ DOUZE NIVEAUX ET PAS PLUS : `Build/Bin/<cfg>/<app>/` est a
-			///    quatre niveaux de la racine ; une remontee sans borne finirait a
-			///    la racine du disque et pourrait y trouver le `Resources/` de
-			///    n'importe qui.
+			/// Le dossier qui CONTIENT `Resources/NKRenderer`, barre finale
+			/// comprise : le resultat de LocateResource sans ce suffixe.
 			NkString Chercher() {
-				NkPath d = NkPath::GetExecutableDirectory();
-				for (int32 k = 0; k < 12; ++k) {
-					const NkString s = AvecBarre(d.ToString());
-					if (s.Empty())
-						break;
-					if (NkDirectory::Exists((s + "Resources/NKRenderer").CStr()))
-						return s;
-					const NkPath parent = d.GetParent();
-					const NkString ps = parent.ToString();
-					if (ps.Empty() || ps == d.ToString())
-						break;
-					d = parent;
-				}
-				return NkString();
+				static const char kSuffixe[] = "Resources/NKRenderer";
+				const NkString p = NkPath::LocateResource(kSuffixe, false);
+				if (p.Empty())
+					return NkString();
+				const usize n = sizeof(kSuffixe) - 1u;
+				// LocateResource rend des '/' ; un chemin qui n'est QUE le suffixe
+				// (paquet Android, trouve tel quel) n'a pas de racine a ajouter.
+				if (p.Size() <= n)
+					return NkString();
+				return p.SubStr(0, p.Size() - n);
 			}
 		} // namespace
 
@@ -57,27 +42,19 @@ namespace nkentseu {
 		NkString NkRendererResolvePath(const NkString &relatif) noexcept {
 			if (relatif.Empty())
 				return relatif;
-			// 1. Tel quel : le repertoire courant d'abord, comme avant.
-			if (Existe(relatif))
-				return relatif;
-			// Un chemin deja absolu n'a pas de seconde chance a la racine.
-			if (NkPath(relatif.CStr()).IsAbsolute())
-				return relatif;
-			// 2. La racine trouvee en remontant depuis l'executable.
-			const NkString &racine = NkRendererResourceRoot();
-			if (!racine.Empty()) {
-				const NkString c = racine + relatif;
-				if (Existe(c))
-					return c;
-			}
-			return relatif;
+			// Meme ordre que l'ancienne recherche (dossier courant d'abord), mais
+			// par la porte commune. Introuvable : le chemin d'origine INCHANGE,
+			// pour que le message de l'appelant dise ce qu'on cherchait.
+			const NkString p = NkPath::LocateResource(relatif.CStr(), false);
+			return p.Empty() ? relatif : p;
 		}
 
 		NkString NkRendererResourceSearchReport() noexcept {
 			const NkString &racine = NkRendererResourceRoot();
 			if (!racine.Empty())
-				return NkString("racine trouvee en remontant depuis l'executable : ") + racine;
-			return NkString("aucun dossier contenant Resources/NKRenderer en remontant depuis ") +
+				return NkString("racine trouvee par NkPath::LocateResource : ") + racine;
+			return NkString("aucun dossier contenant Resources/NKRenderer (NkPath::LocateResource : dossier "
+							"courant, executable et parents) depuis ") +
 				   NkPath::GetExecutableDirectory().ToString();
 		}
 

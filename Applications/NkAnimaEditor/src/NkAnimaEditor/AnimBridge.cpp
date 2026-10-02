@@ -10,7 +10,7 @@
 #include "NKRenderer/Mesh/NkFBXLoader.h" // routage .fbx (chantier FBX, 2026-08-17)
 // ── Viewport 3D : moteur de rendu complet (TU isolé) ────────────────────────
 #include "NKRenderer/NkRenderer.h"
-#include "NKRenderer/Core/NkRendererResourcePath.h" // (01/10) AnimCheminRessource
+#include "NKFileSystem/NkPath.h" // (01/10) AnimCheminRessource -> NkPath::LocateResource
 #include "NKRenderer/Core/NkRendererConfig.h"
 #include "NKRenderer/Core/NkCamera.h"
 #include "NKRenderer/Core/NkSceneContext.h"
@@ -157,7 +157,13 @@ namespace nkanima {
 	} // namespace
 
 	nkentseu::NkString AnimCheminRessource(const char *relatif) {
-		return nkentseu::renderer::NkRendererResolvePath(nkentseu::NkString(relatif ? relatif : ""));
+		// (01/10, integration) la porte COMMUNE de la famille : dossier courant,
+		// executable et ses parents. Introuvable : le chemin d'origine, pour que
+		// le message de l'appelant dise ce qu'on cherchait.
+		if (!relatif || !*relatif)
+			return nkentseu::NkString();
+		const nkentseu::NkString p = nkentseu::NkPath::LocateResource(relatif, false);
+		return p.Empty() ? nkentseu::NkString(relatif) : p;
 	}
 
 	bool AnimInit(const char *modelPath) {

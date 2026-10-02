@@ -18,6 +18,9 @@
 #include "NKCode/Shell/NkI18n.h"  // NkT() : bannière mojibake traduite
 #include "NKCode/Shell/NkShell.h" // NkCodeShellRun (révéler dans l'explorateur / terminal)
 #include "NKCode/Shell/NkExplorer.h" // ExplorerPanel (arbre + git + filtre, maquette Banani)
+#include "NKCode/Shell/NkApparence.h" // (01/10) onglets de la Synthese
+#include "NKTime/NkChrono.h"
+#include "NKCode/Project/NkSortieJenga.h" // (01/10) la construction mise en forme dans le terminal
 #include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
 #include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison)
 #include "NKImage/NKImage.h"			  // NkImage : viewer media (image)
@@ -209,8 +212,8 @@ namespace nkentseu {
 		inline const char *const *SideLeftGroup(int32 &n) {
 			static const char *kG[] = {"Explorateur", "Recherche",	 "Controle de version",
 									   "Debogueur",	  "Live Collab", "Extensions",
-									   "Profiler",	  "Structure"};
-			n = 8;
+									   "Profiler",	  "Structure",	 "Jenga"};
+			n = 9;
 			return kG;
 		}
 
@@ -467,6 +470,7 @@ namespace nkentseu {
 				void OnUI(NkEditorFrameContext &ec) override {
 					auto &ctx = ec.Ui();
 					auto &dl = ctx.DL();
+					NkSegmentsEnTete(ctx, "Recherche"); // (01/10) Synthese : segments de vues
 					const float32 w = ctx.ContentWidth();
 					const float32 rowH = ctx.ItemHeight() + ctx.S(6.f);
 					float32 x0 = ctx.layout.cursor.x, y = ctx.layout.cursor.y;
@@ -589,6 +593,27 @@ namespace nkentseu {
 				}
 		};
 
+		/// (01/10) LA PAGE DE L'EDITEUR VIDE (NkEditeurVide.h) : posee par main.cpp.
+		/// Rend vrai si elle a dessine (sinon la phrase d'avant).
+		struct NkEditeurVideCrochet {
+				bool (*fn)(NkEditorFrameContext &, void *) = nullptr;
+				void *user = nullptr;
+		};
+		inline NkEditeurVideCrochet &NkEditeurVideHook() {
+			static NkEditeurVideCrochet h;
+			return h;
+		}
+
+		/// L'onglet « Accueil » ferme revient au prochain editeur vide (pose par NkEditeurVide.h).
+		inline void (*&NkEditeurVideRearmerFn())() {
+			static void (*f)() = nullptr;
+			return f;
+		}
+		inline void NkEditeurVideRearmer() {
+			if (NkEditeurVideRearmerFn())
+				NkEditeurVideRearmerFn()();
+		}
+
 		class EditorPanel : public NkEditorPanel {
 			public:
 				EditorPanel(NkCodeState *s, NkEditorShell *shell)
@@ -662,10 +687,18 @@ namespace nkentseu {
 					if (mS->files.Empty()) {
 						if (mShell)
 							mShell->SetFooter("NKCode", mS->IsBuilding() ? mS->status.CStr() : "Jenga");
+						if (NkEditeurVideHook().fn && NkEditeurVideHook().fn(ec, NkEditeurVideHook().user))
+							return;
+						mAccueilRearme = true;
 						ec.Text("Ouvrez un fichier depuis l'Explorateur.");
 						return;
 					}
 
+					// (01/10) un fichier ouvert : l'onglet « Accueil » fermé reviendra au prochain editeur vide.
+					if (mAccueilRearme && NkEditeurVideHook().fn) {
+						mAccueilRearme = false;
+						NkEditeurVideRearmer();
+					}
 					// Bandeau d'onglets de fichiers CUSTOM (pilote par mS->active) : onglet
 					// actif surligne, point "modifie", bouton X. Remplace le TabBar NKGui
 					// (qui gardait son propre index et empechait la revelation au clic).
@@ -1016,6 +1049,7 @@ namespace nkentseu {
 				}
 
 			private:
+				bool mAccueilRearme = false; ///< (01/10) un fichier rouvre la porte de l'accueil
 				// Fil d'Ariane : chemin du fichier actif relatif au workspace, façon VS Code
 				// (workspace › dossier › … › fichier). Dessiné en haut de la zone code ;
 				// renvoie la hauteur consommée (la zone code est décalée d'autant).
@@ -1090,6 +1124,27 @@ namespace nkentseu {
 							x += chevW + ctx.S(7.f);
 						}
 					}
+					// (01/10) Synthese (maquette D) : le nombre d'avertissements / d'erreurs du
+					// fichier, en pastille a droite du fil d'Ariane.
+					if (NkApparenceCourante().dispo.synthese) {
+						int32 nW = 0, nE = 0;
+						for (usize k = 0; k < f.doc.diags.Size(); ++k)
+							(f.doc.diags[k].sev ? nE : nW)++;
+						if (nW + nE > 0) {
+							const NkApparencePalette &ap = NkApparenceCourante().pal;
+							const NkString t = nE ? NkPrintf("%d erreur%s", nE, nE > 1 ? "s" : "")
+												  : NkPrintf("%d avertissement%s", nW, nW > 1 ? "s" : "");
+							const NkColor c = nE ? NkColor{248, 81, 73, 255}
+												 : (ap.clair ? NkColor{166, 110, 0, 255} : NkColor{224, 179, 90, 255});
+							const float32 tw = ctx.font->MeasureWidth(t.CStr());
+							const NkRect pr = {r.x + r.w - ctx.S(18.f) - tw - ctx.S(28.f), r.y + ctx.S(3.f), tw + ctx.S(28.f),
+											   h - ctx.S(6.f)};
+							dl.AddRectFilled(pr, ap.haut, ctx.S(7.f));
+							const float32 cx = pr.x + ctx.S(12.f), cy = pr.y + pr.h * 0.5f, a = ctx.S(5.f);
+							dl.AddTriangleFilled({cx, cy - a}, {cx - a, cy + a * 0.8f}, {cx + a, cy + a * 0.8f}, c);
+							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {pr.x + ctx.S(22.f), by}, t.CStr(), c);
+						}
+					}
 					return h;
 				}
 
@@ -1097,11 +1152,20 @@ namespace nkentseu {
 				// ouvert, gere clic (activer) + X (fermer), puis avance le curseur de layout
 				// sous le bandeau. Pilote par mS->active (source de verite).
 				void DrawFileTabs(NkGuiContext &ctx) {
-					const float32 h = ctx.ItemHeight();
+					// (01/10) Synthese (maquette D) : onglets de 36 px dans l'ilot, icone du
+					// type de fichier, l'actif en pastille arrondie, sans trait d'accent.
+					const bool syn = NkApparenceCourante().dispo.synthese;
+					const float32 h = syn ? ctx.S(36.f) : ctx.ItemHeight();
 					const float32 x0 = ctx.layout.cursor.x, y0 = ctx.layout.cursor.y;
 					const float32 fullW = ctx.ContentWidth();
 					auto &dl = ctx.DL();
-					dl.AddRectFilled({x0, y0, fullW, h}, ctx.theme.tabBar);
+					dl.AddRectFilled({x0, y0, fullW, h}, syn ? ctx.theme.panel : ctx.theme.tabBar);
+					auto iconeFichier = [&](const OpenFile &f) -> uint32 {
+						if (!mS->icons)
+							return 0u;
+						uint32 t = mS->icons->ForFile(f.Name().CStr());
+						return t ? t : mS->icons->defaultFile;
+					};
 					const NkVec2 m = ctx.input.mousePos;
 					float32 x = x0;
 					int32 toClose = -1;
@@ -1209,7 +1273,8 @@ namespace nkentseu {
 					for (usize i = 0; i < mS->files.Size(); ++i) {
 						const NkString lb2 = TabLabel(i, dup[i] != 0);
 						const float32 nw2 = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(lb2.CStr()) : 40.f;
-						tabWs.PushBack((mS->files[i].pinned ? 13.f : 0.f) + nw2 + 14.f + 16.f + 6.f);
+						tabWs.PushBack((mS->files[i].pinned ? 13.f : 0.f) + nw2 + 14.f + 16.f + 6.f +
+									   (syn ? ctx.S(22.f) + ctx.S(6.f) : 0.f));
 						totalW += tabWs[i];
 					}
 					// ── MULTI-RANGEES (option) : les onglets s'enroulent sur N lignes, pas de scroll. ──
@@ -1276,18 +1341,35 @@ namespace nkentseu {
 						const float32 dotW = 16.f;
 						const float32 pinW = f.pinned ? 13.f : 0.f; // icône épingle en tête
 						const float32 tabW = tabWs[i];
-						const float32 nameW = tabW - pinW - 14.f - dotW - 6.f;
+						const float32 nameW = tabW - pinW - 14.f - dotW - 6.f - (syn ? ctx.S(28.f) : 0.f);
 						const NkRect tab = {multiRow ? tabX[i] : x, multiRow ? tabY[i] : y0, tabW, h};
 						const bool active = (static_cast<int32>(i) == mS->active);
 						const bool hov = m.x >= tab.x && m.x < tab.x + tab.w && m.y >= tab.y && m.y < tab.y + tab.h &&
 										 (multiRow || m.x < x0 + viewTabsW) && !overTabMenus;
 						if (hov)
 							hovNow = static_cast<int32>(i);
-						dl.AddRectFilled(tab,
-										 active ? ctx.theme.tabActive : (hov ? ctx.theme.tabHover : ctx.theme.tab));
-						if (active)
-							dl.AddRectFilled({tab.x, tab.y + h - 2.f, tab.w, 2.f}, ctx.theme.accent);
-						float32 tx = tab.x + 8.f;
+						if (syn) {
+							const NkApparencePalette &ap = NkApparenceCourante().pal;
+							const NkRect pil = {tab.x + ctx.S(3.f), tab.y + ctx.S(5.f), tab.w - ctx.S(6.f), h - ctx.S(10.f)};
+							if (active)
+								dl.AddRectFilled(pil, ap.haut, ctx.S(8.f));
+							else if (hov)
+								dl.AddRectFilled(pil, ap.survol, ctx.S(8.f));
+						} else {
+							dl.AddRectFilled(tab,
+											 active ? ctx.theme.tabActive : (hov ? ctx.theme.tabHover : ctx.theme.tab));
+							if (active)
+								dl.AddRectFilled({tab.x, tab.y + h - 2.f, tab.w, 2.f}, ctx.theme.accent);
+						}
+						float32 tx = tab.x + (syn ? ctx.S(14.f) : 8.f);
+						if (syn) {
+							const uint32 it = iconeFichier(f);
+							const float32 is = ctx.S(15.f);
+							if (it)
+								dl.AddImage(it, {tx, tab.y + (h - is) * 0.5f, is, is}, {0, 0}, {1, 1},
+											(mS->icons && mS->icons->IsMono(it)) ? ctx.theme.text : NkColor{255, 255, 255, 255});
+							tx += is + ctx.S(7.f);
+						}
 						if (f.pinned) {
 							DrawPin(dl, {tx, tab.y + h * 0.5f}, active ? ctx.theme.accent : ctx.theme.textDisabled);
 							tx += pinW;
@@ -1305,6 +1387,8 @@ namespace nkentseu {
 								dl.AddCircleFilled({cl.x + cl.w * 0.5f, cl.y + cl.h * 0.5f}, 4.f, ctx.theme.text);
 						} else if (f.doc.dirty && !clHov) {
 							dl.AddCircleFilled({cl.x + cl.w * 0.5f, cl.y + cl.h * 0.5f}, 4.f, ctx.theme.text);
+						} else if (syn && !active && !hov) {
+							// Synthese : la croix seulement sur l'onglet actif ou survole.
 						} else {
 							if (clHov)
 								dl.AddRectFilled(cl, ctx.theme.buttonHover);
@@ -1336,9 +1420,10 @@ namespace nkentseu {
 							mTabMenuIdx = static_cast<int32>(i);
 						}
 						// Séparateur NET entre onglets (légèrement en retrait, bien visible).
-						dl.AddRectFilled(
-							{tab.x + tabW - 1.f, tab.y + 4.f, 1.f, h - 8.f},
-							NkColor{ctx.theme.textDisabled.r, ctx.theme.textDisabled.g, ctx.theme.textDisabled.b, 120});
+						if (!syn)
+							dl.AddRectFilled(
+								{tab.x + tabW - 1.f, tab.y + 4.f, 1.f, h - 8.f},
+								NkColor{ctx.theme.textDisabled.r, ctx.theme.textDisabled.g, ctx.theme.textDisabled.b, 120});
 						x += tabW;
 					}
 					// ── Drag d'onglet : réordonne en LIVE quand la souris franchit un onglet voisin ──
@@ -1420,7 +1505,7 @@ namespace nkentseu {
 							mTermPickDir = NkString();
 							mTabMenu.open = false; // choix fait : referme le menu principal aussi
 							if (mShell)
-								mShell->FocusPanel("TERMINAL"); // titre EXACT (comparaison sensible a la casse)
+								mShell->FocusPanel("Terminal"); // titre EXACT (comparaison sensible a la casse)
 						}
 					}
 					// Tooltip : CHEMIN COMPLET après ~0,6 s de survol (désambiguïsation totale).
@@ -1520,7 +1605,7 @@ namespace nkentseu {
 									mS->termOpenRun = false; // shells, pas le panneau EXECUTION
 									mTermPick.open = false;
 									if (mShell)
-										mShell->FocusPanel("TERMINAL"); // titre EXACT (comparaison sensible a la casse)
+										mShell->FocusPanel("Terminal"); // titre EXACT (comparaison sensible a la casse)
 									break;
 								case 7: // onglets multi-rangées (option, façon Visual Studio)
 									NkCodeTabRowsOn() = !NkCodeTabRowsOn();
@@ -1740,7 +1825,7 @@ namespace nkentseu {
 		class OutputPanel : public NkEditorPanel {
 			public:
 				explicit OutputPanel(NkCodeState *s, NkEditorShell *shell = nullptr)
-					: NkEditorPanel("OUTPUT", NkEditorDockSide::NK_BOTTOM), mS(s), mShell(shell) {
+					: NkEditorPanel("OUTPUT", "Sortie", NkEditorDockSide::NK_BOTTOM), mS(s), mShell(shell) {
 				}
 
 				void OnUI(NkEditorFrameContext &ec) override {
@@ -1771,7 +1856,9 @@ namespace nkentseu {
 						mLogs.Erase(mLogs.Begin());
 
 					const NkRect clip = dl.CurrentClip();
-					dl.AddRectFilled(clip, ctx.theme.bgPrimary); // fond #0D1117
+					// (01/10) UN ROLE PAR FOND : la Sortie est un PANNEAU, comme l'Explorateur
+					// et l'Assistant IA -- plus le fond de l'editeur.
+					dl.AddRectFilled(clip, ctx.theme.panel);
 
 					NkCodeFontScope _cfs(ctx); // police monospace (box-drawing + unicode)
 					const float32 lineH = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
@@ -2326,13 +2413,24 @@ namespace nkentseu {
 				// Les separer evite de melanger une session shell qu'on garde ouverte et
 				// l'application qu'on relance vingt fois. En mode execution, AUCUN shell
 				// par defaut n'est cree : le panneau reste vide tant que rien n'est lance.
-				explicit TerminalPanel(const char *title = "TERMINAL", bool runMode = false)
-					: NkEditorPanel(title, NkEditorDockSide::NK_BOTTOM), mRunMode(runMode) {
+				// (01/10) L'IDENTIFIANT reste « TERMINAL » / « EXECUTION » (dispositions
+				// enregistrees, ui.cfg) ; le TITRE affiche est en francais : « Terminal »,
+				// « Exécution ». FocusPanel compare des TITRES.
+				explicit TerminalPanel(const char *id = "TERMINAL", const char *title = "Terminal",
+									   bool runMode = false)
+					: NkEditorPanel(id, title, NkEditorDockSide::NK_BOTTOM), mRunMode(runMode) {
 					// Le terminal par defaut est cree quand le WORKSPACE est connu (bon repertoire,
 					// pas de persistance de session ; l historique = celui du shell, ex. PSReadLine).
 				}
 
 				bool mRunMode = false; ///< true = panneau EXECUTION (voir ci-dessus)
+				bool mCloseSelf = false; ///< (01/10) Synthese : « × » de l'en-tete -> le panneau se ferme
+				// (01/10) la construction en cours, dans la session « jenga build »
+				bool mBuildEnCours = false;
+				int32 mBuildTerm = -1;
+				usize mBuildNourri = 0, mBuildBrut = 0, mBuildTrace = 0;
+				bool mBuildVuArret = false;
+				NkChrono mBuildChrono;
 
 				NkEditorShell *mShell = nullptr; // pour la police propre du terminal (TermCodeFont)
 				NkCodeState *mState = nullptr;	 // racine du workspace -> repertoire de demarrage des shells
@@ -2347,8 +2445,13 @@ namespace nkentseu {
 				void OnUI(NkEditorFrameContext &ec) override {
 					auto &ctx = ec.Ui();
 					auto &dl = ctx.DL();
+					if (mCloseSelf) { // (01/10) « × » de l'en-tete Synthese
+						mCloseSelf = false;
+						if (mShell)
+							mShell->ClosePanel(Title());
+					}
 					const NkRect clip = dl.CurrentClip();
-					dl.AddRectFilled(clip, ctx.theme.bgPrimary); // fond terminal #0D1117
+					dl.AddRectFilled(clip, ctx.theme.panel); // (01/10) fond de PANNEAU (un role par fond)
 					// ── CIBLE de DRAG & DROP global : déposer des fichiers/dossiers de
 					// l'explorateur COLLE leurs chemins (quotés) dans le shell actif. ──
 					// Cible de depot : InputHits (routeur d'occlusion) et pas un
@@ -2460,10 +2563,14 @@ namespace nkentseu {
 					Term &t = mTerm[mActive];
 
 					// Disposition VSCode : terminal a GAUCHE, LISTE des terminaux a DROITE.
-					const float32 listW = ctx.S(190.f);
+					// (01/10) Synthese (maquette D) : pas de liste a droite, les sessions sont
+					// des PASTILLES dans l'en-tete de la fenetre d'outils.
+					const bool syn = NkApparenceCourante().dispo.synthese;
+					const float32 listW = syn ? 0.f : ctx.S(190.f);
 					const NkRect mainR = {clip.x, clip.y, clip.w - listW, clip.h};
 					const NkRect listR = {clip.x + clip.w - listW, clip.y, listW, clip.h};
-					DrawTermList(ctx, listR);
+					if (!syn)
+						DrawTermList(ctx, listR);
 
 					// (01/10) L'EN-TETE et la GRILLE viennent du KIT (NkTerminalVue), comme
 					// dans UnkenyEditor : marges, palette accordee au theme, curseur net qui
@@ -2473,13 +2580,21 @@ namespace nkentseu {
 					// recherche et le menu gardent la police d'interface.
 					editorkit::NkTerminalGrilleStyle style;
 					style.police = mShell ? mShell->TermCodeFont() : nullptr;
+					// (01/10) La grille prend le fond de PANNEAU (un role par fond) : le
+					// convertisseur du kit lit `bgPrimary`, on lui passe le theme avec le
+					// fond du panneau a cette place.
+					NkGuiTheme themeTerm = ctx.theme;
+					themeTerm.bgPrimary = ctx.theme.panel;
 					const editorkit::NkTerminalPalette pal =
-						editorkit::NkTerminalPaletteDuThemeGui(ctx.theme); // suit la bascule Dark/Light de NKCode
-					const float32 hEntete = ctx.S(26.f);
+						editorkit::NkTerminalPaletteDuThemeGui(themeTerm); // suit la bascule Dark/Light de NKCode
+					const float32 hEntete = syn ? ctx.S(36.f) : ctx.S(26.f);
 					const NkRect enteteR = {mainR.x, mainR.y, mainR.w, hEntete};
 					const NkRect grilleR = {mainR.x, mainR.y + hEntete, mainR.w, mainR.h - hEntete};
 					int16 cols = 80, rows = 24;
 					editorkit::NkTerminalTailleGrille(ctx, grilleR, style, cols, rows);
+					// (01/10) Synthese : la construction dans une session « jenga build », a la
+					// largeur REELLE de la grille (sinon l'ecran virtuel coupe a 80 colonnes).
+					NourrirConstruction(cols, rows);
 					// Le shell demarre A LA TAILLE de la zone, et seulement quand elle est
 					// STABLE (trois images de suite). Mesure du 01/10 : la police du
 					// terminal se reconstruit quelques images apres l'apparition du
@@ -2595,8 +2710,11 @@ namespace nkentseu {
 						const NkString dossier = DossierDe(t);
 						const NkString droite = NkPrintf("%s%s · %d x %d", t.endNoted ? "terminé · " : "",
 														 editorkit::NkPty::NomMoteur(), (int32)cols, (int32)rows);
-						editorkit::NkTerminalDessinerEntete(ctx, ctx.DL(), enteteR, pal, genre, t.label.CStr(), dossier.CStr(),
-															droite.CStr());
+						if (syn)
+							DrawEnteteSynthese(ctx, enteteR);
+						else
+							editorkit::NkTerminalDessinerEntete(ctx, ctx.DL(), enteteR, pal, genre, t.label.CStr(),
+																dossier.CStr(), droite.CStr());
 					}
 					// La grille, avec les correspondances de la recherche (Ctrl+F).
 					mSurl.Clear();
@@ -2753,6 +2871,9 @@ namespace nkentseu {
 						NkString pendingType; // texte a TAPER (pas executer) une fois le pty demarre
 						bool touched = false; // l utilisateur y a TAPE (ne pas recycler au changement de workspace)
 						bool endNoted = false; // fin de processus deja signalee dans l'ecran ?
+						/// (01/10) Session VIRTUELLE (« jenga build ») : aucun shell, NKCode
+						/// y ecrit la construction mise en forme (NkSortieJenga.h).
+						bool virtuel = false;
 						// (01/10) Defilement, selection, focus : l'etat de VUE du kit.
 						editorkit::NkTerminalVue vue;
 				};
@@ -3227,6 +3348,188 @@ namespace nkentseu {
 						default:
 							return ic->kConsole;
 					}
+				}
+
+				/// (01/10) LA CONSTRUCTION DANS LE TERMINAL (maquette D) : a chaque `jenga
+				/// build`, une session « jenga build » (virtuelle : aucun shell) recoit la
+				/// sortie MISE EN FORME (un projet par ligne, avertissements, lien, resume).
+				/// La sortie brute reste entiere dans le panneau Sortie.
+				void NourrirConstruction(int16 cols, int16 rows) {
+					if (mRunMode || !mState || !NkApparenceCourante().dispo.synthese)
+						return;
+					const bool bat = mState->IsBuilding();
+					auto ecrire = [&](Term &b, const NkString &l) {
+						b.screen.Feed(l.CStr(), l.Size());
+						b.vue.sortieNeuve = true;
+					};
+					NkString racine = mState->root.ToString();
+#if defined(_WIN32)
+					for (usize i = 0; i < racine.Size(); ++i)
+						if (racine[i] == '/')
+							racine[i] = '\\';
+#endif
+					const NkString invite = NkSortieInvite(racine);
+					if (bat && !mBuildEnCours) { // DEBUT : la session « jenga build », vierge
+						mBuildEnCours = true;
+						mBuildChrono = NkChrono();
+						mBuildNourri = 0;
+						mBuildBrut = (usize)-1;
+						mBuildTrace = 0;
+						mBuildVuArret = false;
+						int32 k = -1;
+						for (int32 i = 0; i < 8 && k < 0; ++i)
+							if (mTerm[i].alive && mTerm[i].virtuel)
+								k = i;
+						for (int32 i = 0; i < 8 && k < 0; ++i)
+							if (!mTerm[i].alive)
+								k = i;
+						if (k < 0)
+							return; // huit sessions : pas de place, la Sortie a tout
+						Term &b = mTerm[k];
+						if (!b.virtuel)
+							b.pty.Stop();
+						b.alive = true;
+						b.started = true;
+						b.virtuel = true;
+						b.touched = true;
+						b.label = "jenga build";
+						if (cols != b.screen.Cols() || rows != b.screen.Rows())
+							b.screen.Resize(cols, rows);
+						const char raz[] = "\x1b[2J\x1b[3J\x1b[H";
+						b.screen.Feed(raz, sizeof(raz) - 1);
+						mBuildTerm = k;
+						mActive = k;
+					}
+					if (!mBuildEnCours || mBuildTerm < 0 || !mTerm[mBuildTerm].alive || !mTerm[mBuildTerm].virtuel)
+						return;
+					// FINI = la commande est terminee ET sa sortie ne bouge plus depuis une
+					// image (la fin du transcript arrive parfois juste apres le statut).
+					const NkVector<NkString> &journal = mState->mCmdLog; // le transcript de CETTE commande
+					const bool change = journal.Size() != mBuildBrut;
+					const bool fini = !bat && !change && mBuildVuArret;
+					mBuildVuArret = !bat;
+					if (!fini && !change)
+						return; // rien de neuf
+					mBuildBrut = journal.Size();
+					NkString commande = "jenga build";
+					for (usize i = 0; i < journal.Size(); ++i) {
+						const char *c = journal[i].CStr();
+						if (c[0] == '$' && c[1] == ' ') {
+							commande = NkSortieCommandeCourte(NkString(c + 2));
+							break;
+						}
+					}
+					if (const char *tr = env::GetEnvVar("NK_TRACE_SORTIE"))
+						if (tr[0] == '1')
+							for (usize i = mBuildTrace; i < journal.Size(); ++i)
+								printf("[sortie] %s\n", journal[i].CStr());
+					mBuildTrace = journal.Size();
+					const NkString ws = (mState->wsIdx >= 0 && mState->wsIdx < (int32)mState->wsNames.Size())
+											? mState->wsNames[mState->wsIdx]
+											: NkString();
+					const NkSortieJengaEtat E = NkFormaterSortieJenga(
+						journal, invite, commande, NkString(), ws, (float32)mBuildChrono.Elapsed().ToSeconds(), fini,
+						!mState->errCompile && !mState->errLink);
+					Term &b = mTerm[mBuildTerm];
+					for (usize i = mBuildNourri; i < E.lignes.Size(); ++i)
+						ecrire(b, E.lignes[i] + "\r\n");
+					mBuildNourri = E.lignes.Size();
+					if (fini) {
+						ecrire(b, invite);
+						mBuildEnCours = false;
+					}
+				}
+
+				/// (01/10) L'EN-TETE DE LA SYNTHESE (maquette D) : le nom de la fenetre
+				/// d'outils, ses sessions en pastilles (icone, nom, ×), « + », puis a droite
+				/// fermer la fenetre. Memes actions que la liste de droite d'avant.
+				void DrawEnteteSynthese(NkGuiContext &ctx, const NkRect &R) {
+					const NkApparencePalette &a = NkApparenceCourante().pal;
+					auto &dl = ctx.DL();
+					const float32 S = ctx.S(1.f);
+					dl.AddRectFilled(R, ctx.theme.panel);
+					dl.AddRectFilled({R.x, R.y + R.h - 1.f, R.w, 1.f}, a.trait2);
+					const NkVec2 m = ctx.input.mousePos;
+					const bool atteint = ctx.popupDepth == 0 && ctx.PointReachable(m);
+					auto hit = [&](const NkRect &r) { return atteint && NkGuiRectContains(r, m); };
+					const NkGuiFont *f = ctx.font;
+					if (!f || !f->Valid())
+						return;
+					auto texte = [&](float32 x, const NkRect &r, const char *t, const NkColor &c) {
+						dl.AddText(f->Face(), f->TexId(), {x, r.y + (r.h - f->LineHeight()) * 0.5f + f->Ascent()}, t, c);
+					};
+					float32 x = R.x + 10.f * S;
+					const char *titre = mRunMode ? "Ex\xC3\xA9" "cution" : "Terminal";
+					texte(x, R, titre, a.fg);
+					texte(x + 0.6f * S, R, titre, a.fg);
+					x += f->MeasureWidth(titre) + 16.f * S;
+					int32 toClose = -1;
+					const float32 ph = 30.f * S, py = R.y + (R.h - ph) * 0.5f;
+					for (int32 i = 0; i < 8; ++i) {
+						if (!mTerm[i].alive)
+							continue;
+						const bool actif = (i == mActive);
+						const float32 lw = f->MeasureWidth(mTerm[i].label.CStr());
+						const NkRect pil = {x, py, 10.f * S + 14.f * S + 6.f * S + lw + 6.f * S + 12.f * S + 8.f * S, ph};
+						const bool hov = hit(pil);
+						if (actif)
+							dl.AddRectFilled(pil, a.haut, 8.f * S);
+						else if (hov)
+							dl.AddRectFilled(pil, a.survol, 8.f * S);
+						const uint32 ico = mTerm[i].virtuel ? (mState && mState->icons ? mState->icons->jenga : 0u)
+															: ShellIcon(mTerm[i].shell);
+						const NkRect ir = {pil.x + 10.f * S, pil.y + (ph - 14.f * S) * 0.5f, 14.f * S, 14.f * S};
+						if (ico)
+							dl.AddImage(ico, ir, {0, 0}, {1, 1}, mTerm[i].virtuel ? a.fg2 : ShellColor(mTerm[i].shell));
+						texte(ir.x + 20.f * S, pil, mTerm[i].label.CStr(), actif ? a.fg : a.fg2);
+						const NkRect xr = {pil.x + pil.w - 8.f * S - 12.f * S, pil.y + (ph - 12.f * S) * 0.5f, 12.f * S, 12.f * S};
+						const bool xh = hit({xr.x - 2.f * S, xr.y - 2.f * S, xr.w + 4.f * S, xr.h + 4.f * S});
+						const NkColor xc = xh ? a.fg : a.fg3;
+						dl.AddLine({xr.x + 2.f * S, xr.y + 2.f * S}, {xr.x + 10.f * S, xr.y + 10.f * S}, xc, 1.2f * S);
+						dl.AddLine({xr.x + 2.f * S, xr.y + 10.f * S}, {xr.x + 10.f * S, xr.y + 2.f * S}, xc, 1.2f * S);
+						if (ctx.input.mouseClicked[0] && xh) {
+							toClose = i;
+							ctx.input.mouseClicked[0] = false;
+						} else if (ctx.input.mouseClicked[0] && hov) {
+							mActive = i;
+							ctx.input.mouseClicked[0] = false;
+						}
+						x += pil.w + 4.f * S;
+					}
+					if (!mRunMode) { // « + » : une session du shell par defaut
+						const NkRect pr = {x, R.y + (R.h - 28.f * S) * 0.5f, 28.f * S, 28.f * S};
+						const bool hov = hit(pr);
+						if (hov)
+							dl.AddRectFilled(pr, a.survol, 7.f * S);
+						const float32 cx = pr.x + pr.w * 0.5f, cy = pr.y + pr.h * 0.5f;
+						const NkColor c = hov ? a.fg : a.fg2;
+						dl.AddLine({cx - 6.f * S, cy}, {cx + 6.f * S, cy}, c, 1.4f * S);
+						dl.AddLine({cx, cy - 6.f * S}, {cx, cy + 6.f * S}, c, 1.4f * S);
+						editorkit::NkTooltip(ctx, hov, "Nouvelle session");
+						if (hov && ctx.input.mouseClicked[0]) {
+							EnsurePrefs();
+							AddTermKind(mDefShell, mDefDistro);
+							ctx.input.mouseClicked[0] = false;
+						}
+					}
+					// A droite : fermer la fenetre d'outils (la bande la rouvre).
+					{
+						const NkRect cr = {R.x + R.w - 8.f * S - 28.f * S, R.y + (R.h - 28.f * S) * 0.5f, 28.f * S, 28.f * S};
+						const bool hov = hit(cr);
+						if (hov)
+							dl.AddRectFilled(cr, a.survol, 7.f * S);
+						const float32 cx = cr.x + cr.w * 0.5f, cy = cr.y + cr.h * 0.5f;
+						const NkColor c = hov ? a.fg : a.fg2;
+						dl.AddLine({cx - 5.f * S, cy - 5.f * S}, {cx + 5.f * S, cy + 5.f * S}, c, 1.3f * S);
+						dl.AddLine({cx - 5.f * S, cy + 5.f * S}, {cx + 5.f * S, cy - 5.f * S}, c, 1.3f * S);
+						editorkit::NkTooltip(ctx, hov, "Fermer la fen\xC3\xAAtre d'outils (la bande la rouvre)");
+						if (hov && ctx.input.mouseClicked[0]) {
+							mCloseSelf = true;
+							ctx.input.mouseClicked[0] = false;
+						}
+					}
+					if (toClose >= 0 && (AliveCount() > 1 || mRunMode))
+						CloseTerm(toClose);
 				}
 
 				void DrawTermList(NkGuiContext &ctx, const NkRect &R) {

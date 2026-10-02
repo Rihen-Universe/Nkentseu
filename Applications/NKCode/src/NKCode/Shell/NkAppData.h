@@ -45,7 +45,8 @@ namespace nkentseu {
 		/// cherchees).
 		inline int NkCodeVerifierDonnees() {
 			static const char *const kDonnees[] = {"fonts/NotoSans-Regular.ttf", "textures/logo/nkcode_icon.png",
-												   "textures/icon/Accueil.png", "icons.cfg", "lang"};
+												   "textures/icon/Accueil.png", "icons.cfg", "lang",
+												   "extensions/pastilles/extension.cfg"};
 			int manquantes = 0;
 			for (const char *d : kDonnees) {
 				const NkString p = NkCodeData(d);

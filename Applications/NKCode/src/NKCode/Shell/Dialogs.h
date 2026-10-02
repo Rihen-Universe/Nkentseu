@@ -360,7 +360,7 @@ namespace nkentseu {
 						st->termOpenAt = st->root.ToString();
 						st->termOpenRun = false; // shells, pas le panneau EXECUTION
 						if (shell)
-							shell->FocusPanel("TERMINAL");
+							shell->FocusPanel("Terminal");
 					} else if (purpose == PK_ExampleCopy && !exCopyId.Empty() && !exCopyBusy) {
 						// « Cloner un exemple » (launcher) : copie ASYNC via
 						// `jenga examples copy <id> <destination>` ; a la fin (PollExampleCopy),

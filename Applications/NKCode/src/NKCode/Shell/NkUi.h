@@ -227,6 +227,12 @@ namespace nkentseu {
 			(void)accentHex;
 		}
 
+		// Vrai si le thème `id` (Paramètres > Thème) est CLAIR — sans l'appliquer.
+		inline bool NkThemeIdEstClair(int32 id) {
+			const NkColor b = NkThemePreset(id).background;
+			return ((int32)b.r + (int32)b.g + (int32)b.b) > 384;
+		}
+
 		// Vrai si le thème actif est CLAIR (fond lumineux) — pour adapter les éléments à fond codé (logo…).
 		inline bool NkThemeIsLight() {
 			return ((int32)NkCol::background.r + (int32)NkCol::background.g + (int32)NkCol::background.b) > 384;
@@ -450,6 +456,25 @@ namespace nkentseu {
 				uint32 android = 0, apple = 0, windowsLogo = 0, claude = 0;
 				NkVector<NkString> dirKey;
 				NkVector<uint32> dirTexC, dirTexO;
+				// ── (01/10) Jeux d'icones (Shell/NkJeuxIcones.h) ──
+				/// Icone d'un fichier dont l'extension n'est pas listee (« * » d'un
+				/// icons.cfg) ; 0 = l'ancien comportement (pastille de langage...).
+				uint32 defaultFile = 0;
+				/// Textures BLANCHES livrees sans teinte (« mono » d'un manifeste) :
+				/// l'Explorateur les teinte par le theme, sinon elles disparaissent
+				/// en theme clair.
+				NkVector<uint32> monoTex;
+
+				void SetMono(uint32 tex) {
+					if (tex && !IsMono(tex))
+						monoTex.PushBack(tex);
+				}
+				bool IsMono(uint32 tex) const {
+					for (usize i = 0; i < monoTex.Size(); ++i)
+						if (monoTex[i] == tex)
+							return true;
+					return false;
+				}
 
 				void SetDir(const char *name, uint32 texClosed, uint32 texOpen) {
 					dirKey.PushBack(NkString(name));

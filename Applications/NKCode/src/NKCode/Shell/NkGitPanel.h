@@ -36,6 +36,8 @@
 #undef Status
 #endif
 
+#include "NKCode/Shell/NkSyntheseSegments.h" // (01/10) segments de vues de la Synthese
+
 namespace nkentseu {
 	namespace nkcode {
 
@@ -51,6 +53,7 @@ namespace nkentseu {
 
 				void OnUI(NkEditorFrameContext &ec) override {
 					auto &ctx = ec.Ui();
+					NkSegmentsEnTete(ctx, "Controle de version"); // (01/10) Synthese : segments de vues
 					if (!mS || !mS->HasWorkspace()) {
 						ec.Text("Aucun workspace ouvert.");
 						return;

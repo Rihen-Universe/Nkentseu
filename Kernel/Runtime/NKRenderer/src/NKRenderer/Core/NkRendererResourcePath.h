@@ -44,9 +44,10 @@ namespace nkentseu {
 		/// Cherche une seule fois par processus.
 		const NkString &NkRendererResourceRoot() noexcept;
 
-		/// Resout un chemin RELATIF de ressource (« Resources/NKRenderer/... ») :
-		///   1. tel quel (repertoire courant, comportement historique) ;
-		///   2. sous `NkRendererResourceRoot()`.
+		/// Resout un chemin RELATIF de ressource (« Resources/NKRenderer/... ») par
+		/// `NkPath::LocateResource` (2026-10-01) : le repertoire courant d'abord
+		/// (comportement historique), puis le dossier de l'executable et ses
+		/// parents, puis les parents du dossier courant.
 		/// Rend le premier qui existe (fichier OU dossier). Si aucun n'existe, rend
 		/// le chemin d'origine INCHANGE : le message d'erreur de l'appelant reste
 		/// celui qu'il etait, et il dit ce qu'on cherchait.

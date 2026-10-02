@@ -506,6 +506,47 @@ namespace nkentseu {
 					mActivityBarRight = right;
 				}
 
+				// ═══════════════════════════════════════════════════════════════
+				//  (2026-10-01) L'APPARENCE « SYNTHÈSE » DE NKCODE — QUATRE PORTES
+				//  ADDITIVES. Chacune a un défaut qui rend l'historique au pixel
+				//  près : aucun autre hôte de la coquille ne bouge tant qu'il ne
+				//  les appelle pas.
+				// ═══════════════════════════════════════════════════════════════
+				/// La barre d'activité de GAUCHE dessinée PAR L'APPLICATION (patron
+				/// SetMenuBar/SetStatusBarFn) : la coquille réserve la bande et peint
+				/// son fond ; l'application y pose ce qu'elle veut (groupes haut/bas,
+				/// pastilles, badges). nullptr = la barre historique.
+				void SetActivityBarFn(void (*fn)(nkgui::NkGuiContext &, const nkgui::NkRect &, void *),
+									  void *user = nullptr) noexcept {
+					mActivityBarFn = fn;
+					mActivityBarFnUser = user;
+				}
+				/// Largeur des barres d'activité, en px de MAQUETTE (sans S()) ; 0 =
+				/// les 48 historiques (qui, eux, passent par S()).
+				void SetActivityBarLargeur(float32 px) noexcept {
+					mActivityBarLargeur = px;
+				}
+				/// Marges AUTOUR du dock (px de maquette) : des îlots ne touchent ni la
+				/// bande de gauche ni la barre d'état. 0 partout = l'historique.
+				void SetDockMarges(float32 gauche, float32 haut, float32 droite, float32 bas) noexcept {
+					mDockMarges[0] = gauche;
+					mDockMarges[1] = haut;
+					mDockMarges[2] = droite;
+					mDockMarges[3] = bas;
+				}
+				/// Le fond de la FENÊTRE, sous tout le reste. Alpha 0 = `theme.bgPrimary`
+				/// (l'historique). Des îlots posés sur un fond plus sombre que le
+				/// panneau ont besoin des deux couleurs.
+				void SetFondFenetre(nkgui::NkColor c) noexcept {
+					mFondFenetre = c;
+				}
+				/// Le titre CENTRÉ de la barre de titre (nom du document). Faux : la
+				/// barre appartient entière à l'application (une barre d'outils posée
+				/// par SetMenuBar n'a pas à partager sa place).
+				void SetTitreCentreVisible(bool v) noexcept {
+					mTitreCentreVisible = v;
+				}
+
 				// MASQUAGE DE L'INPUT DU CORPS quand un popup NKGui est sous la souris.
 				// Vrai par defaut : c'est ce qui empeche les clics destines a un menu de
 				// la BARRE DE TITRE de traverser vers l'editeur.
@@ -1178,6 +1219,13 @@ namespace nkentseu {
 				// OPT-IN : faux par defaut. Seul NKCode s'en sert (il les demande par
 				// SetActivityBars(true, true)) ; les autres applis devaient les retirer
 				// une a une, ce qui etait un defaut du kit et non un choix de l'appli.
+				// (01/10) portes de l'apparence « Synthèse » (cf. SetActivityBarFn)
+				void (*mActivityBarFn)(nkgui::NkGuiContext &, const nkgui::NkRect &, void *) = nullptr;
+				void *mActivityBarFnUser = nullptr;
+				float32 mActivityBarLargeur = 0.f;
+				float32 mDockMarges[4] = {0.f, 0.f, 0.f, 0.f};
+				nkgui::NkColor mFondFenetre = {0, 0, 0, 0};
+				bool mTitreCentreVisible = true;
 				bool mActivityBarLeft = false;				  // cf. SetActivityBars
 				bool mActivityBarRight = false;
 				bool mMaskBodyOnPopup = true;				  // cf. SetMaskBodyOnPopup

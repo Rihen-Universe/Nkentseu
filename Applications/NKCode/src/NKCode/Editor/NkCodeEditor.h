@@ -4632,9 +4632,14 @@ namespace nkentseu {
 
 			// ── Barres de defilement : widget GENERAL reutilisable (NKEditorKit). L'editeur
 			//    est CLIENT du meme scrollbar que tout le reste de l'UI (aspect uniforme). ──
-			const NkRect vTrack = {area.x + area.w - sbW, area.y, sbW, viewH};
-			const NkRect hTrack = {area.x, area.y + area.h - sbW, area.w - sbW, sbW}; // pleine largeur (- coin V)
-			dl.AddRectFilled({vTrack.x, hTrack.y, sbW, sbW},
+			// (01/10) ilots : les pistes collees au bord de l'ilot (NkScrollbarIlot) --
+			// calculees ICI pour que les marques (erreurs, recherche) suivent la piste.
+			const NkRect vTrack =
+				editorkit::NkScrollbarIlot(ctx, {area.x + area.w - sbW, area.y, sbW, viewH}, true);
+			const NkRect hTrack = editorkit::NkScrollbarIlot(
+				ctx, {area.x, area.y + area.h - sbW, area.w - sbW, sbW}, false); // pleine largeur (- coin V)
+			if (ctx.dockIlotRayon <= 0.f) // (01/10) ilots : le coin est arrondi, les barres collees au bord
+				dl.AddRectFilled({vTrack.x, hTrack.y, sbW, sbW},
 							 editorkit::NkScrollbarThemeColors(ctx.theme).track); // coin bas-droite
 			// Barre VERTICALE (gouttiere + fleches + pouce). Les MARQUES sont dessinees APRES.
 			editorkit::NkVScrollbar(ctx, dl, vTrack, d.scrollY, contentH, viewH, vbarId, lineH * 0.8f);

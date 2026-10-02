@@ -31,6 +31,7 @@
 #include "NKTime/NkChrono.h"
 #include "NKCode/Shell/NkI18n.h"
 #include "NKCode/Shell/NkUi.h" // NkIcons (icones de la vue IDE)
+#include "NKCode/Shell/NkApparence.h" // (01/10) en-tete de la Synthese
 #include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
 #include "NKFileSystem/NkFile.h"		  // NkFile::WriteAllText (fichiers maison)
 #include "NKFileSystem/NkDirectory.h"	  // NkDirectory::Exists (drag-drop fichiers -> contexte)
@@ -123,7 +124,7 @@ namespace nkentseu {
 						mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
 						mS->termOpenRun = false; // agent CLI -> panneau TERMINAL
 						if (mShell)
-							mShell->FocusPanel("TERMINAL");
+							mShell->FocusPanel("Terminal");
 					}
 				}
 
@@ -920,7 +921,117 @@ namespace nkentseu {
 				}
 
 				/// LA SURFACE DE CONVERSATION : le panneau du kit, rempli par NKCode.
-				void DessinerKit(NkGuiContext &ctx, const NkRect &r, bool popOuvert) {
+				/// (01/10) L'EN-TETE DE LA SYNTHESE (maquette D) : le nom du panneau en gras,
+				/// le sujet de la conversation dessous, la pastille du fournisseur (ouvre la
+				/// liste du kit), l'historique et une conversation neuve -- les MEMES actions
+				/// que l'en-tete du kit, dessinees par NKCode. Rend la hauteur prise.
+				float32 DessinerEnteteSynthese(NkGuiContext &ctx, const NkRect &r) {
+					const NkApparencePalette &a = NkApparenceCourante().pal;
+					auto &dl = ctx.DL();
+					const float32 S = ctx.S(1.f);
+					const float32 h = 56.f * S;
+					const NkGuiFont *f = ctx.font;
+					if (!f || !f->Valid())
+						return 0.f;
+					const NkVec2 m = ctx.input.mousePos;
+					const bool atteint = ctx.popupDepth == 0 && ctx.PointReachable(m);
+					auto hit = [&](const NkRect &q) { return atteint && NkGuiRectContains(q, m); };
+					dl.AddRectFilled({r.x, r.y, r.w, h}, ctx.theme.panel);
+					const float32 x = r.x + 16.f * S;
+					const float32 y1 = r.y + 10.f * S;
+					dl.AddText(f->Face(), f->TexId(), {x, y1 + f->Ascent()}, Title(), a.fg);
+					dl.AddText(f->Face(), f->TexId(), {x + 0.6f * S, y1 + f->Ascent()}, Title(), a.fg);
+					const char *sujet = mKit.Sujet();
+					// A droite : + , historique, puis la pastille du fournisseur.
+					float32 xr = r.x + r.w - 8.f * S;
+					auto bouton = [&](int32 genre, const char *bulle) -> bool {
+						const NkRect b = {xr - 28.f * S, r.y + 10.f * S, 28.f * S, 28.f * S};
+						xr = b.x - 2.f * S;
+						const bool hov = hit(b);
+						if (hov)
+							dl.AddRectFilled(b, a.survol, 7.f * S);
+						const NkColor c = hov ? a.fg : a.fg2;
+						const float32 cx = b.x + b.w * 0.5f, cy = b.y + b.h * 0.5f;
+						if (genre == 0) { // +
+							dl.AddLine({cx - 6.f * S, cy}, {cx + 6.f * S, cy}, c, 1.4f * S);
+							dl.AddLine({cx, cy - 6.f * S}, {cx, cy + 6.f * S}, c, 1.4f * S);
+						} else if (mS && mS->icons && mS->icons->horloge)
+							dl.AddImage(mS->icons->horloge, {cx - 8.f * S, cy - 8.f * S, 16.f * S, 16.f * S}, {0, 0}, {1, 1}, c);
+						else
+							dl.AddCircle({cx, cy}, 6.f * S, c, 1.3f * S);
+						editorkit::NkTooltip(ctx, hov, bulle);
+						if (hov && ctx.input.mouseClicked[0]) {
+							ctx.input.mouseClicked[0] = false;
+							if (genre == 1)
+								mChatListAnchor = b;
+							return true;
+						}
+						return false;
+					};
+					if (bouton(0, "Nouvelle conversation"))
+						NewChat();
+					if (bouton(1, "Historique des conversations"))
+						mChatListOpen = !mChatListOpen;
+					// La pastille du fournisseur (« ✳ Claude ▾ »).
+					{
+						const editorkit::NkAiFournisseurDesc *fa = mKit.FournisseurActif();
+						const char *nom = fa ? fa->nom.CStr() : "Fournisseur";
+						const uint32 ico = (mS && mS->icons) ? (mKind == 2 ? mS->icons->codeC : mS->icons->claude) : 0u;
+						const float32 w = 10.f * S + (ico ? 20.f * S : 0.f) + f->MeasureWidth(nom) + 22.f * S;
+						const NkRect pr = {xr - 6.f * S - w, r.y + 11.f * S, w, 26.f * S};
+						const bool hov = hit(pr);
+						dl.AddRectFilled(pr, hov ? a.survol : a.haut, 7.f * S);
+						float32 px = pr.x + 10.f * S;
+						if (ico) {
+							dl.AddImage(ico, {px, pr.y + 6.f * S, 14.f * S, 14.f * S}, {0, 0}, {1, 1},
+										mKind == 2 ? a.fg2 : NkColor{255, 255, 255, 255});
+							px += 20.f * S;
+						}
+						dl.AddText(f->Face(), f->TexId(), {px, pr.y + (pr.h - f->LineHeight()) * 0.5f + f->Ascent()}, nom, a.fg);
+						const float32 vx = pr.x + pr.w - 12.f * S, vy = pr.y + pr.h * 0.5f;
+						dl.AddLine({vx - 3.f * S, vy - 1.5f * S}, {vx, vy + 1.5f * S}, a.fg2, 1.3f * S);
+						dl.AddLine({vx, vy + 1.5f * S}, {vx + 3.f * S, vy - 1.5f * S}, a.fg2, 1.3f * S);
+						editorkit::NkTooltip(ctx, hov, "Choisir le fournisseur et le mod\xC3\xA8le");
+						if (hov && ctx.input.mouseClicked[0]) {
+							mKit.OuvrirMenu(editorkit::NkAiMenu::Fournisseurs, mKit.Actif());
+							ctx.input.mouseClicked[0] = false;
+						}
+						xr = pr.x - 8.f * S;
+					}
+					// Le sujet, coupe avant la pastille.
+					{
+						const float32 maxW = xr - x;
+						char buf[200];
+						int32 n = 0;
+						const float32 dots = f->MeasureWidth("\xE2\x80\xA6");
+						for (const char *p = sujet; *p && n < 190; ++p) {
+							buf[n] = *p;
+							buf[n + 1] = 0;
+							if (f->MeasureWidth(buf) * 0.88f + dots > maxW) {
+								buf[n] = 0;
+								while (n > 0 && ((unsigned char)buf[n - 1] & 0xC0) == 0x80)
+									buf[--n] = 0;
+								if (n > 0 && ((unsigned char)buf[n - 1] & 0xC0) == 0xC0)
+									buf[--n] = 0;
+								for (const char *d = "\xE2\x80\xA6"; *d && n < 196; ++d)
+									buf[n++] = *d;
+								buf[n] = 0;
+								break;
+							}
+							++n;
+						}
+						buf[n] = 0;
+						dl.AddText(f->Face(), f->TexId(), {x, y1 + f->LineHeight() + f->Ascent()}, buf, a.fg3);
+					}
+					return h;
+				}
+
+				void DessinerKit(NkGuiContext &ctx, const NkRect &rEntier, bool popOuvert) {
+					// (01/10) Synthese : l'en-tete de la maquette D, dessine par NKCode.
+					const bool syn = NkApparenceCourante().dispo.synthese;
+					mKit.enteteParHote = syn;
+					const float32 hTete = syn ? DessinerEnteteSynthese(ctx, rEntier) : 0.f;
+					const NkRect r = {rEntier.x, rEntier.y + hTete, rEntier.w, rEntier.h - hTete};
 					KitDeclarer();
 					KitSynchroniser();
 					// (Q8) CE QUE NKCODE DEPOSE DANS SON BROUILLON (un fichier lache, le
@@ -3862,7 +3973,7 @@ namespace nkentseu {
 							mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
 						mS->termOpenRun = false; // agent CLI -> panneau TERMINAL
 							if (mShell)
-								mShell->FocusPanel("TERMINAL");
+								mShell->FocusPanel("Terminal");
 						} else if (clicked == 41 && mShell) { // General config -> Preferences (reel)
 							mShell->OpenPreferences();
 						} else if (clicked == 50) { // View help docs -> ouvre le wiki (reel)
@@ -4657,7 +4768,7 @@ namespace nkentseu {
 					mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
 					mS->termOpenRun = false; // agent CLI -> panneau TERMINAL, pas EXECUTION
 					if (mShell)
-						mShell->FocusPanel("TERMINAL");
+						mShell->FocusPanel("Terminal");
 					// Trace VISIBLE dans la conversation : si le terminal s'ouvre ailleurs ou
 					// si la commande echoue, l'utilisateur sait au moins ce qui a ete lance
 					// et sur quel compte — au lieu d'un silence indistinguable d'un bug.
@@ -4680,7 +4791,7 @@ namespace nkentseu {
 					mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
 					mS->termOpenRun = false;
 					if (mShell)
-						mShell->FocusPanel("TERMINAL");
+						mShell->FocusPanel("Terminal");
 					// Le chemin resolu est mis en cache : apres une installation il doit etre
 					// recalcule, sinon NKCode continuerait de croire le CLI absent.
 					mClaudeExeResolved = false;

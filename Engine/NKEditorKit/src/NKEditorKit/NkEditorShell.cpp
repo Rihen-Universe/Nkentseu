@@ -1191,7 +1191,7 @@ namespace nkentseu {
 
 			const float32 W = static_cast<float32>(mUI.viewW);
 			const float32 H = static_cast<float32>(mUI.viewH);
-			mUI.dl.AddRectFilled({0.f, 0.f, W, H}, mUI.theme.bgPrimary);
+			mUI.dl.AddRectFilled({0.f, 0.f, W, H}, mFondFenetre.a ? mFondFenetre : mUI.theme.bgPrimary);
 
 			NkEditorFrameContext ec;
 			ec.ui = &mUI;
@@ -1242,7 +1242,7 @@ namespace nkentseu {
 				(fullScreen || (!mStatusBarVisible && !mStatusBarFn)) ? 0.f : mUI.S(statusPx);
 			// Largeur des bandes d'icones, PAR COTE : une app sans « vues » a
 			// basculer les desactive (SetActivityBars) et le dock recupere la place.
-			const float32 activityW = mUI.S(48.f);
+			const float32 activityW = (mActivityBarLargeur > 0.f) ? mActivityBarLargeur : mUI.S(48.f);
 			const float32 actWL = mActivityBarLeft ? activityW : 0.f;
 			const float32 actWR = mActivityBarRight ? activityW : 0.f;
 			// ── LES RAILS DE PASTILLES (§13) ────────────────────────────────
@@ -1530,8 +1530,14 @@ namespace nkentseu {
 				// Launcher : remplace barre d'activite + dock + panneaux.
 				mStartScreenFn(ec, mStartScreenUser);
 			} else {
-				if (mActivityBarLeft)
-					DrawActivityBar({0.f, bodyTop, actWL, bodyH});
+				if (mActivityBarLeft) {
+					if (mActivityBarFn) { // (01/10) la barre de l'application
+						mUI.dl.AddRectFilled({0.f, bodyTop, actWL, bodyH},
+											 mFondFenetre.a ? mFondFenetre : mUI.theme.header);
+						mActivityBarFn(mUI, {0.f, bodyTop, actWL, bodyH}, mActivityBarFnUser);
+					} else
+						DrawActivityBar({0.f, bodyTop, actWL, bodyH});
+				}
 				if (mActivityBarRight)
 					DrawActivityBarRight({W - actWR, bodyTop, actWR, bodyH}); // IA (panneau droit)
 				// ⚠️ LE DOCK NE RETRANCHE QUE LES RAILS, JAMAIS LE TIROIR. C est la
@@ -1544,6 +1550,11 @@ namespace nkentseu {
 				// MOINS le tiroir ouvert. C'est une decision de l'application
 				// (`SetRailAncre`) ; sans elle rien ne change.
 				NkRect corpsDock = corps;
+				// (01/10) marges des îlots ; nulles = l'historique.
+				corpsDock.x += mDockMarges[0];
+				corpsDock.y += mDockMarges[1];
+				corpsDock.w -= mDockMarges[0] + mDockMarges[2];
+				corpsDock.h -= mDockMarges[1] + mDockMarges[3];
 				for (int32 sl = 0; sl < 2; ++sl) {
 					if (!mRailAncre[sl] || mRailOuvert[sl] < 0 || mRailOuvert[sl] >= mRailCount[sl])
 						continue;
@@ -2919,7 +2930,8 @@ namespace nkentseu {
 			//     bandeau, entre le dernier menu et le titre.
 			float32 titleLx = bar.x + bar.w, titleRx = bar.x + bar.w; // vide par defaut
 			const char *info = mTitleCenter[0] ? mTitleCenter : mTitle;
-			const bool aTitreCentre = mUI.font && mUI.font->Face() && info[0] && !mUI.appFullScreen;
+			const bool aTitreCentre =
+				mTitreCentreVisible && mUI.font && mUI.font->Face() && info[0] && !mUI.appFullScreen;
 			float32 ix = 0.f, iw = 0.f;
 			if (aTitreCentre) {
 				iw = mUI.font->MeasureWidth(info);

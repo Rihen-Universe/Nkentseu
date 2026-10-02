@@ -28,6 +28,9 @@
 #include "NKCode/Shell/NkAppFonts.h"
 #include "NKCode/Shell/NkAppIcons.h"
 #include "NKCode/Shell/NkAppCommands.h"
+#include "NKCode/Shell/NkEditeurVide.h" // (01/10) la page de l'editeur vide
+#include "NKCode/Shell/NkVuesSynthese.h" // (01/10) vues Jenga et Extensions
+#include "NKCode/Shell/NkBancApparences.h" // (01/10) banc de la reversibilite (NK_BANC_APPARENCES)
 #include "NKCode/Shell/NkOpenWindows.h" // registre des fenetres ouvertes (restauration au lancement)
 #include "NKCode/Shell/NkOuvrirArgument.h" // (01/10) un dossier, un .jenga ou un FICHIER en argument
 #include "NKCode/Shell/NkCodeBanc.h"		 // (02/10) `NKCode --selftest`, sans fenetre
@@ -215,10 +218,62 @@ static void NkCrochetsPanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int
 			sTaper = t ? NkLireImage(t, sTexte, sizeof(sTexte), 90) : -1;
 		}
 		if (sTaper > 0 && sImage == sTaper / 2 && sh)
-			sh->FocusPanel("TERMINAL");
+			sh->FocusPanel("Terminal");
 		if (sImage == sTaper && gTerminal) {
 			gTerminal->TaperAuDemarrage(NkString(sTexte) + "\r");
 			printf("[nkcode] TERM TAPER image=%d : %s\n", (int)sImage, sTexte);
+			fflush(stdout);
+		}
+	}
+	// (01/10) NK_REGLAGES=<image> : ouvre les Reglages sur la categorie Theme
+	// (apparence, jeu d'icones) -- le geste du menu, sans entree injectee.
+	{
+		static int32 sReglages = -2;
+		if (sReglages == -2) {
+			const char *v = std::getenv("NK_REGLAGES");
+			sReglages = v ? (int32)std::atoi(v) : -1;
+		}
+		if (sImage == sReglages) {
+			g_dialogs.showPrefs = true;
+			g_home.settings.cat = 3;
+		}
+	}
+	// (01/10) NK_MENU_SYNTHESE=<image> : ouvre le menu ≡ de la Synthese (variante 2),
+	// comme son clic -- l'etat qu'un clic ecrirait, aucune entree injectee.
+	{
+		static int32 sMenuD = -2;
+		if (sMenuD == -2) {
+			const char *v = std::getenv("NK_MENU_SYNTHESE");
+			sMenuD = v ? (int32)std::atoi(v) : -1;
+		}
+		if (sImage == sMenuD) {
+			nkcode::NkMenuSyntheseEtat &M = nkcode::NkMenuSynthese();
+			M.ouvert = true;
+			M.justeOuvert = true;
+			M.ancre = nkcode::NkSynthese().boutonMenu;
+		}
+	}
+	// (01/10) NK_BANC_APPARENCES=1 : le banc de la reversibilite (NkBancApparences.h).
+	{
+		static int32 sBanc = -2;
+		if (sBanc == -2) {
+			const char *v = std::getenv("NK_BANC_APPARENCES");
+			sBanc = (v && v[0] == '1') ? 1 : 0;
+		}
+		if (sBanc == 1)
+			nkcode::NkBancApparencesImage(ui, g_home, sh, sImage);
+	}
+	// (01/10) NK_CONSTRUIRE=<image> : lance `jenga build` a cette image -- le geste
+	// du bouton « Construire », sans entree injectee (captures de la Synthese).
+	{
+		static int32 sConstruire = -2;
+		if (sConstruire == -2) {
+			const char *v = std::getenv("NK_CONSTRUIRE");
+			sConstruire = v ? (int32)std::atoi(v) : -1;
+		}
+		if (sImage == sConstruire) {
+			g_state.DoBuildAction("build");
+			printf("[nkcode] CONSTRUIRE image=%d\n", (int)sImage);
 			fflush(stdout);
 		}
 	}
@@ -308,7 +363,7 @@ int nkmain(const NkEntryState &state) {
 	// Panneau d'EXECUTION : meme moteur de terminal, mais reserve aux programmes
 	// lances par « Demarrer » — pour ne pas les melanger aux shells que
 	// l'utilisateur garde ouverts. Ne cree jamais de shell tout seul.
-	static nkcode::TerminalPanel runTerm("EXECUTION", /*runMode=*/true);
+	static nkcode::TerminalPanel runTerm("EXECUTION", "Exécution", /*runMode=*/true);
 	shell->AddPanel(&explorer);
 	shell->AddPanel(&outline);
 	shell->AddPanel(&editor);
@@ -347,11 +402,14 @@ int nkmain(const NkEntryState &state) {
 	gPanneauxIA[2] = &codexPanel;
 	gPanneauxIA[3] = &nkaiPanel;
 	if (std::getenv("NK_AI_IMAGE") || std::getenv("NK_AI_PANNEAU") || std::getenv("NK_AGENT_EXIT") ||
-		std::getenv("NK_CAPTURE_FENETRE") ||
+		std::getenv("NK_CAPTURE_FENETRE") || std::getenv("NK_CONSTRUIRE") || std::getenv("NK_BANC_APPARENCES") || std::getenv("NK_REGLAGES") || std::getenv("NK_MENU_SYNTHESE") ||
 		std::getenv("NK_TERM_TAPER"))
 		shell->SetApresImage(&NkCrochetsPanneauIA, shell.Get());
 	static ScaffoldPanel pEngine("Moteur", NkEditorDockSide::NK_RIGHT, "Maquette - roadmap #17", sc::kEngine, 1);
-	static ScaffoldPanel pExt("Extensions", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #12", sc::kExtensions, 1);
+	// (01/10) La vue Extensions REELLE (jeux d'icones installables) remplace la
+	// maquette ; la vue « Jenga » (projets du workspace) est celle des segments.
+	static nkcode::NkExtensionsPanel pExt(&g_home);
+	static nkcode::NkJengaPanel pJenga(&g_state);
 	shell->AddPanel(&pSearch);
 	shell->AddPanel(&pProblem);
 	shell->AddPanel(&pGit);
@@ -368,6 +426,7 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&pCollab);
 	shell->AddPanel(&pEngine);
 	shell->AddPanel(&pExt);
+	shell->AddPanel(&pJenga);
 
 	shell->SetActivityHandler(&nkcode::ActivityThunk, shell.Get()); // sidebars exclusives (activity bar)
 	// Drop de fichiers depuis l'OS -> état partagé (consommé par le panneau visé).
@@ -401,12 +460,15 @@ int nkmain(const NkEntryState &state) {
 	g_menuBar.upd = &g_update; // menu Aide > Rechercher les mises a jour (Phase 13)
 	g_menuBar.jup = &g_jenga_update; // menu Aide > Mettre a jour Jenga (1 Mo, sans reinstallation)
 	// (g_menuBar.exePath est pose plus bas, avec le chemin COMPLET de l'exe.)
-	shell->SetMenuBar(&nkcode::MainMenuBarThunk, &g_menuBar);
+	// (01/10) la barre de menus de NKCode, toutes apparences (Synthese : la barre unique)
+	shell->SetMenuBar(&nkcode::NkCodeMenuBarThunk, &g_menuBar);
 	shell->SetOverlay(&nkcode::OverlayThunk, &g_dialogs);	// dialogues modaux (creation/enregistrement)
 
 	// ── Ecran d'accueil (Home) : nouvelle UI + logos/icones rasterises en texture ──
 	g_home.st = &g_state;
 	g_home.dlg = &g_dialogs;
+	nkcode::NkEditeurVideHook() = {&nkcode::NkPageEditeurVide, &g_home}; // (01/10) accueil de l'editeur vide
+	nkcode::NkEditeurVideRearmerFn() = +[]() { nkcode::NkAccueilEditeurFerme() = false; };
 	// ExeDir() a ete pose en tete de main (chemin fiable donne par l'OS).
 	// Sans lui, NkEmbeddedJenga::Configure ne trouvait pas tools/python-embed
 	// -> gProdTools=false -> mode embarque DESACTIVE -> les boutons Construire/
