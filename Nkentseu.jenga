@@ -1822,6 +1822,14 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    # NKScena (nee le 2026-10-02) : pose le TEMPS sur une scene Noge -- pistes,
+    # cles et plans camera sur la frise partagee, rendu en images. Sa condition
+    # de naissance (le sequenceur sauve et relit .nkseq, NkSequenceCheck f7) est
+    # remplie. `--selftest` : le banc sans fenetre (Applications/NKScena/ROADMAP.md).
+    with include("Applications/NKScena/NKScena.jenga"):
+
+        pass
+
 
 
     with include("Applications/ImGuiRef/ImGuiRef.jenga"):
