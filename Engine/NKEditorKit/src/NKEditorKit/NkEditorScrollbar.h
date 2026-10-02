@@ -54,6 +54,77 @@ namespace nkentseu {
 			return sk.custom ? sk.colors : NkScrollbarThemeColors(th);
 		}
 
+		// ═══════════════════════════════════════════════════════════════════════
+		//  (2026-10-01) LES BARRES DANS UN ILOT — retour de Rihen sur la maquette D :
+		//  « les barres de defilement peuvent etre collees au bord tout en epousant
+		//  les courbes des secteurs arrondis ; ca evite de voir les vides ».
+		//
+		//  Quand le dock est en ILOTS (ctx.dockIlotRayon > 0), une piste posee PRES
+		//  du bord de sa feuille (a moins de deux epaisseurs) est COLLEE a ce bord ;
+		//  elle s'allonge jusqu'a l'autre barre (ou jusqu'au bord) et S'ARRETE la ou
+		//  le coin arrondi commence ; elle est dessinee arrondie. Une piste au milieu
+		//  d'un panneau ne bouge pas. Hors ilots : la piste est rendue TELLE QUELLE,
+		//  au pixel pres (aucun autre hote ne bouge).
+		//
+		//  ⚠️ LA PISTE NE S'ECARTE QUE VERS LE BORD : elle quitte la gouttiere vide
+		//     qui la separait du bord, jamais le contenu -- le contenu ne passe pas
+		//     dessous.
+		// ═══════════════════════════════════════════════════════════════════════
+		inline bool NkScrollbarFeuille(const NkGuiContext &ctx, const NkRect &t, NkRect &feuille) {
+			const NkVec2 c = {t.x + t.w * 0.5f, t.y + t.h * 0.5f};
+			for (usize i = 0; i < ctx.dockNodes.Size(); ++i) {
+				const NkGuiDockNode &n = ctx.dockNodes[i];
+				if (n.kind == 2 && n.winCount > 0 && NkGuiRectContains(n.rect, c)) {
+					feuille = n.rect;
+					return true;
+				}
+			}
+			return false;
+		}
+
+		inline NkRect NkScrollbarIlot(const NkGuiContext &ctx, NkRect t, bool vertical) {
+			const float32 R = ctx.dockIlotRayon;
+			NkRect L;
+			if (R <= 0.f || !NkScrollbarFeuille(ctx, t, L))
+				return t;
+			if (vertical) {
+				const float32 e = t.w, marge = 2.f * e + 12.f;
+				const float32 gd = (L.x + L.w) - (t.x + t.w);
+				if (gd > 0.f && gd <= marge)
+					t.x = L.x + L.w - t.w; // collee au bord droit
+				const float32 gb = (L.y + L.h) - (t.y + t.h);
+				if (gb > 0.f && gb <= marge)
+					t.h += gb - (gb >= e ? e : 0.f); // jusqu'a la barre horizontale, ou au bord
+				if (t.y < L.y + R) { // le coin du haut
+					const float32 d = L.y + R - t.y;
+					t.y += d;
+					t.h -= d;
+				}
+				if (t.y + t.h > L.y + L.h - R)
+					t.h = L.y + L.h - R - t.y; // le coin du bas
+			} else {
+				const float32 e = t.h, marge = 2.f * e + 12.f;
+				const float32 gb = (L.y + L.h) - (t.y + t.h);
+				if (gb > 0.f && gb <= marge)
+					t.y = L.y + L.h - t.h; // collee au bord bas
+				const float32 gd = (L.x + L.w) - (t.x + t.w);
+				if (gd > 0.f && gd <= marge)
+					t.w += gd - (gd >= e ? e : 0.f); // jusqu'a la barre verticale, ou au bord
+				if (t.x < L.x + R) { // le coin de gauche
+					const float32 d = L.x + R - t.x;
+					t.x += d;
+					t.w -= d;
+				}
+				if (t.x + t.w > L.x + L.w - R)
+					t.w = L.x + L.w - R - t.x; // le coin de droite
+			}
+			if (t.w < 1.f)
+				t.w = 1.f;
+			if (t.h < 1.f)
+				t.h = 1.f;
+			return t;
+		}
+
 		namespace detail {
 			// Bouton fleche (dir : 0 haut, 1 bas, 2 gauche, 3 droite). Retourne MAINTENU.
 			// IDENTIQUE a l'editeur : fond survol {33,39,48}, triangle a=3.2, couleur pouce.
@@ -79,12 +150,13 @@ namespace nkentseu {
 
 		// ── Barre VERTICALE. `track` = gouttiere COMPLETE (fleches incluses). `scroll`
 		//    borne dans [0, contentLen-viewLen]. `id` = identifiant unique (drag). ──
-		inline bool NkVScrollbar(NkGuiContext &ctx, NkGuiDrawList &dl, const NkRect &track, float32 &scroll,
+		inline bool NkVScrollbar(NkGuiContext &ctx, NkGuiDrawList &dl, const NkRect &trackDemandee, float32 &scroll,
 								 float32 contentLen, float32 viewLen, uint32 id, float32 lineStep = 0.f,
 								 bool arrows = true) {
 			const NkScrollbarColors c = NkScrollbarActiveColors(ctx.theme); // theme OU skin utilisateur
+			const NkRect track = NkScrollbarIlot(ctx, trackDemandee, true); // (01/10) ilots
 			const float32 sbW = track.w;
-			dl.AddRectFilled(track, c.track); // gouttiere toujours visible
+			dl.AddRectFilled(track, c.track, ctx.dockIlotRayon > 0.f ? sbW * 0.5f : 0.f); // gouttiere toujours visible
 			const float32 step = lineStep > 0.f ? lineStep : sbW * 1.4f;
 			const float32 before = scroll;
 			const float32 maxScroll = contentLen - viewLen > 0.f ? contentLen - viewLen : 0.f;
@@ -126,12 +198,13 @@ namespace nkentseu {
 		}
 
 		// ── Barre HORIZONTALE. `track` = gouttiere COMPLETE (fleches incluses). ──
-		inline bool NkHScrollbar(NkGuiContext &ctx, NkGuiDrawList &dl, const NkRect &track, float32 &scroll,
+		inline bool NkHScrollbar(NkGuiContext &ctx, NkGuiDrawList &dl, const NkRect &trackDemandee, float32 &scroll,
 								 float32 contentLen, float32 viewLen, uint32 id, float32 step = 18.f,
 								 bool arrows = true) {
 			const NkScrollbarColors c = NkScrollbarActiveColors(ctx.theme); // theme OU skin utilisateur
+			const NkRect track = NkScrollbarIlot(ctx, trackDemandee, false); // (01/10) ilots
 			const float32 sbW = track.h;
-			dl.AddRectFilled(track, c.track);
+			dl.AddRectFilled(track, c.track, ctx.dockIlotRayon > 0.f ? sbW * 0.5f : 0.f);
 			const float32 before = scroll;
 			const float32 maxScroll = contentLen - viewLen > 0.f ? contentLen - viewLen : 0.f;
 			const NkVec2 m = ctx.input.mousePos;

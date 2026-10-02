@@ -378,6 +378,10 @@ namespace nkentseu {
 				float32 dockGap = 4.f;					///< écart entre deux feuilles du dock (px)
 				NkColor dockFond = {0, 0, 0, 0};		///< fond des écarts ; alpha 0 = `theme.bgPrimary`
 				bool dockSeparateurVisible = true;		///< trait du séparateur au repos (survol : toujours)
+				/// Rayon des coins des îlots (px écran) ; 0 = pas d'îlots (l'historique).
+				/// Les barres de défilement du kit s'en servent pour se COLLER au bord de
+				/// l'îlot et s'arrêter où le coin commence (NkEditorScrollbar.h).
+				float32 dockIlotRayon = 0.f;
 
 				// Modale applicative : l'app (ex. NKCode) leve ce flag tant qu'un dialogue
 				// modal (creation de projet, proprietes...) est ouvert. Le shell masque

@@ -523,6 +523,7 @@ inline void NkAppliquerApparence(NkEditorFrameContext &ec, NkHomeState *home) {
 	ctx.dockGap = e.dispo.dockEcart > 0.f ? e.dispo.dockEcart : 4.f;
 	ctx.dockFond = e.dispo.ilots ? e.pal.gouttiere : NkColor{0, 0, 0, 0};
 	ctx.dockSeparateurVisible = !e.dispo.ilots;
+	ctx.dockIlotRayon = e.dispo.ilots ? ctx.S(e.dispo.ilotRayon) : 0.f; // barres collees au bord des ilots
 	// Le jeu d'icones (sa variante suit le theme) : no-op s'il n'a pas change.
 	NkAppliquerJeuIcones(S.jeuIcones, e.pal.clair);
 }
