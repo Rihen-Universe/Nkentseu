@@ -225,7 +225,9 @@ namespace nkentseu {
 					const int32 ecran = unkeny::NkUnkenyLancerBancEcran();
 					// (2026-10-01) Les scripts : la VM, l'hote, le C++ lie en statique.
 					const int32 scripts = unkeny::NkUnkenyLancerBancScripts();
-					return NkOptional<int>(livraison == 0 && entrees == 0 && ecran == 0 && scripts == 0 ? 0 : 1);
+					// (2026-10-02, R31) Le maillage 2D : le joueur le dessine et le simule.
+					const int32 maillage = unkeny::NkUnkenyLancerBancMaillage();
+					return NkOptional<int>(livraison == 0 && entrees == 0 && ecran == 0 && scripts == 0 && maillage == 0 ? 0 : 1);
 				}
 			}
 			if (verifier) {

@@ -144,6 +144,21 @@ namespace nkentseu {
 						dl.AddLine(NkVec2{m.x - 2.2f, m.y - 1.8f}, NkVec2{m.x + 2.2f, m.y + 1.8f}, fil, 1.f);
 						break;
 					}
+					case NkGenreDocument::NK_MAILLAGE: {
+						// (2026-10-02) Un maillage : deux triangles et leurs sommets.
+						const NkColor vert{110, 200, 150, 255};
+						const NkVec2 a{m.x - 5.f, m.y + 4.f}, b{m.x + 5.f, m.y + 4.f}, h{m.x - 1.f, m.y - 5.f}, d2{m.x + 5.f, m.y - 3.f};
+						dl.AddLine(a, b, vert, 1.2f);
+						dl.AddLine(b, h, vert, 1.2f);
+						dl.AddLine(h, a, vert, 1.2f);
+						dl.AddLine(h, d2, vert, 1.2f);
+						dl.AddLine(d2, b, vert, 1.2f);
+						dl.AddCircleFilled(a, 1.6f, vert);
+						dl.AddCircleFilled(b, 1.6f, vert);
+						dl.AddCircleFilled(h, 1.6f, vert);
+						dl.AddCircleFilled(d2, 1.6f, vert);
+						break;
+					}
 					default:
 						break;
 				}
@@ -175,6 +190,8 @@ namespace nkentseu {
 					return Asset(ui, d.cle) >= 0;
 				case NkGenreDocument::NK_BLUEPRINT:
 					return Bp(m, d.cle) != nullptr;
+				case NkGenreDocument::NK_MAILLAGE:
+					return NkEditeurDocMaillage(const_cast<NkEditeurInterface &>(ui), d.cle) != nullptr;
 				default:
 					return false;
 			}
@@ -207,6 +224,9 @@ namespace nkentseu {
 				for (uint32 g = 0; g < m.scripts->graphes.Size(); ++g) {
 					Entrer(NkDoc(NkGenreDocument::NK_BLUEPRINT, m.scripts->graphes[g]->id));
 				}
+			}
+			for (uint32 i = 0; i < ui.pagesMaillage.docs.Size(); ++i) {
+				Entrer(NkDoc(NkGenreDocument::NK_MAILLAGE, ui.pagesMaillage.docs[i].id));
 			}
 			// 3. Le premier plan a disparu (ferme sans passer par la barre) : la
 			//    scene revient -- et si c'etait un prefab, la scene mise de cote aussi.
@@ -277,6 +297,9 @@ namespace nkentseu {
 				case NkGenreDocument::NK_BLUEPRINT:
 					ok = m.scripts != nullptr && NkEditeurDetruireGraphe(*m.scripts, d.cle);
 					break;
+				case NkGenreDocument::NK_MAILLAGE:
+					ok = NkEditeurDetruireDocMaillage(ui, d.cle);
+					break;
 				default:
 					break;
 			}
@@ -308,6 +331,10 @@ namespace nkentseu {
 				case NkGenreDocument::NK_BLUEPRINT: {
 					const NkEditeurGrapheEtat *e = Bp(m, d.cle);
 					return e != nullptr ? NkString::Format("Blueprint : %s", NomFichier(e->ref.CStr(), true).CStr()) : NkString();
+				}
+				case NkGenreDocument::NK_MAILLAGE: {
+					const NkDocMaillage *x = NkEditeurDocMaillage(ui, d.cle);
+					return x != nullptr ? NkEditeurLibelleMaillage(m, *x) : NkString();
 				}
 				default:
 					return NkString("Scène");

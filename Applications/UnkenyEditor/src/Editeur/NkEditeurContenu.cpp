@@ -226,6 +226,11 @@ namespace nkentseu {
 					n.libelle = "Maillage";
 					n.role = static_cast<uint16>(editorkit::NkRole::TypeMesh);
 					break;
+				case NkAssetType::Mesh2D:
+					// (2026-10-02, R31) Le maillage 2D d'Unkeny (.nkmesh2d).
+					n.libelle = "Maillage 2D";
+					n.role = static_cast<uint16>(editorkit::NkRole::TypeMesh);
+					break;
 				case NkAssetType::Material:
 				case NkAssetType::MaterialInstance:
 					n.libelle = "Matériau";

@@ -1091,6 +1091,14 @@ namespace nkentseu {
 					NkEditeurAnnoncer(m, NkString::Format("Sprite posé : %s", nav.CStr()).CStr());
 					return true;
 				}
+				if (n.type == NkAssetType::Mesh2D) {
+					// (2026-10-02, R31) Un MAILLAGE 2D : une entite neuve qui le porte (retenu).
+					const ecs::NkEntityId e = NkEditeurPoserMaillageAsset(m, abs.CStr(), monde);
+					if (e.IsValid()) {
+						NkEditeurAnnoncer(m, NkString::Format("Maillage 2D posé : %s", nav.CStr()).CStr());
+					}
+					return e.IsValid();
+				}
 				NkEditeurAnnoncer(m, NkString::Format("« %s » ne se pose pas dans la scène", n.libelle).CStr());
 				return false;
 			}
@@ -1958,7 +1966,7 @@ namespace nkentseu {
 					}
 					if (n.type == NkAssetType::Scene) {
 						ui.sceneAOuvrir = NkEditeurCheminContenu(m, chemin);
-					} else if (n.type == NkAssetType::Prefab || n.type == NkAssetType::Texture2D) {
+					} else if (n.type == NkAssetType::Prefab || n.type == NkAssetType::Texture2D || n.type == NkAssetType::Mesh2D) {
 						NkEditeurAnnoncer(m, NkString::Format("« %s » : glissez-le dans la vue pour le poser (ou clic droit > Poser)",
 															   editorkit::NkDisqueNom(chemin).CStr())
 												 .CStr());

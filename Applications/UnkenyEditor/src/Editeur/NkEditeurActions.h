@@ -191,6 +191,8 @@ namespace nkentseu {
 			NK_FORME,	  ///< forme 2D dessinee (le genre se choisit dans sa carte)
 			NK_ANIMATEUR, ///< controleur d'animation de NKAnima (.nkanimctl ou modele enregistre)
 			NK_ANCRAGE,	  ///< ancrage a l'ecran (HUD, document 03)
+			// 2026-10-02 (R31) : AJOUTE A LA FIN.
+			NK_MAILLAGE, ///< maillage 2D (depuis le sprite, la forme, ou vide : NkEditeurMaillage.h)
 			NK_COUNT
 		};
 		const char *NkComposantEditeurNom(NkComposantEditeur c) noexcept;
@@ -233,6 +235,8 @@ namespace nkentseu {
 			// 2026-10-02 (fusion) : les SCRIPTS de l'entite (unkeny::NkScript2D), en
 			// carte comme les autres -- plus de bloc brut sous les cartes.
 			NK_SCRIPTS, ///< categorie Acteur ; « Retirer le composant » retire NkScript2D
+			// 2026-10-02 (R31) : le MAILLAGE 2D, categorie Rendu. AJOUTE A LA FIN.
+			NK_MAILLAGE, ///< NkComposantEditeur::NK_MAILLAGE
 			NK_COUNT
 		};
 		/// Le composant d'une carte (false : Transform, Hierarchie). (2026-10-01)

@@ -231,6 +231,13 @@ namespace nkentseu {
 		// (.nkscene est du JSON qui porte son "format"), rien ne change de sens.
 		Scene = 18,	   ///< une scene : entites, hierarchie, etat de simulation (.nkscene)
 		SaveGame = 19, ///< une sauvegarde de PARTIE (.nksave) — pas une scene qu'on edite
+		// AJOUTE le 2026-10-02 (R31, le maillage 2D d'Unkeny) : un maillage PLAN dont
+		// la texture se deforme, ses PARTIES (chacune sa physique), ses liens et,
+		// demain, ses poids d'os (R30). Il ne se depose pas ou se depose un
+		// StaticMesh (.nkmesh, consomme par NKRenderer -- Unkeny rend par NKCanvas,
+		// les deux sont exclusifs) : d'ou sa nature et son extension (regle du § 1
+		// de CONVENTIONS_FICHIERS.md). JSON qui porte son "format" (« unkeny.maillage2d »).
+		Mesh2D = 20, ///< un maillage 2D d'Unkeny (.nkmesh2d)
 		Custom = 255,
 	};
 
@@ -274,6 +281,8 @@ namespace nkentseu {
 				return "Scene";
 			case NkAssetType::SaveGame:
 				return "SaveGame";
+			case NkAssetType::Mesh2D:
+				return "Mesh2D";
 			case NkAssetType::Custom:
 				return "Custom";
 			default:
@@ -338,6 +347,8 @@ namespace nkentseu {
 				return "nkscene";
 			case NkAssetType::SaveGame:
 				return "nksave";
+			case NkAssetType::Mesh2D:
+				return "nkmesh2d";
 			case NkAssetType::Custom:
 			default:
 				// `.nkasset` reste la nature « non standard » — et reste accepte
@@ -380,6 +391,7 @@ namespace nkentseu {
 			{"nkshader", NkAssetType::Shader},		   {"nkscript", NkAssetType::Script},
 			{"nkanimctl", NkAssetType::AnimationController},
 			{"nkscene", NkAssetType::Scene},		   {"nksave", NkAssetType::SaveGame},
+			{"nkmesh2d", NkAssetType::Mesh2D},
 			{"nkasset", NkAssetType::Custom},
 		};
 		for (const Paire &p : kTable)

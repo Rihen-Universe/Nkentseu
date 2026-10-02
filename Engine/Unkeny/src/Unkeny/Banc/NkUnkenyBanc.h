@@ -40,5 +40,9 @@ namespace nkentseu {
 		/// Blueprints, le C++ lie en statique, le rechargement. Lance a part par
 		/// l'editeur ET par le joueur. Rend 0 quand tout tient.
 		int32 NkUnkenyLancerBancScripts();
+		/// Le MAILLAGE 2D (2026-10-02, R31, NkUnkenyBancMaillage.cpp) : fabrication
+		/// (sprite, forme, densite), dessin, fichier et prefab, parties, physique par
+		/// partie et liens. Lance a part par l'editeur et Physic2D. 0 = tout tient.
+		int32 NkUnkenyLancerBancMaillage();
 	} // namespace unkeny
 } // namespace nkentseu

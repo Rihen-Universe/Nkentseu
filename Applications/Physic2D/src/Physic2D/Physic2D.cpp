@@ -80,7 +80,9 @@ namespace nkentseu {
 				const int32 moteur = unkeny::NkUnkenyLancerBanc();
 				std::printf("\n");
 				const int32 demo = physic2d::NkPhysic2DLancerBanc();
-				return NkOptional<int>((moteur != 0 || demo != 0) ? 1 : 0);
+				// (2026-10-02, R31) Le maillage 2D et sa physique par partie.
+				const int32 maillage = unkeny::NkUnkenyLancerBancMaillage();
+				return NkOptional<int>((moteur != 0 || demo != 0 || maillage != 0) ? 1 : 0);
 			}
 			if (args[i].StartsWith("--niveau=")) {
 				const NkString v = args[i].SubStr(9);

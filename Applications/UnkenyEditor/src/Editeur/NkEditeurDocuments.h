@@ -56,7 +56,8 @@ namespace nkentseu {
 			NK_SCENE = 0, ///< la scene (toujours la ; `cle` n'est pas lue)
 			NK_ANIM,	  ///< une page Animation ou Animateur (cle = NkDocAnim::id)
 			NK_ASSET,	  ///< un asset ouvert (cle = NkOngletAsset::id)
-			NK_BLUEPRINT  ///< la page du graphe d'un Blueprint (cle = NkEditeurGrapheEtat::id)
+			NK_BLUEPRINT, ///< la page du graphe d'un Blueprint (cle = NkEditeurGrapheEtat::id)
+			NK_MAILLAGE	  ///< (2026-10-02, R31) la fenetre d'edition d'un maillage 2D (cle = NkDocMaillage::id)
 		};
 
 		/// Un document de la barre : son genre et son identite DANS son genre.

@@ -118,6 +118,14 @@ namespace nkentseu {
 				// AddImage ; `tint` multiplie l'échantillon (l'alpha porte l'opacité).
 				void AddImagePolygon(uint32 texId, const NkVec2 *pts, const NkVec2 *uvs, int32 n,
 									 const NkColor &tint) noexcept;
+				// MAILLAGE INDEXE (2026-10-02, le maillage 2D d'Unkeny, R31) : `nVtx`
+				// sommets, un uv ET une couleur PAR SOMMET (la couleur multiplie
+				// l'echantillon et s'interpole sur le triangle), `nIdx` indices (trois
+				// par triangle). `texId` 0 = triangles unis (degrade des couleurs de
+				// sommet) ; `uvs` nul = (0,0) ; `cols` nul = blanc. Un triangle dont un
+				// indice sort des sommets est saute. AJOUT : rien d'autre ne change.
+				void AddMesh(uint32 texId, const NkVec2 *pts, const NkVec2 *uvs, const NkColor *cols, int32 nVtx,
+							 const uint32 *indices, int32 nIdx) noexcept;
 				void AddLine(const NkVec2 &a, const NkVec2 &b, const NkColor &col, float32 thickness = 1.f) noexcept;
 				void AddTriangleFilled(const NkVec2 &a, const NkVec2 &b, const NkVec2 &c, const NkColor &col) noexcept;
 				// Triangle à DÉGRADÉ (3 couleurs de sommet) — roue de teinte + triangle SV.
