@@ -245,6 +245,12 @@ namespace nkentseu {
 		}
 
 		void NkGuiDrawList::AddLine(const NkVec2 &a, const NkVec2 &b, const NkColor &col, float32 thickness) noexcept {
+			// OBLIQUE : le trait lisse (frange) ; horizontal/vertical : le quad net.
+			if (traitsLisses && std::fabs(b.x - a.x) > 1.0e-3f && std::fabs(b.y - a.y) > 1.0e-3f) {
+				const NkVec2 deux[2] = {a, b};
+				AddPolylineLisse(deux, 2, col, thickness, false, false);
+				return;
+			}
 			thickness *= thickScale; // épaisseur en px écran (DPI)
 			float32 dx = b.x - a.x, dy = b.y - a.y;
 			const float32 len = std::sqrt(dx * dx + dy * dy);
@@ -397,8 +403,244 @@ namespace nkentseu {
 			// laissent une encoche ; c'est assume (les emulations remplacees faisaient
 			// deja exactement cela).
 			const int32 last = closed ? n : n - 1;
+			// Un seul segment OBLIQUE : toute la ligne passe au trait lisse (raccords
+			// et frange continus ; des quads separes se chevaucheraient aux sommets).
+			if (traitsLisses) {
+				for (int32 i = 0; i < last; ++i) {
+					const NkVec2 &p = pts[i], &q = pts[(i + 1) % n];
+					if (std::fabs(q.x - p.x) > 1.0e-3f && std::fabs(q.y - p.y) > 1.0e-3f) {
+						AddPolylineLisse(pts, n, col, thickness, closed, false);
+						return;
+					}
+				}
+			}
 			for (int32 i = 0; i < last; ++i)
 				AddLine(pts[i], pts[(i + 1) % n], col, thickness);
+		}
+
+		// ── LES TRAITS LISSES (2026-10-02) ─────────────────────────────────────
+		// Chaque point du chemin donne QUATRE sommets sur sa normale (onglet borne) :
+		// bord+ (alpha 0), coeur+ (alpha plein), coeur- (alpha plein), bord- (alpha
+		// 0). Entre deux points : six triangles (frange+, coeur, frange-). Le coeur
+		// mesure t - 1 px, la frange 1 px de chaque cote : le poids visuel reste t.
+		void NkGuiDrawList::AddPolylineLisse(const NkVec2 *pts, int32 n, const NkColor &col, float32 thickness,
+											 bool closed, bool boutsRonds) noexcept {
+			if (!pts || n < 2 || col.a == 0)
+				return;
+			if (!traitsLisses) {
+				// Le chemin d'AVANT (contre-epreuve) : un quad net par segment.
+				const int32 last = closed ? n : n - 1;
+				for (int32 i = 0; i < last; ++i)
+					AddLine(pts[i], pts[(i + 1) % n], col, thickness);
+				return;
+			}
+			const float32 t = thickness * thickScale;
+			if (t <= 0.f)
+				return;
+			NkColor plein = col;
+			float32 coeur = t * 0.5f - 0.5f;
+			if (t < 1.f) { // plus fin qu'un pixel : coeur nul, l'alpha porte l'epaisseur
+				plein.a = static_cast<uint8>(static_cast<float32>(col.a) * t + 0.5f);
+				coeur = 0.f;
+			}
+			const float32 bord = coeur + 1.f;
+			NkColor vide = col;
+			vide.a = 0;
+			const uint32 cp = NkGuiPackColor(plein), cv = NkGuiPackColor(vide);
+			const NkVec2 uv{0.f, 0.f};
+
+			// Les points distincts (un doublon n'a pas de direction).
+			NkVector<NkVec2> p;
+			p.Reserve(static_cast<usize>(n));
+			for (int32 i = 0; i < n; ++i) {
+				if (p.Empty()) {
+					p.PushBack(pts[i]);
+					continue;
+				}
+				const NkVec2 &d = p.Back();
+				if ((pts[i].x - d.x) * (pts[i].x - d.x) + (pts[i].y - d.y) * (pts[i].y - d.y) > 1.0e-8f)
+					p.PushBack(pts[i]);
+			}
+			if (closed && p.Size() > 2u) {
+				const NkVec2 &f = p[0], &d = p.Back();
+				if ((f.x - d.x) * (f.x - d.x) + (f.y - d.y) * (f.y - d.y) <= 1.0e-8f)
+					p.PopBack();
+			}
+			const int32 m = static_cast<int32>(p.Size());
+			if (m < 2)
+				return;
+			if (m < 3)
+				closed = false;
+			const int32 nbSeg = closed ? m : m - 1;
+			// Les normales des segments, puis celles des sommets (onglet borne a 2x).
+			NkVector<NkVec2> ns;
+			ns.Resize(static_cast<usize>(nbSeg));
+			for (int32 i = 0; i < nbSeg; ++i) {
+				const NkVec2 &a = p[static_cast<uint32>(i)], &b = p[static_cast<uint32>((i + 1) % m)];
+				const float32 dx = b.x - a.x, dy = b.y - a.y;
+				const float32 l = std::sqrt(dx * dx + dy * dy);
+				ns[static_cast<uint32>(i)] = NkVec2{-dy / l, dx / l};
+			}
+			NkVector<NkVec2> nv;
+			nv.Resize(static_cast<usize>(m));
+			for (int32 i = 0; i < m; ++i) {
+				if (!closed && (i == 0 || i == m - 1)) {
+					nv[static_cast<uint32>(i)] = ns[static_cast<uint32>(i == 0 ? 0 : nbSeg - 1)];
+					continue;
+				}
+				const NkVec2 &na = ns[static_cast<uint32>((i - 1 + nbSeg) % nbSeg)], &nb = ns[static_cast<uint32>(i % nbSeg)];
+				NkVec2 dm{(na.x + nb.x) * 0.5f, (na.y + nb.y) * 0.5f};
+				const float32 d2 = dm.x * dm.x + dm.y * dm.y;
+				if (d2 > 1.0e-6f) {
+					float32 k = 1.f / d2;
+					if (k > 4.f)
+						k = 4.f;
+					dm.x *= k;
+					dm.y *= k;
+				} else {
+					dm = nb; // demi-tour : la normale du segment suivant
+				}
+				nv[static_cast<uint32>(i)] = dm;
+			}
+			// Les quatre sommets de chaque point.
+			const uint32 base = static_cast<uint32>(vtx.Size());
+			for (int32 i = 0; i < m; ++i) {
+				const NkVec2 &q = p[static_cast<uint32>(i)], &nn = nv[static_cast<uint32>(i)];
+				Vtx({q.x + nn.x * bord, q.y + nn.y * bord}, uv, cv);
+				Vtx({q.x + nn.x * coeur, q.y + nn.y * coeur}, uv, cp);
+				Vtx({q.x - nn.x * coeur, q.y - nn.y * coeur}, uv, cp);
+				Vtx({q.x - nn.x * bord, q.y - nn.y * bord}, uv, cv);
+			}
+			for (int32 i = 0; i < nbSeg; ++i) {
+				const uint32 a = base + static_cast<uint32>(i) * 4u, b = base + static_cast<uint32>((i + 1) % m) * 4u;
+				Tri(a + 0u, a + 1u, b + 1u, 0u); // frange +
+				Tri(a + 0u, b + 1u, b + 0u, 0u);
+				Tri(a + 1u, a + 2u, b + 2u, 0u); // coeur
+				Tri(a + 1u, b + 2u, b + 1u, 0u);
+				Tri(a + 2u, a + 3u, b + 3u, 0u); // frange -
+				Tri(a + 2u, b + 3u, b + 2u, 0u);
+			}
+			// Les BOUTS RONDS : un demi-disque (coeur plein + anneau de frange)
+			// d'un cote a l'autre de la normale, en passant par la direction SORTANTE.
+			if (boutsRonds && !closed) {
+				const float32 PI = 3.14159265358979f;
+				int32 k = static_cast<int32>(bord * 2.f) + 4;
+				k = k > 16 ? 16 : k;
+				for (int32 bout = 0; bout < 2; ++bout) {
+					const int32 i = bout == 0 ? 0 : m - 1;
+					const NkVec2 q = p[static_cast<uint32>(i)];
+					const NkVec2 nn = ns[static_cast<uint32>(bout == 0 ? 0 : nbSeg - 1)];
+					// La direction du segment est (nn.y, -nn.x) ; sortante : son
+					// oppose au debut, elle-meme a la fin.
+					const float32 sg = bout == 0 ? -1.f : 1.f;
+					const NkVec2 sort{nn.y * sg, -nn.x * sg};
+					const uint32 centre = Vtx(q, uv, cp);
+					uint32 pc = 0, po = 0;
+					for (int32 j = 0; j <= k; ++j) {
+						const float32 an = PI * static_cast<float32>(j) / static_cast<float32>(k);
+						const float32 cs = std::cos(an), sn = std::sin(an);
+						const NkVec2 v{nn.x * cs + sort.x * sn, nn.y * cs + sort.y * sn};
+						const uint32 vc = Vtx({q.x + v.x * coeur, q.y + v.y * coeur}, uv, cp);
+						const uint32 vo = Vtx({q.x + v.x * bord, q.y + v.y * bord}, uv, cv);
+						if (j > 0) {
+							Tri(centre, pc, vc, 0u);
+							Tri(pc, po, vo, 0u);
+							Tri(pc, vo, vc, 0u);
+						}
+						pc = vc;
+						po = vo;
+					}
+				}
+			}
+		}
+
+		NkVec2 NkGuiDrawList::PointBezier(const NkVec2 &p0, const NkVec2 &c0, const NkVec2 &c1, const NkVec2 &p1,
+										  float32 t) noexcept {
+			const float32 u = 1.f - t;
+			const float32 w0 = u * u * u, w1 = 3.f * u * u * t, w2 = 3.f * u * t * t, w3 = t * t * t;
+			return NkVec2{w0 * p0.x + w1 * c0.x + w2 * c1.x + w3 * p1.x, w0 * p0.y + w1 * c0.y + w2 * c1.y + w3 * p1.y};
+		}
+
+		int32 NkGuiDrawList::SegmentsBezier(const NkVec2 &p0, const NkVec2 &c0, const NkVec2 &c1,
+											const NkVec2 &p1) noexcept {
+			auto d = [](const NkVec2 &a, const NkVec2 &b) {
+				return std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y));
+			};
+			const float32 l = d(p0, c0) + d(c0, c1) + d(c1, p1);
+			const int32 s = static_cast<int32>(l / 4.f) + 1;
+			return s < 8 ? 8 : (s > 256 ? 256 : s);
+		}
+
+		void NkGuiDrawList::AddBezierCubic(const NkVec2 &p0, const NkVec2 &c0, const NkVec2 &c1, const NkVec2 &p1,
+										   const NkColor &col, float32 thickness, int32 segs, bool boutsRonds) noexcept {
+			if (segs <= 0)
+				segs = SegmentsBezier(p0, c0, c1, p1);
+			if (segs > 256)
+				segs = 256;
+			NkVec2 pts[257];
+			for (int32 i = 0; i <= segs; ++i)
+				pts[i] = PointBezier(p0, c0, c1, p1, static_cast<float32>(i) / static_cast<float32>(segs));
+			AddPolylineLisse(pts, segs + 1, col, thickness, false, boutsRonds);
+		}
+
+		// Le polygone convexe LISSE : le polygone rentre d'un demi-pixel (plein),
+		// puis une frange jusqu'au polygone sorti d'un demi-pixel (alpha 0) -- le
+		// bord tombe ou il etait, adouci sur un pixel (le remplissage AA d'ImGui).
+		void NkGuiDrawList::AddConvexPolyLisse(const NkVec2 *pts, int32 n, const NkColor &col) noexcept {
+			if (!pts || n < 3)
+				return;
+			if (!traitsLisses) {
+				AddConvexPolyFilled(pts, n, col); // le chemin d'avant (contre-epreuve)
+				return;
+			}
+			// L'orientation : la normale SORTANTE de (a -> b) est sg * (dy, -dx).
+			float32 aire = 0.f;
+			for (int32 i = 0; i < n; ++i) {
+				const NkVec2 &p = pts[i], &q = pts[(i + 1) % n];
+				aire += p.x * q.y - q.x * p.y;
+			}
+			if (std::fabs(aire) < 1.0e-6f)
+				return;
+			const float32 sg = aire > 0.f ? 1.f : -1.f;
+			NkVec2 ne[64];
+			NkVec2 nvx[64];
+			if (n > 64)
+				n = 64;
+			for (int32 i = 0; i < n; ++i) {
+				const NkVec2 &p = pts[i], &q = pts[(i + 1) % n];
+				const float32 dx = q.x - p.x, dy = q.y - p.y;
+				const float32 l = std::sqrt(dx * dx + dy * dy);
+				ne[i] = l > 1.0e-6f ? NkVec2{sg * dy / l, -sg * dx / l} : NkVec2{0.f, 0.f};
+			}
+			for (int32 i = 0; i < n; ++i) {
+				const NkVec2 &na = ne[(i - 1 + n) % n], &nb = ne[i];
+				NkVec2 dm{(na.x + nb.x) * 0.5f, (na.y + nb.y) * 0.5f};
+				const float32 d2 = dm.x * dm.x + dm.y * dm.y;
+				if (d2 > 1.0e-6f) {
+					float32 k = 1.f / d2;
+					if (k > 4.f)
+						k = 4.f;
+					dm.x *= k;
+					dm.y *= k;
+				}
+				nvx[i] = dm;
+			}
+			NkColor vide = col;
+			vide.a = 0;
+			const uint32 cp = NkGuiPackColor(col), cv = NkGuiPackColor(vide);
+			const NkVec2 uv{0.f, 0.f};
+			const uint32 base = static_cast<uint32>(vtx.Size());
+			for (int32 i = 0; i < n; ++i) {
+				Vtx({pts[i].x - nvx[i].x * 0.5f, pts[i].y - nvx[i].y * 0.5f}, uv, cp); // dedans
+				Vtx({pts[i].x + nvx[i].x * 0.5f, pts[i].y + nvx[i].y * 0.5f}, uv, cv); // dehors
+			}
+			for (int32 i = 2; i < n; ++i)
+				Tri(base, base + static_cast<uint32>(i - 1) * 2u, base + static_cast<uint32>(i) * 2u, 0u);
+			for (int32 i = 0; i < n; ++i) {
+				const uint32 a = base + static_cast<uint32>(i) * 2u, b = base + static_cast<uint32>((i + 1) % n) * 2u;
+				Tri(a, a + 1u, b + 1u, 0u);
+				Tri(a, b + 1u, b, 0u);
+			}
 		}
 
 		void NkGuiDrawList::AddTriangleFilled(const NkVec2 &a, const NkVec2 &b, const NkVec2 &c,

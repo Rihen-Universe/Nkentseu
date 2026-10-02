@@ -151,6 +151,9 @@ namespace nkentseu {
 				char code[1024] = {};
 				uint32 caret = 0u;
 				float32 clignote = 0.f;
+				/// La police de la derniere trame : la hauteur d'un bloc de code se
+				/// MESURE avec elle (la toile mesure avant de dessiner).
+				nkgui::NkGuiFont *police = nullptr;
 
 				// --- Simuler --------------------------------------------------------
 				bool simulation = false;
@@ -197,6 +200,8 @@ namespace nkentseu {
 										const nkgui::NkRect &r);
 		/// Compile (et enregistre) par l'hote, et montre le resultat.
 		bool NkEditeurBlueprintCompiler(NkEditeurBlueprintEtat &e, NkHoteBlueprint &hote);
+		/// Amene le noeud a l'ecran s'il n'y est pas deja en entier (au centre).
+		void NkEditeurBlueprintMontrer(NkEditeurBlueprintEtat &e, editorkit::NkEtatCanevas &t, const graph::NkNode &n);
 		/// Ouvre (ou montre) l'onglet du graphe `g`.
 		void NkEditeurBlueprintOnglet(NkEditeurBlueprintEtat &e, uint32 g);
 		/// Retient l'etat du document (annuler / refaire) et le marque modifie.

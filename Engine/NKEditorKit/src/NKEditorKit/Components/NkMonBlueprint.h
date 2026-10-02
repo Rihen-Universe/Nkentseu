@@ -45,6 +45,9 @@ namespace nkentseu {
 				/// Le glyphe dans la pastille (« V/F ») ; vide : une capsule pleine.
 				NkString glyphe;
 				int32 id = -1;
+				/// Un OEIL dessine avant le sous-texte : « modifiable par instance »
+				/// (l'oeil d'UE5 ; la police n'a pas de glyphe sur lequel compter).
+				bool oeil = false;
 		};
 
 		struct NkSectionPanneau {
@@ -101,6 +104,14 @@ namespace nkentseu {
 
 		/// Commence le renommage de l'element (section, id), son nom actuel `nom`.
 		void NkMonBlueprintRenommer(NkEtatMonBlueprint &e, int32 section, int32 id, const char *nom);
+
+		// --- Petites ICONES dessinees (la police n'a ni ✓ ni ✗ ni ◆) -----------
+		/// Un oeil (amande + pupille) centre en (cx, cy), de largeur `w`.
+		void NkIconeOeil(nkgui::NkGuiDrawList &dl, float32 cx, float32 cy, float32 w, const nkgui::NkColor &c);
+		/// Une coche (reussi), dans le carre de cote `w` centre en (cx, cy).
+		void NkIconeCoche(nkgui::NkGuiDrawList &dl, float32 cx, float32 cy, float32 w, const nkgui::NkColor &c);
+		/// Une croix (echec), dans le carre de cote `w` centre en (cx, cy).
+		void NkIconeCroix(nkgui::NkGuiDrawList &dl, float32 cx, float32 cy, float32 w, const nkgui::NkColor &c);
 
 	} // namespace editorkit
 } // namespace nkentseu

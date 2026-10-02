@@ -1773,8 +1773,8 @@ namespace nkentseu {
 				h.categorie = "Réglages";
 				d.variables.PushBack(h);
 			}
-			// La fonction OuvrirPorte(hauteur) : Entree -> Teleporter(porte,
-			// Position + (0, hauteur)) -> Jouer l'effet -> Afficher -> ouverte = vrai.
+			// La fonction OuvrirPorte(hauteur) : Entree -> Afficher -> Teleporter(porte,
+			// Position + (0, hauteur)) -> Jouer l'effet -> ouverte = vrai -> Retour.
 			const uint32 gf = NkBpAjouterFonction(d, "OuvrirPorte");
 			NkGrapheBp &f = d.graphes[gf];
 			{
@@ -1799,19 +1799,21 @@ namespace nkentseu {
 				}
 			}
 			if (graph::NkNode *r = g.Find(retour)) {
-				r->x = 1240.f;
+				r->x = 1510.f;
 				r->y = 0.f;
 			}
+			// La mise en page : le FLOT d'execution sur une ligne (en haut), les
+			// valeurs dessous, de gauche a droite dans l'ordre ou elles se calculent.
 			const graph::NkNodeId nomPorte = NkBpCreerLireVariable(d, g, "porte", 0.f, 170.f);
-			const graph::NkNodeId parNom = NkBpCreerNoeud(g, "bp.natif:unkeny.entite.par_nom", 210.f, 170.f);
-			const graph::NkNodeId pos = NkBpCreerNoeud(g, "bp.natif:unkeny.transform.position", 460.f, 230.f);
-			const graph::NkNodeId vec = NkBpCreerNoeud(g, "bp.math.vec2", 210.f, 290.f);
-			const graph::NkNodeId add = NkBpCreerNoeud(g, "bp.math.add_v", 460.f, 330.f);
-			const graph::NkNodeId tel = NkBpCreerNoeud(g, "bp.natif:unkeny.transform.teleporter", 300.f, 0.f);
-			const graph::NkNodeId eff = NkBpCreerNoeud(g, "bp.natif:unkeny.effet.jouer", 560.f, 0.f);
-			const graph::NkNodeId aff = NkBpCreerNoeud(g, "bp.natif:unkeny.journal.afficher", 800.f, 0.f);
+			const graph::NkNodeId parNom = NkBpCreerNoeud(g, "bp.natif:unkeny.entite.par_nom", 130.f, 150.f);
+			const graph::NkNodeId pos = NkBpCreerNoeud(g, "bp.natif:unkeny.transform.position", 370.f, 150.f);
+			const graph::NkNodeId vec = NkBpCreerNoeud(g, "bp.math.vec2", 370.f, 290.f);
+			const graph::NkNodeId add = NkBpCreerNoeud(g, "bp.math.add_v", 600.f, 220.f);
+			const graph::NkNodeId tel = NkBpCreerNoeud(g, "bp.natif:unkeny.transform.teleporter", 830.f, 0.f);
+			const graph::NkNodeId eff = NkBpCreerNoeud(g, "bp.natif:unkeny.effet.jouer", 1070.f, 0.f);
+			const graph::NkNodeId aff = NkBpCreerNoeud(g, "bp.natif:unkeny.journal.afficher", 240.f, 0.f);
 			NkBpPoserDefaut(g, aff, "texte", "La porte s'ouvre (Blueprint)");
-			const graph::NkNodeId ecr = NkBpCreerEcrireVariable(d, g, "ouverte", 1020.f, 0.f);
+			const graph::NkNodeId ecr = NkBpCreerEcrireVariable(d, g, "ouverte", 1290.f, 0.f);
 			NkBpPoserDefaut(g, ecr, "valeur", "vrai");
 			// La fonction neuve va d'Entree a Retour : on libere « suite » (une
 			// sortie d'execution n'a qu'UNE suite).
@@ -1821,7 +1823,8 @@ namespace nkentseu {
 					g.Disconnect(l->id);
 				}
 			}
-			g.Connect(entree, "suite", tel, "exec");
+			g.Connect(entree, "suite", aff, "exec");
+			g.Connect(aff, "suite", tel, "exec");
 			g.Connect(nomPorte, "valeur", parNom, "nom");
 			g.Connect(parNom, "entité", tel, "entité");
 			g.Connect(parNom, "entité", pos, "entité");
@@ -1831,23 +1834,24 @@ namespace nkentseu {
 			g.Connect(add, "r", tel, "position");
 			g.Connect(tel, "suite", eff, "exec");
 			g.Connect(parNom, "entité", eff, "entité");
-			g.Connect(eff, "suite", aff, "exec");
-			g.Connect(aff, "suite", ecr, "exec");
+			g.Connect(eff, "suite", ecr, "exec");
 			g.Connect(ecr, "suite", retour, "exec");
 
 			// Le graphe d'evenements : Zone entree -> Si (soi est la zone ET
 			// l'autre est le Joueur ET pas encore ouverte) -> OuvrirPorte(hauteur).
 			graph::NkNodeGraph &e = d.graphes[0].graphe;
+			// La mise en page : le flot en haut (evenement -> Si -> appel / code),
+			// la condition dessous, calculee de gauche a droite.
 			const graph::NkNodeId ev = NkBpCreerNoeud(e, "bp.ev.zone_entree", 0.f, 0.f);
-			const graph::NkNodeId nomEst = NkBpCreerNoeud(e, "bp.natif:unkeny.entite.nom_est", 0.f, 150.f);
+			const graph::NkNodeId nomEst = NkBpCreerNoeud(e, "bp.natif:unkeny.entite.nom_est", 270.f, 150.f);
 			NkBpPoserDefaut(e, nomEst, "nom", "Joueur");
-			const graph::NkNodeId lire = NkBpCreerLireVariable(d, e, "ouverte", 0.f, 290.f);
-			const graph::NkNodeId et = NkBpCreerNoeud(e, "bp.math.et", 270.f, 120.f);
-			const graph::NkNodeId non = NkBpCreerNoeud(e, "bp.math.non", 270.f, 290.f);
-			const graph::NkNodeId et2 = NkBpCreerNoeud(e, "bp.math.et", 520.f, 200.f);
-			const graph::NkNodeId si = NkBpCreerNoeud(e, "bp.si", 520.f, 0.f);
-			const graph::NkNodeId h = NkBpCreerLireVariable(d, e, "hauteur", 520.f, 330.f);
-			const graph::NkNodeId appel = NkBpCreerAppel(d, e, "OuvrirPorte", 780.f, 0.f);
+			const graph::NkNodeId lire = NkBpCreerLireVariable(d, e, "ouverte", 300.f, 310.f);
+			const graph::NkNodeId et = NkBpCreerNoeud(e, "bp.math.et", 530.f, 90.f);
+			const graph::NkNodeId non = NkBpCreerNoeud(e, "bp.math.non", 530.f, 260.f);
+			const graph::NkNodeId et2 = NkBpCreerNoeud(e, "bp.math.et", 770.f, 170.f);
+			const graph::NkNodeId si = NkBpCreerNoeud(e, "bp.si", 1010.f, 0.f);
+			const graph::NkNodeId h = NkBpCreerLireVariable(d, e, "hauteur", 1030.f, 180.f);
+			const graph::NkNodeId appel = NkBpCreerAppel(d, e, "OuvrirPorte", 1250.f, 0.f);
 			e.Connect(ev, "suite", si, "exec");
 			e.Connect(ev, "autre", nomEst, "entité");
 			e.Connect(ev, "soiEstLaZone", et, "a");
@@ -1858,8 +1862,13 @@ namespace nkentseu {
 			e.Connect(et2, "r", si, "condition");
 			e.Connect(si, "vrai", appel, "exec");
 			e.Connect(h, "valeur", appel, "hauteur");
-			// Un commentaire, comme on en pose dans UE5.
-			NkBpCreerCommentaire(e, "Le Joueur entre dans la zone : la porte s'ouvre une fois", -40.f, -70.f, 1080.f, 470.f);
+			// Le cas FAUX, ecrit en code (le noeud « Code » de la reference) : il
+			// n'est atteint que si l'on rentre dans la zone porte deja ouverte.
+			const graph::NkNodeId rien = NkBpCreerNoeudCode(e, NK_BP_CODE, 1250.f, 150.f);
+			NkBpPoserCodeNoeud(e, rien, "afficher(\"Rien à ouvrir : \" + porte + \" est déjà ouverte\")");
+			e.Connect(si, "faux", rien, "exec");
+			// Un cadre, comme on en pose dans UE5 (la charte : option A).
+			NkBpCreerCommentaire(e, "Le Joueur entre dans la zone : la porte s'ouvre une fois", -40.f, -70.f, 1660.f, 470.f);
 		}
 
 	} // namespace editeur

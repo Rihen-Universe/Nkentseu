@@ -136,28 +136,49 @@ namespace nkentseu {
 				}
 				return -1;
 			}
-			/// Une cubique de `a` (sortie) a `b` (entree), echantillonnee.
-			void Courbe(const NkVec2 &a, const NkVec2 &b, NkVec2 *pts, int32 nb) {
+			/// Les points de controle de la cubique d'un fil, de `a` (sortie) a `b` (entree).
+			void Controles(const NkVec2 &a, const NkVec2 &b, NkVec2 &c1, NkVec2 &c2) {
 				const float32 dx = Absf(b.x - a.x) * 0.5f;
 				const float32 tire = dx < 40.f ? 40.f : dx;
-				const NkVec2 c1{a.x + tire, a.y};
-				const NkVec2 c2{b.x - tire, b.y};
+				c1 = NkVec2{a.x + tire, a.y};
+				c2 = NkVec2{b.x - tire, b.y};
+			}
+			/// Une cubique de `a` (sortie) a `b` (entree), echantillonnee en `nb` points.
+			void Courbe(const NkVec2 &a, const NkVec2 &b, NkVec2 *pts, int32 nb) {
+				NkVec2 c1, c2;
+				Controles(a, b, c1, c2);
 				for (int32 i = 0; i < nb; ++i) {
-					const float32 t = static_cast<float32>(i) / static_cast<float32>(nb - 1);
-					const float32 u = 1.f - t;
-					const float32 w0 = u * u * u, w1 = 3.f * u * u * t, w2 = 3.f * u * t * t, w3 = t * t * t;
-					pts[i] = NkVec2{w0 * a.x + w1 * c1.x + w2 * c2.x + w3 * b.x, w0 * a.y + w1 * c1.y + w2 * c2.y + w3 * b.y};
+					pts[i] = nkgui::NkGuiDrawList::PointBezier(a, c1, c2, b, static_cast<float32>(i) / static_cast<float32>(nb - 1));
 				}
 			}
+			/// Le nombre de points d'un fil A L'ECRAN : il suit sa longueur (NKGui),
+			/// pour qu'aucune courbe ne soit anguleuse (au plus 257 : `kPointsFil`).
+			constexpr int32 kPointsFil = 257;
+			int32 PointsFil(const NkVec2 &a, const NkVec2 &b) {
+				NkVec2 c1, c2;
+				Controles(a, b, c1, c2);
+				return nkgui::NkGuiDrawList::SegmentsBezier(a, c1, c2, b) + 1;
+			}
+			/// Un fil : la cubique LISSEE de NKGui (frange, segments adaptatifs, bouts ronds).
 			void Fil(nkgui::NkGuiDrawList &dl, const NkVec2 &a, const NkVec2 &b, const NkColor &c, float32 epaisseur) {
-				NkVec2 pts[25];
-				Courbe(a, b, pts, 25);
-				dl.AddPolyline(pts, 25, c, epaisseur);
+				NkVec2 c1, c2;
+				Controles(a, b, c1, c2);
+				dl.AddBezierCubic(a, c1, c2, b, c, epaisseur, 0, true);
 			}
 			/// Une polyligne en POINTILLE (tirets `plein` / `vide`, en pixels).
 			void Pointille(nkgui::NkGuiDrawList &dl, const NkVec2 *pts, int32 n, const NkColor &c, float32 ep, float32 plein, float32 vide) {
+				// Chaque TIRET est une petite polyligne LISSE (ses points suivent la
+				// courbe) : pas de quads separes qui se chevauchent a ses sommets.
 				float32 phase = 0.f;
 				bool trace = true;
+				NkVec2 tiret[64];
+				int32 nt = 0;
+				auto vider = [&]() {
+					if (nt >= 2) {
+						dl.AddPolyline(tiret, nt, c, ep); // lisse si oblique, net si droit
+					}
+					nt = 0;
+				};
 				for (int32 i = 0; i + 1 < n; ++i) {
 					NkVec2 a = pts[i];
 					const NkVec2 b = pts[i + 1];
@@ -168,17 +189,26 @@ namespace nkentseu {
 						const float32 t = pas / lg;
 						const NkVec2 m{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t};
 						if (trace) {
-							dl.AddLine(a, m, c, ep);
+							if (nt == 0) {
+								tiret[nt++] = a;
+							}
+							if (nt < 64) {
+								tiret[nt++] = m;
+							}
 						}
 						phase += pas;
 						if (phase >= (trace ? plein : vide) - 1e-3f) {
 							phase = 0.f;
+							if (trace) {
+								vider();
+							}
 							trace = !trace;
 						}
 						a = m;
 						lg -= pas;
 					}
 				}
+				vider();
 			}
 			void RectPointille(nkgui::NkGuiDrawList &dl, const NkRect &r, const NkColor &c, float32 ep, float32 tiret) {
 				const NkVec2 pts[5] = {{r.x, r.y}, {r.x + r.w, r.y}, {r.x + r.w, r.y + r.h}, {r.x, r.y + r.h}, {r.x, r.y}};
@@ -202,11 +232,16 @@ namespace nkentseu {
 			/// La prise d'EXECUTION : un rectangle a POINTE (pointe a 58 % de la
 			/// largeur), de `x0` (gauche) sur `w`, centre en `cy`. Creuse = non
 			/// branchee, pleine = branchee.
+			/// Un petit triangle (fleche, repli) au bord ADOUCI (NKGui).
+			void TriangleLisse(nkgui::NkGuiDrawList &dl, const NkVec2 &a, const NkVec2 &b, const NkVec2 &c, const NkColor &col) {
+				const NkVec2 t[3] = {a, b, c};
+				dl.AddConvexPolyLisse(t, 3, col);
+			}
 			void PriseExec(nkgui::NkGuiDrawList &dl, float32 x0, float32 cy, float32 w, float32 h, const NkColor &c, const NkColor &fond,
 						   bool pleine) {
 				const float32 xp = x0 + w * 0.58f;
 				const NkVec2 p[5] = {{x0, cy - h * 0.5f}, {xp, cy - h * 0.5f}, {x0 + w, cy}, {xp, cy + h * 0.5f}, {x0, cy + h * 0.5f}};
-				dl.AddConvexPolyFilled(p, 5, pleine ? c : fond);
+				dl.AddConvexPolyLisse(p, 5, pleine ? c : fond); // la pointe adoucie
 				if (!pleine) {
 					dl.AddPolyline(p, 5, c, 1.5f, true);
 				}
@@ -348,8 +383,9 @@ namespace nkentseu {
 			float32 z = (zone.w - 2.f * marge) / (x1 - x0);
 			const float32 zy = (zone.h - 2.f * marge) / (y1 - y0);
 			z = zy < z ? zy : z;
-			// Lisible d'abord : en dessous de 0,7 le texte des noeuds ne se lit plus.
-			z = z < 0.7f ? 0.7f : (z > 1.25f ? 1.25f : z);
+			// Lisible d'abord : en dessous de 0,7 le texte des noeuds ne se lit plus ;
+			// au-dessus de 1 un petit graphe parait gonfle (la charte est dessinee a 1).
+			z = z < 0.7f ? 0.7f : (z > 1.f ? 1.f : z);
 			e.zoom = z;
 			const float32 libreX = zone.w / z - (x1 - x0);
 			const float32 libreY = zone.h / z - (y1 - y0);
@@ -701,6 +737,12 @@ namespace nkentseu {
 							geo.entete = st.Empty() ? s.hauteurEntete : s.hauteurEnteteDouble;
 							float32 w = 22.f + Largeur(f, n->label.Empty() ? n->type.CStr() : n->label.CStr(), 1.f) + 30.f + (trace ? 40.f : 0.f);
 							w = Max(w, 22.f + Largeur(f, st.CStr(), 0.8f) + 20.f);
+							// La largeur minimale AVANT le bloc : il se coupe a cette largeur
+							// (sinon un bloc de code se mesurait etroit, donc trop haut).
+							if (d.LargeurMin != nullptr) {
+								w = Max(w, d.LargeurMin(d.donnees, *n));
+							}
+							w = Max(w, s.largeurMin);
 							// Les rangees, une prise chacune.
 							geo.yPrises.Resize(n->sockets.Size(), 0.f);
 							const int32 tete = ExecEnTete(*n);
@@ -935,10 +977,10 @@ namespace nkentseu {
 						dl.AddLine(NkVec2{cx - u * 1.8f, cy}, NkVec2{cx + u * 1.8f, cy}, c, 1.6f);
 						dl.AddLine(NkVec2{cx, cy - u * 1.8f}, NkVec2{cx, cy + u * 1.8f}, c, 1.6f);
 						const float32 t = u * 0.6f;
-						dl.AddTriangleFilled(NkVec2{cx + u * 2.1f, cy}, NkVec2{cx + u * 1.4f, cy - t}, NkVec2{cx + u * 1.4f, cy + t}, c);
-						dl.AddTriangleFilled(NkVec2{cx - u * 2.1f, cy}, NkVec2{cx - u * 1.4f, cy + t}, NkVec2{cx - u * 1.4f, cy - t}, c);
-						dl.AddTriangleFilled(NkVec2{cx, cy - u * 2.1f}, NkVec2{cx + t, cy - u * 1.4f}, NkVec2{cx - t, cy - u * 1.4f}, c);
-						dl.AddTriangleFilled(NkVec2{cx, cy + u * 2.1f}, NkVec2{cx - t, cy + u * 1.4f}, NkVec2{cx + t, cy + u * 1.4f}, c);
+						TriangleLisse(dl, NkVec2{cx + u * 2.1f, cy}, NkVec2{cx + u * 1.4f, cy - t}, NkVec2{cx + u * 1.4f, cy + t}, c);
+						TriangleLisse(dl, NkVec2{cx - u * 2.1f, cy}, NkVec2{cx - u * 1.4f, cy + t}, NkVec2{cx - u * 1.4f, cy - t}, c);
+						TriangleLisse(dl, NkVec2{cx, cy - u * 2.1f}, NkVec2{cx + t, cy - u * 1.4f}, NkVec2{cx - t, cy - u * 1.4f}, c);
+						TriangleLisse(dl, NkVec2{cx, cy + u * 2.1f}, NkVec2{cx - t, cy + u * 1.4f}, NkVec2{cx + t, cy + u * 1.4f}, c);
 						break;
 					}
 					case NkOutilCanevas::NK_COMMENTAIRE: {
@@ -1189,7 +1231,9 @@ namespace nkentseu {
 				e.modifie = true;
 			};
 
-			if (dedans && !surUi && e.geste == 0 && cible.bloc == graph::NK_NODE_INVALID) {
+			// Sur un BLOC de domaine, seul le clic GAUCHE lui revient : la molette zoome,
+			// le clic droit ouvre le menu du noeud (comme partout ailleurs sur le noeud).
+			if (dedans && !surUi && e.geste == 0 && (cible.bloc == graph::NK_NODE_INVALID || !in.mouseClicked[0])) {
 				// La molette : zoom autour du curseur.
 				if (in.wheel != 0.f) {
 					const NkVec2 avant = NkCanevasDepuisEcran(e, zone, souris);
@@ -1646,11 +1690,9 @@ namespace nkentseu {
 						c = NkAlphaNodal(c, s.alphaEstompe);
 					}
 					if (servi) {
-						NkVec2 pts[25];
-						Courbe(pa, pb, pts, 25);
 						const float32 large = s.lueurLarge * (z < 0.6f ? 0.6f : z);
-						dl.AddPolyline(pts, 25, NkAlphaNodal(s.lueur, 0.10f), large);
-						dl.AddPolyline(pts, 25, NkAlphaNodal(s.lueur, 0.20f), large * 0.6f);
+						Fil(dl, pa, pb, NkAlphaNodal(s.lueur, 0.10f), large);
+						Fil(dl, pa, pb, NkAlphaNodal(s.lueur, 0.20f), large * 0.6f);
 					}
 					if (l->id == e.filSurvole) {
 						Fil(dl, pa, pb, NkAlphaNodal(c, 0.35f), ep + 5.f);
@@ -1760,7 +1802,7 @@ namespace nkentseu {
 				const NkColor tc = nature == NkNatureNoeud::NK_SORTIE ? s.texteEnteteSombre : s.texteEntete;
 				const float32 ty = r.y + (s.hauteurEntete * z - lh) * 0.5f + 1.f * z;
 				const float32 tx = r.x + 9.f * z;
-				dl.AddTriangleFilled(NkVec2{tx, ty + lh * 0.38f}, NkVec2{tx + 7.f * z, ty + lh * 0.38f}, NkVec2{tx + 3.5f * z, ty + lh * 0.38f + 5.f * z},
+				TriangleLisse(dl, NkVec2{tx, ty + lh * 0.38f}, NkVec2{tx + 7.f * z, ty + lh * 0.38f}, NkVec2{tx + 3.5f * z, ty + lh * 0.38f + 5.f * z},
 									 NkAlphaNodal(nature == NkNatureNoeud::NK_SORTIE ? s.texteEnteteSombre : s.triangleTitre, alpha));
 				float32 droite = 8.f * z;
 				{
@@ -1918,13 +1960,30 @@ namespace nkentseu {
 			if (tirePrise != nullptr) {
 				NkVec2 p;
 				if (NkCanevasPrise(e, zone, *tireNoeud, e.gestePrise, s, p)) {
-					NkVec2 pts[25];
-					if (tirePrise->dir == graph::NkSocketDir::Output) {
-						Courbe(p, souris, pts, 25);
+					NkVec2 pts[kPointsFil];
+					const bool sortie = tirePrise->dir == graph::NkSocketDir::Output;
+					const int32 nb = sortie ? PointsFil(p, souris) : PointsFil(souris, p);
+					if (sortie) {
+						Courbe(p, souris, pts, nb);
 					} else {
-						Courbe(souris, p, pts, 25);
+						Courbe(souris, p, pts, nb);
 					}
-					Pointille(dl, pts, 25, s.filTire, 2.f, 5.f, 4.f);
+					Pointille(dl, pts, nb, s.filTire, 2.f, 5.f, 4.f);
+				}
+			} else if (const graph::NkNode *fa = g.Find(e.filAttenteNoeud)) {
+				NkVec2 p;
+				if (e.filAttentePrise >= 0 && static_cast<uint32>(e.filAttentePrise) < fa->sockets.Size() &&
+					NkCanevasPrise(e, zone, *fa, e.filAttentePrise, s, p)) {
+					const NkVec2 q = NkCanevasVersEcran(e, zone, e.filAttenteX, e.filAttenteY);
+					NkVec2 pts[kPointsFil];
+					const bool sortie = fa->sockets[static_cast<uint32>(e.filAttentePrise)].dir == graph::NkSocketDir::Output;
+					const int32 nb = sortie ? PointsFil(p, q) : PointsFil(q, p);
+					if (sortie) {
+						Courbe(p, q, pts, nb);
+					} else {
+						Courbe(q, p, pts, nb);
+					}
+					Pointille(dl, pts, nb, s.filTire, 2.f, 5.f, 4.f);
 				}
 			}
 			// Le LASSO (orange reserve, pointille SUR le bord) ; le cadre qu'on dessine.
@@ -1961,7 +2020,7 @@ namespace nkentseu {
 				Texte(dl, police, r.x + 10.f, r.y + (r.h - HauteurLigne(police)) * 0.5f, "Portée : ", s.attenue, 1.f);
 				Texte(dl, police, r.x + 10.f + l0, r.y + (r.h - HauteurLigne(police)) * 0.5f, e.portee.CStr(), s.texteEntete, 1.f);
 				const float32 cx = r.x + r.w - 13.f, cy = r.y + r.h * 0.5f;
-				dl.AddTriangleFilled(NkVec2{cx - 4.f, cy - 2.f}, NkVec2{cx + 4.f, cy - 2.f}, NkVec2{cx, cy + 3.f}, s.attenue);
+				TriangleLisse(dl, NkVec2{cx - 4.f, cy - 2.f}, NkVec2{cx + 4.f, cy - 2.f}, NkVec2{cx, cy + 3.f}, s.attenue);
 			}
 			// Le dernier refus, NOMME, quelques secondes.
 			if (e.ageRefus < 4.f && !e.refus.Empty()) {

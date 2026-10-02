@@ -328,8 +328,16 @@ namespace nkentseu {
 				}
 				NkEditeurBlueprintEtat &e = E(d);
 				const NkString code = CodeMontre(e, g, n);
-				// Une estimation sans police (la largeur moyenne d'un caractere) :
-				// la toile mesure AVANT de dessiner.
+				// MESUREE avec la police de l'editeur, coupee comme `Bloc` la coupera
+				// (a z = 1 : largeur - 40, echelle 0,92) ; sans police, une estimation.
+				if (e.police != nullptr && e.police->Face() != nullptr) {
+					NkVector<LigneAff> aff;
+					Couper(code.CStr(), e.police, largeur - 40.f, 0.92f, aff);
+					const uint32 nl = static_cast<uint32>(aff.Size()) < 2u ? 2u : static_cast<uint32>(aff.Size());
+					NkArbreExpr ar0;
+					const bool err0 = !code.Empty() && !NkBpAnalyserExpr(code.CStr(), n.type == NK_BP_CODE, ar0);
+					return kRangeeAjout + static_cast<float32>(nl) * kLigneCode + 14.f + (err0 ? 16.f : 0.f) + kRangeeSnippets;
+				}
 				uint32 lignes = 1u;
 				uint32 col = 0u;
 				const uint32 maxCol = static_cast<uint32>((largeur - 40.f) / 7.2f);

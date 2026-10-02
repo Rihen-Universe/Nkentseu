@@ -57,6 +57,32 @@ namespace nkentseu {
 			}
 		} // namespace
 
+		void NkIconeOeil(nkgui::NkGuiDrawList &dl, float32 cx, float32 cy, float32 w, const NkColor &c) {
+			// L'amande : deux arcs (sinus tabule, sans <cmath>), puis la pupille.
+			static const float32 kSin[9] = {0.f, 0.3827f, 0.7071f, 0.9239f, 1.f, 0.9239f, 0.7071f, 0.3827f, 0.f};
+			const float32 h = w * 0.36f;
+			NkVec2 p[16];
+			for (int32 i = 0; i <= 8; ++i) {
+				p[i] = NkVec2{cx - w * 0.5f + w * static_cast<float32>(i) / 8.f, cy - h * kSin[i]};
+			}
+			for (int32 i = 1; i < 8; ++i) {
+				p[8 + i] = NkVec2{cx + w * 0.5f - w * static_cast<float32>(i) / 8.f, cy + h * kSin[8 - i]};
+			}
+			dl.AddPolyline(p, 16, c, 1.2f, true);
+			dl.AddCircleFilled(NkVec2{cx, cy}, h * 0.62f, c);
+		}
+
+		void NkIconeCoche(nkgui::NkGuiDrawList &dl, float32 cx, float32 cy, float32 w, const NkColor &c) {
+			const NkVec2 p[3] = {NkVec2{cx - w * 0.38f, cy + w * 0.02f}, NkVec2{cx - w * 0.1f, cy + w * 0.3f}, NkVec2{cx + w * 0.4f, cy - w * 0.3f}};
+			dl.AddPolyline(p, 3, c, 2.f, false);
+		}
+
+		void NkIconeCroix(nkgui::NkGuiDrawList &dl, float32 cx, float32 cy, float32 w, const NkColor &c) {
+			const float32 d = w * 0.32f;
+			dl.AddLine(NkVec2{cx - d, cy - d}, NkVec2{cx + d, cy + d}, c, 2.f);
+			dl.AddLine(NkVec2{cx - d, cy + d}, NkVec2{cx + d, cy - d}, c, 2.f);
+		}
+
 		void NkMonBlueprintRenommer(NkEtatMonBlueprint &e, int32 section, int32 id, const char *nom) {
 			e.renommeSection = section;
 			e.renommeId = id;
@@ -241,8 +267,12 @@ namespace nkentseu {
 						}
 					} else {
 						const float32 sw = Largeur(police, el.sousTexte.CStr(), 0.8f);
-						Texte(dl, police, x, re.y + (he - lh) * 0.5f, el.libelle.CStr(), s.texte, 1.f, re.x + re.w - x - sw - 16.f);
+						const float32 ow = el.oeil ? 18.f : 0.f;
+						Texte(dl, police, x, re.y + (he - lh) * 0.5f, el.libelle.CStr(), s.texte, 1.f, re.x + re.w - x - sw - ow - 16.f);
 						Texte(dl, police, re.x + re.w - sw - 10.f, re.y + (he - lh * 0.8f) * 0.5f, el.sousTexte.CStr(), s.attenue, 0.8f);
+						if (el.oeil) {
+							NkIconeOeil(dl, re.x + re.w - sw - 10.f - 10.f, re.y + he * 0.5f, 12.f, s.texte);
+						}
 					}
 					e.rects.PushBack(re);
 					e.sections.PushBack(static_cast<int32>(si));

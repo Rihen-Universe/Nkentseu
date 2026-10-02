@@ -38,6 +38,7 @@
 
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKGui/Core/NkGuiDrawListRaster.h"
 #include "NKMemory/NKMemory.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
 #include "Unkeny/Script/NkUnkenyScripts.h"
@@ -633,10 +634,158 @@ namespace nkentseu {
 			return gE;
 		}
 
+		// =====================================================================
+		// LES FILS LISSES (retour de Rihen sur la capture 04, 2026-10-02 :
+		// « pourquoi les connecteurs ne sont pas lisses ? »). La CAUSE : NKGui
+		// tracait lignes et courbes en quads NETS (aucune frange alpha) ; seul le
+		// MSAA 4x de DX11 les adoucissait a l'ecran -- le rasteriseur des
+		// captures, OpenGL, Vulkan et le logiciel montraient l'escalier. Le
+		// remede est dans NKGui (NkGuiDrawList::AddPolylineLisse, AddBezierCubic) ;
+		// ce banc le MESURE sur le rasteriseur des captures, avec sa contre-epreuve.
+		// =====================================================================
+		namespace {
+			struct MesureFil {
+					uint32 intermediaires = 0; ///< pixels ni noirs ni blancs : le bord adouci
+					uint32 pleins = 0;
+					uint32 colonnes = 0, colonnesLisses = 0; ///< colonnes touchees / avec un pixel adouci
+					uint32 auDela = 0;						 ///< pixels a droite du bout (le bout rond)
+					float32 poids = 0.f;					 ///< la somme d'une colonne ou le fil est horizontal
+			};
+			/// Rasterise UN fil oblique (blanc sur noir, 240 x 120) par le rasteriseur
+			/// des CAPTURES et compte ses pixels. `cubique` : AddBezierCubic (le fil
+			/// de la toile) ; sinon AddPolyline sur 25 points (l'ancien fil).
+			MesureFil MesurerFil(bool lisse, float32 epaisseur, bool cubique, bool boutsRonds = true) {
+				memory::NkAllocator &tas = memory::NkGetDefaultAllocator();
+				nkgui::NkGuiDrawList *dl = tas.New<nkgui::NkGuiDrawList>();
+				nkgui::NkGuiDrawListRaster *ras = tas.New<nkgui::NkGuiDrawListRaster>();
+				dl->traitsLisses = lisse;
+				const nkgui::NkVec2 a{12.f, 20.f}, b{200.f, 100.f};
+				const nkgui::NkVec2 c1{a.x + 94.f, a.y}, c2{b.x - 94.f, b.y};
+				const nkgui::NkColor blanc{255, 255, 255, 255};
+				if (cubique) {
+					dl->AddBezierCubic(a, c1, c2, b, blanc, epaisseur, 0, boutsRonds);
+				} else {
+					nkgui::NkVec2 pts[25];
+					for (int32 i = 0; i < 25; ++i) {
+						pts[i] = nkgui::NkGuiDrawList::PointBezier(a, c1, c2, b, static_cast<float32>(i) / 24.f);
+					}
+					dl->AddPolyline(pts, 25, blanc, epaisseur);
+				}
+				ras->Init(240, 120);
+				ras->Effacer(0x000000FFu);
+				ras->Rasteriser(*dl);
+				MesureFil m;
+				for (int32 x = 0; x < 240; ++x) {
+					bool touche = false, adouci = false;
+					float32 somme = 0.f;
+					for (int32 y = 0; y < 120; ++y) {
+						const uint32 r = (ras->Pixel(x, y) >> 24) & 0xFFu;
+						if (r > 0u) {
+							touche = true;
+							somme += static_cast<float32>(r) / 255.f;
+							if (x > static_cast<int32>(b.x)) {
+								++m.auDela;
+							}
+						}
+						if (r > 0u && r < 255u) {
+							adouci = true;
+							++m.intermediaires;
+						} else if (r == 255u) {
+							++m.pleins;
+						}
+					}
+					m.colonnes += touche ? 1u : 0u;
+					m.colonnesLisses += adouci ? 1u : 0u;
+					if (x == 22) {
+						m.poids = somme; // pres du depart : le fil y est horizontal
+					}
+				}
+				tas.Delete(ras);
+				tas.Delete(dl);
+				return m;
+			}
+		} // namespace
+
+		void NkEditeurLancerBancFilsLisses() {
+			std::printf("\n  -- Les FILS lisses (NKGui : frange alpha, cubique adaptative, bouts ronds) --\n");
+			const MesureFil v = MesurerFil(true, 2.f, true);
+			std::printf("    (u11) valeur 2 px : %u px adoucis, %u pleins, %u/%u colonnes adoucies, poids %.2f\n", v.intermediaires, v.pleins,
+						v.colonnesLisses, v.colonnes, static_cast<double>(v.poids));
+			Temoin(v.intermediaires > 0u && v.pleins > 0u && v.colonnesLisses * 100u >= v.colonnes * 95u && v.poids > 1.7f && v.poids < 2.3f,
+				   "(u11) fil de VALEUR 2 px : bord adouci sur chaque colonne, poids 2 px", static_cast<float32>(v.intermediaires));
+			const MesureFil x = MesurerFil(true, 3.5f, true);
+			Temoin(x.intermediaires > 0u && x.colonnesLisses * 100u >= x.colonnes * 95u && x.poids > 3.2f && x.poids < 3.8f,
+				   "(u11) fil d'EXECUTION 3,5 px : bord adouci, poids 3,5 px", x.poids);
+			// CONTRE-EPREUVE : les MEMES fils sans frange (le chemin d'avant) -> la
+			// sonde ne trouve AUCUN pixel adouci : elle voit bien l'escalier.
+			const MesureFil n1 = MesurerFil(false, 2.f, true);
+			const MesureFil n2 = MesurerFil(false, 2.f, false);
+			std::printf("    (u11n) sans frange : %u et %u px adoucis (cubique, ancienne polyligne)\n", n1.intermediaires, n2.intermediaires);
+			Temoin(n1.intermediaires == 0u && n2.intermediaires == 0u && n1.pleins > 0u,
+				   "(u11n) CONTRE-EPREUVE : sans frange, 0 px adouci -- la sonde voit l'escalier", static_cast<float32>(n1.intermediaires));
+			// La POINTE d'une prise d'execution (pentagone, AddConvexPolyLisse).
+			{
+				uint32 adoucis[2] = {0u, 0u};
+				for (int32 lisse = 0; lisse < 2; ++lisse) {
+					memory::NkAllocator &tas = memory::NkGetDefaultAllocator();
+					nkgui::NkGuiDrawList *dl = tas.New<nkgui::NkGuiDrawList>();
+					nkgui::NkGuiDrawListRaster *ras = tas.New<nkgui::NkGuiDrawListRaster>();
+					dl->traitsLisses = lisse == 1;
+					const float32 x0 = 10.3f, cy = 20.4f, w = 22.f, h = 26.f, xp = x0 + w * 0.58f;
+					const nkgui::NkVec2 pe[5] = {{x0, cy - h * 0.5f}, {xp, cy - h * 0.5f}, {x0 + w, cy}, {xp, cy + h * 0.5f}, {x0, cy + h * 0.5f}};
+					dl->AddConvexPolyLisse(pe, 5, nkgui::NkColor{255, 255, 255, 255});
+					ras->Init(48, 40);
+					ras->Effacer(0x000000FFu);
+					ras->Rasteriser(*dl);
+					for (int32 y = 0; y < 40; ++y) {
+						for (int32 x = 0; x < 48; ++x) {
+							const uint32 r = (ras->Pixel(x, y) >> 24) & 0xFFu;
+							adoucis[lisse] += r > 0u && r < 255u ? 1u : 0u;
+						}
+					}
+					tas.Delete(ras);
+					tas.Delete(dl);
+				}
+				Temoin(adoucis[1] > 0u && adoucis[0] == 0u, "(u11p) pointe d'une prise d'execution : bord adouci (sans frange : 0 px)",
+					   static_cast<float32>(adoucis[1]));
+			}
+			// Les BOUTS RONDS : le fil deborde son extremite d'un demi-disque.
+			const MesureFil carre = MesurerFil(true, 3.5f, true, false);
+			Temoin(x.auDela > 0u && carre.auDela == 0u, "(u11b) bouts RONDS : le demi-disque passe l'extremite (coupe nette sans eux)",
+				   static_cast<float32>(x.auDela));
+			// Les SEGMENTS suivent la longueur a l'ecran ; aucun angle visible.
+			const nkgui::NkVec2 a{0.f, 0.f}, b{60.f, 20.f}, A{0.f, 0.f}, B{1200.f, 400.f};
+			const int32 court = nkgui::NkGuiDrawList::SegmentsBezier(a, nkgui::NkVec2{30.f, 0.f}, nkgui::NkVec2{30.f, 20.f}, b);
+			const nkgui::NkVec2 C1{600.f, 0.f}, C2{600.f, 400.f};
+			const int32 long_ = nkgui::NkGuiDrawList::SegmentsBezier(A, C1, C2, B);
+			float32 pire = 1.f; // le plus petit cosinus entre deux segments voisins
+			nkgui::NkVec2 prec = A, dprec{0.f, 0.f};
+			for (int32 i = 1; i <= long_; ++i) {
+				const nkgui::NkVec2 q = nkgui::NkGuiDrawList::PointBezier(A, C1, C2, B, static_cast<float32>(i) / static_cast<float32>(long_));
+				const nkgui::NkVec2 d{q.x - prec.x, q.y - prec.y};
+				if (i > 1) {
+					const float32 l = (d.x * d.x + d.y * d.y) * (dprec.x * dprec.x + dprec.y * dprec.y);
+					if (l > 0.f) {
+						float32 c = (d.x * dprec.x + d.y * dprec.y);
+						c = c * c / l * (c < 0.f ? -1.f : 1.f);
+						pire = c < pire ? c : pire;
+					}
+				}
+				dprec = d;
+				prec = q;
+			}
+			std::printf("    (u11s) segments : fil de 63 px -> %d, fil de 1265 px -> %d ; pire cos^2 entre voisins %.5f\n", court, long_,
+						static_cast<double>(pire));
+			// cos^2(4 deg) = 0.99513 : aucun coude de plus de 4 degres.
+			Temoin(court >= 8 && long_ >= court * 10 && pire > 0.99513f, "(u11s) segments ADAPTATIFS a la longueur : aucun coude > 4 degres",
+				   static_cast<float32>(long_));
+		}
+
 		int32 NkEditeurLancerBancBlueprint() {
 			gR = gE = 0;
 			std::printf("\nUnkenyEditor — banc de l'EDITEUR DE BLUEPRINT (a la UE5)\n\n");
 			NkEditeurLancerBancBlueprintModele();
+			NkEditeurLancerBancFilsLisses();
 			std::printf("\n%s : %d reussis, %d echec\n", gE == 0 ? "BANC BLUEPRINT UE5 REUSSI" : "BANC BLUEPRINT UE5 EN ECHEC", gR, gE);
 			return gE == 0 ? 0 : 1;
 		}

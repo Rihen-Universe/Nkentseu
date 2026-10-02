@@ -502,7 +502,14 @@ namespace nkentseu {
 				}
 				if (s.montrerJournal) {
 					ui->ongletTiroir = 1;
-					ui->voirTiroir = true;
+					if (s.panneauxCaches) {
+						// L'editeur de Blueprint EN PLEIN a ses propres Resultats et sa
+						// Console : le tiroir ne s'ouvre pas sous lui (il rognait la
+						// toile) ; il reviendra, sur le Journal, a la fermeture.
+						s.voirTiroir = true;
+					} else {
+						ui->voirTiroir = true;
+					}
 				}
 				s.journal.Clear();
 				s.montrerJournal = false;

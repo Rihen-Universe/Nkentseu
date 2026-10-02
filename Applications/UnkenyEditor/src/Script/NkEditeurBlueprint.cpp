@@ -213,6 +213,22 @@ namespace nkentseu {
 			e.actif = g;
 		}
 
+		/// Amene le noeud `n` a l'ecran -- SEULEMENT s'il n'y est pas deja en entier
+		/// (sinon la vue ne bouge pas : on garde son reperage) ; il vient au centre.
+		void NkEditeurBlueprintMontrer(NkEditeurBlueprintEtat &e, editorkit::NkEtatCanevas &t, const graph::NkNode &n) {
+			const NkRect z = e.zoneToile;
+			if (z.w <= 0.f || t.zoom <= 0.f) {
+				return;
+			}
+			const NkRect r = editorkit::NkCanevasRectNoeud(t, z, n, J());
+			const float32 m = 16.f;
+			if (r.x >= z.x + m && r.y >= z.y + m && r.x + r.w <= z.x + z.w - m && r.y + r.h <= z.y + z.h - m) {
+				return;
+			}
+			t.vueX = n.x + r.w / t.zoom * 0.5f - z.w / t.zoom * 0.5f;
+			t.vueY = n.y + r.h / t.zoom * 0.5f - z.h / t.zoom * 0.5f;
+		}
+
 		bool NkEditeurBlueprintCompiler(NkEditeurBlueprintEtat &e, NkHoteBlueprint &hote) {
 			NkErreurBp err;
 			NkString message;
@@ -250,10 +266,8 @@ namespace nkentseu {
 					t.enErreur = err.noeud;
 					t.messageErreur = err.message;
 					t.Choisir(err.noeud);
-					if (e.zoneToile.w > 0.f && t.zoom > 0.f) {
-						t.vueX = n->x - e.zoneToile.w / t.zoom * 0.3f;
-						t.vueY = n->y - e.zoneToile.h / t.zoom * 0.3f;
-					}
+					e.choix = NkChoixBp::NK_NOEUD; // les Details montrent le noeud fautif
+					NkEditeurBlueprintMontrer(e, t, *n);
 					e.cadrer[err.graphe] = false;
 				}
 				e.ongletBas = 0;
@@ -613,6 +627,7 @@ namespace nkentseu {
 					float32 y = 0.f;
 					float32 lh = 14.f;
 					bool change = false;
+					int32 nbListes = 0; ///< les listes de la trame : id -1000 - rang (bancs, captures)
 
 					void Titre(const char *t) {
 						nkgui::NkGuiDrawList &dl = ctx.dl;
@@ -690,6 +705,8 @@ namespace nkentseu {
 						nkgui::NkGuiDrawList &dl = ctx.dl;
 						Texte(dl, f, r.x + 12.f, y + (22.f - lh * 0.92f) * 0.5f, lib, J().texte, 0.92f);
 						rect = NkRect{r.x + 104.f, y, r.w - 114.f, 22.f};
+						e.champsIds.PushBack(-1000 - nbListes++);
+						e.champsRects.PushBack(rect);
 						const bool sur = Dans(rect, ctx.input.mousePos);
 						dl.AddRectFilled(rect, sur && !grise ? J().menuSurvol : J().champ, 2.f);
 						dl.AddRect(rect, J().champBord, 1.f, 2.f);
@@ -1443,10 +1460,7 @@ namespace nkentseu {
 				}
 				t.Choisir(n);
 				e.choix = NkChoixBp::NK_NOEUD;
-				if (e.zoneToile.w > 0.f && t.zoom > 0.f) {
-					t.vueX = p->x - e.zoneToile.w / t.zoom * 0.35f;
-					t.vueY = p->y - e.zoneToile.h / t.zoom * 0.35f;
-				}
+				NkEditeurBlueprintMontrer(e, t, *p);
 				e.cadrer[static_cast<uint32>(graphe)] = false;
 			}
 
@@ -1566,10 +1580,26 @@ namespace nkentseu {
 			const NkJetonsNodal &s = J();
 			const float32 lh = Ligne(f);
 			e.zone = r;
+			e.police = f;
 			const bool surEditeur = Dans(r, in.mousePos);
 			e.trace = hote.Trace != nullptr ? hote.Trace(hote.donnees, e.ref.CStr()) : nullptr;
 			e.simulation = hote.EnJeu != nullptr && hote.EnJeu(hote.donnees);
 			bool clavier = false;
+
+			// Un MENU ou une fenetre surgissante ouverte garde la souris : les panneaux
+			// dessines AVANT elle (barre, Mon Blueprint, Details, toile) ne voient pas
+			// ses clics -- sinon le clic sur « Réel » d'un choix de type tombait aussi
+			// sur la carte des Details dessous, et le choix etait perdu. Un clic hors
+			// d'elle la ferme seulement (comme UE5). Les clics reviennent au point 7.
+			const bool flottant = e.menu.ouvert || e.popup.ouvert;
+			bool clicsGardes[3] = {in.mouseClicked[0], in.mouseClicked[1], in.mouseClicked[2]};
+			bool doubleGarde = in.mouseDoubleClicked[0];
+			const float32 moletteGardee = in.wheel;
+			if (flottant) {
+				in.mouseClicked[0] = in.mouseClicked[1] = in.mouseClicked[2] = false;
+				in.mouseDoubleClicked[0] = false;
+				in.wheel = 0.f;
+			}
 
 			// ── 0. Le CODE d'un noeud en cours d'edition a le clavier ──
 			if (e.codeNoeud != graph::NK_NODE_INVALID) {
@@ -1730,7 +1760,8 @@ namespace nkentseu {
 					el.pastille = true;
 					el.couleur = editorkit::NkCouleurTypeNodal(e.doc.variables[i].type.CStr());
 					el.glyphe = editorkit::NkGlypheTypeNodal(e.doc.variables[i].type.CStr());
-					el.sousTexte = NkString(NkBpLibelleType(e.doc.variables[i].type.CStr())) + (e.doc.variables[i].instance ? "  ◆" : "");
+					el.sousTexte = NkString(NkBpLibelleType(e.doc.variables[i].type.CStr()));
+					el.oeil = e.doc.variables[i].instance; // l'oeil d'UE5 : modifiable par instance
 					va.elements.PushBack(el);
 				}
 				for (uint32 i = 0; i < e.doc.repartiteurs.Size(); ++i) {
@@ -1946,10 +1977,6 @@ namespace nkentseu {
 				editorkit::NkEtatCanevas &t = e.Toile();
 				t.portee = e.doc.graphes[e.actif].nom;
 				t.clavierAilleurs = clavier || e.champ >= 0 || e.rechercheFocus || e.menu.ouvert || e.popup.ouvert || mon.clavierPris;
-				if (e.cadrer[e.actif] && e.zoneToile.w > 50.f && e.zoneToile.h > 50.f) {
-					editorkit::NkCanevasCadrer(t, e.zoneToile, e.Graphe(), s);
-					e.cadrer[e.actif] = false;
-				}
 				// Un menu ouvert garde la souris : la toile ne la voit pas.
 				nkgui::NkGuiInput copie = in;
 				const bool masque = e.menu.ouvert || e.popup.ouvert || Dans(e.rectMon, in.mousePos) || Dans(e.rectDetails, in.mousePos);
@@ -1960,6 +1987,12 @@ namespace nkentseu {
 				}
 				const editorkit::NkDomaineCanevas d = NkEditeurBlueprintDomaine(e);
 				const graph::NkNodeId avantChoix = t.selection;
+				// Le fil lache reste visible tant que son menu est ouvert (UE5).
+				const bool attente = e.menu.ouvert && e.menuPrise >= 0 && e.menuNoeud != graph::NK_NODE_INVALID;
+				t.filAttenteNoeud = attente ? e.menuNoeud : graph::NK_NODE_INVALID;
+				t.filAttentePrise = attente ? e.menuPrise : -1;
+				t.filAttenteX = e.menuX;
+				t.filAttenteY = e.menuY;
 				editorkit::NkCanevasNoeuds(dl, in, f, e.zoneToile, e.Graphe(), t, s, d);
 				if (masque) {
 					in.mouseClicked[0] = copie.mouseClicked[0];
@@ -1969,6 +2002,12 @@ namespace nkentseu {
 					in.wheel = copie.wheel;
 				}
 				clavier = clavier || t.clavierPris;
+				// Cadrer APRES le dessin : la geometrie des noeuds est mesuree (sinon
+				// les tailles par defaut font un zoom faux). La vue suit a la trame suivante.
+				if (e.cadrer[e.actif] && e.zoneToile.w > 50.f && e.zoneToile.h > 50.f && !t.geom.Empty()) {
+					editorkit::NkCanevasCadrer(t, e.zoneToile, e.Graphe(), s);
+					e.cadrer[e.actif] = false;
+				}
 				if (t.modifie) {
 					NkBpRafraichirNoeuds(e.doc); // un noeud de code refait : ses appels suivent
 					NkEditeurBlueprintRetenir(e);
@@ -2171,8 +2210,14 @@ namespace nkentseu {
 						dl.AddRectFilled(rl, s.elementSurvol, 2.f);
 					}
 					const NkColor c = l.genre == 2u ? s.erreur : (l.genre == 1u ? NkColor(110, 200, 120, 255) : s.texte);
-					const char *mark = l.genre == 2u ? "✗" : (l.genre == 1u ? "✓" : "·");
-					Texte(dl, f, rl.x + 6.f, rl.y + (20.f - lh * 0.9f) * 0.5f, mark, c, 0.9f);
+					// La marque DESSINEE (la police n'a ni ✓ ni ✗).
+					if (l.genre == 2u) {
+						editorkit::NkIconeCroix(dl, rl.x + 12.f, rl.y + 10.f, 12.f, c);
+					} else if (l.genre == 1u) {
+						editorkit::NkIconeCoche(dl, rl.x + 12.f, rl.y + 10.f, 12.f, c);
+					} else {
+						dl.AddCircleFilled(NkVec2{rl.x + 12.f, rl.y + 10.f}, 2.f, s.attenue);
+					}
 					Texte(dl, f, rl.x + 24.f, rl.y + (20.f - lh * 0.9f) * 0.5f, l.texte.CStr(), l.genre == 2u ? c : s.texte, 0.9f, rl.w - 30.f);
 					if (sur && in.mouseClicked[0]) {
 						AllerAuNoeud(e, l.graphe, l.noeud);
@@ -2184,6 +2229,13 @@ namespace nkentseu {
 			}
 
 			// ── 7. Les MENUS, par-dessus tout ──
+			if (flottant) {
+				in.mouseClicked[0] = clicsGardes[0];
+				in.mouseClicked[1] = clicsGardes[1];
+				in.mouseClicked[2] = clicsGardes[2];
+				in.mouseDoubleClicked[0] = doubleGarde;
+				in.wheel = moletteGardee;
+			}
 			if (e.menu.ouvert) {
 				NkEditeurBlueprintEntrees(e, e.menu.sensibleContexte && e.menuNoeud != graph::NK_NODE_INVALID, e.menuNoeud, e.menuPrise, e.menuEntrees);
 				NkVector<editorkit::NkEntreeMenuNoeud> entrees;

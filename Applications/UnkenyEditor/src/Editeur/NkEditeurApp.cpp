@@ -436,6 +436,10 @@ namespace nkentseu {
 				if (args[i].StartsWith("--captures-scripts=")) {
 					return NkOptional<int>(NkEditeurCapturesScripts(NkString(args[i].SubStr(19)).CStr()));
 				}
+				// (2026-10-01) L'editeur de Blueprint a la UE5 (Script/NkEditeurBlueprint.h).
+				if (args[i].StartsWith("--captures-blueprint=")) {
+					return NkOptional<int>(NkEditeurCapturesBlueprint(NkString(args[i].SubStr(21)).CStr()));
+				}
 				if (args[i].StartsWith("--captures-formes=")) {
 					return NkOptional<int>(NkEditeurCapturesFormes(NkString(args[i].SubStr(18)).CStr()));
 				}

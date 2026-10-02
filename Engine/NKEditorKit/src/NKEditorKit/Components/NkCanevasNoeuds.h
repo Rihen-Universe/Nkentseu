@@ -191,6 +191,12 @@ namespace nkentseu {
 				int32 menuPrise = -1;
 				/// (compat) clic droit dans le vide.
 				bool menuDemande = false;
+				/// Le fil LACHE dans le vide reste dessine (pointille) tant que
+				/// l'APPELANT le garde -- son menu sensible au contexte ouvert, comme
+				/// UE5 ; il le pose a chaque trame (NK_NODE_INVALID : aucun).
+				graph::NkNodeId filAttenteNoeud = graph::NK_NODE_INVALID;
+				int32 filAttentePrise = -1;
+				float32 filAttenteX = 0.f, filAttenteY = 0.f; ///< le lacher (graphe)
 				NkString refus; ///< le dernier fil refuse, et pourquoi
 				float32 ageRefus = 99.f;
 				bool clavierPris = false; ///< la toile a pris le clavier (Suppr, saisie, raccourcis)

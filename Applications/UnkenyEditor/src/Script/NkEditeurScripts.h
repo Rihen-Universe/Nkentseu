@@ -168,6 +168,10 @@ namespace nkentseu {
 		/// `--captures-scripts=DOSSIER` : les captures HORS ECRAN des scripts
 		/// (page du graphe, erreur sur son noeud, Details, jeu, Journal, menu).
 		int32 NkEditeurCapturesScripts(const char *dossier);
+		/// `--captures-blueprint=DOSSIER` : les captures HORS ECRAN de l'editeur de
+		/// Blueprint a la UE5 (vue d'ensemble, menus, variable, fonction, erreur,
+		/// Simuler, noeuds de code, variables par instance).
+		int32 NkEditeurCapturesBlueprint(const char *dossier);
 
 	} // namespace editeur
 } // namespace nkentseu

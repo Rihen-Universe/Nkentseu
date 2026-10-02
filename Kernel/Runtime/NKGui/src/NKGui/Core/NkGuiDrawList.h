@@ -144,6 +144,44 @@ namespace nkentseu {
 				void AddPolyline(const NkVec2 *pts, int32 n, const NkColor &col, float32 thickness = 1.f,
 								 bool closed = false) noexcept;
 
+				// ── 2026-10-02 : les TRAITS LISSES (anticrenelage par FRANGE) ───────
+				// Un trait OBLIQUE ou COURBE recoit une frange alpha d'un pixel de
+				// chaque cote : le coeur est plein, puis l'alpha descend a 0 (le geste
+				// des lignes AA d'ImGui). La frange est dans la GEOMETRIE (couleur de
+				// sommet interpolee) : le rasteriseur logiciel des captures, les
+				// dorsaux sans MSAA (OpenGL, Vulkan, logiciel) et DX11 (MSAA 4x)
+				// rendent donc le MEME bord adouci. Avant, seul DX11 adoucissait (par
+				// son MSAA) ; les captures et les autres dorsaux montraient des fils
+				// en ESCALIER. Les traits HORIZONTAUX et VERTICAUX d'AddLine et
+				// d'AddPolyline gardent le quad net d'avant : une frange etalerait un
+				// filet de 1 px pose sur une coordonnee entiere sur deux rangees.
+				// `false` : le chemin d'avant partout (contre-epreuve des bancs).
+				bool traitsLisses = true;
+				/// Ligne brisee LISSEE : raccords en onglet borne, frange de 1 px ;
+				/// `boutsRonds` arrondit les deux extremites (demi-disques). Epaisseur
+				/// en px (x thickScale) ; sous 1 px, l'alpha porte l'epaisseur.
+				void AddPolylineLisse(const NkVec2 *pts, int32 n, const NkColor &col, float32 thickness = 1.f,
+									  bool closed = false, bool boutsRonds = false) noexcept;
+				/// Courbe de BEZIER cubique (p0, c0, c1, p1), lissee. `segs` <= 0 : le
+				/// nombre de segments SUIT la longueur a l'ecran (`SegmentsBezier`) --
+				/// aucune courbe anguleuse, quel que soit le zoom.
+				void AddBezierCubic(const NkVec2 &p0, const NkVec2 &c0, const NkVec2 &c1, const NkVec2 &p1,
+									const NkColor &col, float32 thickness = 1.f, int32 segs = 0,
+									bool boutsRonds = true) noexcept;
+				/// Le nombre de segments adaptatif d'une cubique : un tous les ~4 px de
+				/// son polygone de controle (majorant de sa longueur), borne a [8, 256].
+				static int32 SegmentsBezier(const NkVec2 &p0, const NkVec2 &c0, const NkVec2 &c1,
+											const NkVec2 &p1) noexcept;
+				/// Polygone CONVEXE plein LISSE (frange d'un demi-pixel de part et
+				/// d'autre du bord). A DEMANDER : `AddConvexPolyFilled` et
+				/// `AddTriangleFilled` restent nets, parce que des appelants pavent une
+				/// forme de plusieurs morceaux (anneaux, maillages) et qu'une frange
+				/// sur leurs aretes COMMUNES y dessinerait des coutures.
+				void AddConvexPolyLisse(const NkVec2 *pts, int32 n, const NkColor &col) noexcept;
+				/// Le point de parametre `t` (0..1) de la cubique.
+				static NkVec2 PointBezier(const NkVec2 &p0, const NkVec2 &c0, const NkVec2 &c1, const NkVec2 &p1,
+										  float32 t) noexcept;
+
 				// Texte : émet des quads texturés (atlas `texId`) à partir de la
 				// face NKFont. `baseline` = ligne de base du 1er glyphe. `maxWidth`
 				// >= 0 tronque (coupe au glyphe qui déborde).

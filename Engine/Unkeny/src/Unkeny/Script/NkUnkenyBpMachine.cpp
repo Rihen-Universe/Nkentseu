@@ -445,7 +445,11 @@ namespace nkentseu {
 								return Echec("budget d'instructions epuise (boucle sans fin ?)", f, pc);
 							}
 							const uint32 at = pc;
-							if (c.trace != nullptr) {
+							// La TRACE : un noeud compte quand son code commence. La fin et les
+							// sauts de fin de branche ne comptent pas (ils sont attribues au
+							// dernier noeud emis -- « Code ×2 » quand la branche Faux finit).
+							const NkOpBp opTrace = static_cast<NkOpBp>(code[pc]);
+							if (c.trace != nullptr && opTrace != NkOpBp::NK_FIN && opTrace != NkOpBp::NK_SAUT) {
 								const uint32 n = m.NoeudDe(f, pc);
 								if (n != noeudTrace) {
 									noeudTrace = n;
