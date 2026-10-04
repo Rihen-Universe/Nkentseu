@@ -313,6 +313,8 @@ namespace nkentseu {
 			constexpr uint32 kNkAnimSectionTANG = 0x474E4154; // 'TANG'
 			constexpr uint32 kNkAnimSectionCLPS = 0x53504C43; // 'CLPS'
 			constexpr uint32 kNkAnimSectionFADE = 0x45444146; // 'FADE'
+			// (2026-10-02, rig 3D) Les pistes de FORMES (shape keys) : une par forme, par NOM.
+			constexpr uint32 kNkAnimSectionMRPH = 0x4850524D; // 'MRPH'
 			// La disposition de la machine dans l'editeur (.nkanimctl, page Animateur).
 			constexpr uint32 kNkAnimSectionGRPH = 0x48505247; // 'GRPH' (little-endian)
 
@@ -544,7 +546,9 @@ namespace nkentseu {
 				}
 			}
 			const bool sequence = !clipTracks.Empty();
-			const uint32 nbSections = (proprietes ? 1u : 0u) + (tangentes ? 1u : 0u) + (sequence ? 1u : 0u);
+			// (02/10, rig 3D) Les pistes de FORMES : une section de plus, seulement s'il y en a.
+			const bool formes = !morphTracks.Empty();
+			const uint32 nbSections = (proprietes ? 1u : 0u) + (tangentes ? 1u : 0u) + (sequence ? 1u : 0u) + (formes ? 1u : 0u);
 			w.u32(nbSections > 0 ? kNkAnimVersionProprietes : kNkAnimVersion);
 			WriteClipBody(w, *this);
 			if (nbSections > 0) {
@@ -638,6 +642,28 @@ namespace nkentseu {
 				w.u32((uint32)sct.buf.Size());
 				w.raw(sct.buf.Data(), sct.buf.Size());
 			}
+			if (formes) {
+				// 'MRPH' : [version(u32)=1] [nbPistes(u32)] par piste : [nom] [active(u8)]
+				//   [nbCles(u32)] par cle : [temps(f32)] [valeur(f32)] [interp(u8)]
+				ByteWriter sct;
+				sct.u32(1);
+				sct.u32((uint32)morphTracks.Size());
+				for (uint32 i = 0; i < (uint32)morphTracks.Size(); ++i) {
+					const NkAnimationTrack<float32> &tr = morphTracks[i];
+					sct.str(i < (uint32)morphNames.Size() ? morphNames[i] : tr.name);
+					sct.u8(tr.enabled ? 1 : 0);
+					sct.u32(tr.KeyCount());
+					for (uint32 k = 0; k < tr.KeyCount(); ++k) {
+						const NkKeyframe<float32> &kf = tr.GetKey(k);
+						sct.f32(kf.time);
+						sct.f32(kf.value);
+						sct.u8((uint8)kf.interp);
+					}
+				}
+				w.u32(kNkAnimSectionMRPH);
+				w.u32((uint32)sct.buf.Size());
+				w.raw(sct.buf.Data(), sct.buf.Size());
+			}
 			if (!NkFile::WriteAllBytes(path.CStr(), w.buf)) {
 				logger.Errorf("[NkAnimClip] SaveBinary echec : %s\n", path.CStr());
 				return false;
@@ -680,6 +706,8 @@ namespace nkentseu {
 			const uint32 nb = ReadClipBody(r, ver, *this);
 			propertyTracks.Clear();
 			clipTracks.Clear();
+			morphTracks.Clear();
+			morphNames.Clear();
 			// 'TANG' peut preceder ou suivre 'PROP' : appliquee apres la boucle.
 			const nk_uint8 *tang = nullptr;
 			uint32 tangTaille = 0;
@@ -697,6 +725,37 @@ namespace nkentseu {
 					if (tag == kNkAnimSectionTANG) {
 						tang = s.p;
 						tangTaille = taille;
+						continue;
+					}
+					if (tag == kNkAnimSectionMRPH) {
+						// (02/10, rig 3D) Les pistes de formes, par nom.
+						if (s.u32() != 1) {
+							continue; // une version future : sautee
+						}
+						uint32 nt = s.u32();
+						if (nt > (s.n - s.off) / 9u) {
+							nt = 0;
+						}
+						for (uint32 i = 0; i < nt && s.ok; ++i) {
+							NkAnimationTrack<float32> tr;
+							tr.name = s.str();
+							tr.enabled = s.u8() != 0;
+							uint32 nk = s.u32();
+							if (nk > (s.n - s.off) / 9u) {
+								nk = 0;
+								s.ok = false;
+							}
+							for (uint32 k = 0; k < nk && s.ok; ++k) {
+								const float32 t = s.f32();
+								const float32 v = s.f32();
+								const uint8 interp = s.u8();
+								tr.AddKey(t, v, (NkInterpMode)(interp <= (uint8)NkInterpMode::NK_BACK ? interp : 1u));
+							}
+							if (s.ok) {
+								morphNames.PushBack(tr.name);
+								morphTracks.PushBack(tr);
+							}
+						}
 						continue;
 					}
 					if (tag == kNkAnimSectionCLPS) {
