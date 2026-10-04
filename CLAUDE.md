@@ -18,7 +18,14 @@ Il renvoie aux conventions ; en cas de doute, ce sont elles qui font foi.
   `Engine/*`, et les applications UnkenyEditor, UnkenyPlayer, Nogee, NkAnimaEditor, NKCraft,
   NKScena, NKUIDesign, NKCode, PV3DE.
 - Cloner : `git clone --recurse-submodules https://github.com/Rihen-Universe/Nkentseu.git`.
-  Sans accès, les dossiers privés restent vides : c'est voulu.
+  Les 17 sous-modules privés portent `update = none` dans `.gitmodules` : ce clone les saute
+  sans erreur (seuls le public et `Externals/` arrivent). **Avec accès** (Rodolf,
+  collaborateurs), ajouter une fois, depuis la racine :
+  `git submodule update --init --recursive --checkout` (la même commande met ensuite à jour
+  tous les sous-modules, privés compris).
+- Sans les dépôts privés, `Nkentseu.jenga` saute leurs `includeprive()` et retire les projets
+  qui en dépendent (`retirerprojetssansdependances()`) : le public se charge et se construit
+  seul. Avec eux, rien ne change. Inclure toute nouvelle partie privée par `includeprive()`.
 - Une modification qui touche une partie privée se commite **dans son dépôt**, puis le
   pointeur du sous-module est avancé ici.
 

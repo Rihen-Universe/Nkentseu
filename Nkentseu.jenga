@@ -441,6 +441,63 @@ useconfig("config/graphics.jenga")   # Vulkan SDK / glslang / SPIRV-Cross (parta
 
 useconfig("config/wayland.jenga")    # backend Wayland Linux (partage)
 
+# =========================================================================
+# Parties PRIVEES (04/10/2026) : Kernel/AI, Kernel/Bare, Spark, Engine/ et les
+# applications commerciales sont des sous-modules prives de Rihen-Universe.
+# Dans un clone sans acces, leurs dossiers restent vides : includeprive() ne
+# les inclut pas, et retirerprojetssansdependances() retire, en cascade, chaque
+# projet public qui depend d'un projet absent (demos de Noge, tests de l'IA,
+# bancs de NKEditorKit...). Avec les depots prives presents, ces deux fonctions
+# ne changent rien.
+# =========================================================================
+_PRIVES_ABSENTS = []
+
+
+class _RienAInclure:
+    """Remplace include() quand le fichier d'une partie privee est absent."""
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def includeprive(chemin):
+    """include() d'une partie privee ; sans effet si son sous-module est absent."""
+    if os.path.isfile(os.path.join(_WORKSPACE_ROOT, chemin)):
+        return include(chemin)
+    _PRIVES_ABSENTS.append(chemin)
+    return _RienAInclure()
+
+
+def retirerprojetssansdependances():
+    """Retire du workspace les projets dont une dependance manque (en cascade)."""
+    if not _PRIVES_ABSENTS:
+        return
+    wks = getcurrentworkspace()
+    retires = []
+    while True:
+        manquants = []
+        for nom, projet in wks.projects.items():
+            deps = list(projet.dependsOn)
+            for liste in projet._filteredDependsOn.values():
+                deps.extend(liste)
+            if any(d not in wks.projects for d in deps):
+                manquants.append(nom)
+        if not manquants:
+            break
+        for nom in manquants:
+            del wks.projects[nom]
+            retires.append(nom)
+    # listes blanches dutc/dute : les suites des parties absentes (ex. Noge_Tests)
+    # n'existent pas ici ; Jenga refuserait leur nom a la fermeture du workspace.
+    for attribut in ("unitTestCompilationAllow", "unitTestExecutionAllow"):
+        liste = getattr(wks, attribut, None) or []
+        setattr(wks, attribut, [n for n in liste if n in wks.projects])
+    print(f"[Nkentseu] {len(_PRIVES_ABSENTS)} partie(s) privee(s) absente(s) (depots prives "
+          f"non clones) : {len(retires)} projet(s) qui en dependent ne seront pas construits.")
+
+
 
 
 with workspace("Nkentseu", location="."):
@@ -772,26 +829,26 @@ with workspace("Nkentseu", location="."):
 
 
 
-    with include("Engine/NKEditorKit/NKEditorKit.jenga"):
+    with includeprive("Engine/NKEditorKit/NKEditorKit.jenga"):
 
         pass
 
     # Unkeny — moteur de jeu 2D sur NKCanvas. Il COMPOSE NKECS, NKCollision
     # et NKPhysics ; il n'en reecrit rien. Son editeur vit dans
     # Applications/UnkenyEditor : un moteur ne contient pas son outil.
-    with include("Engine/Unkeny/Unkeny.jenga"):
+    with includeprive("Engine/Unkeny/Unkeny.jenga"):
 
         pass
 
 
 
-    with include("Applications/NKCode/NKCode.jenga"):
+    with includeprive("Applications/NKCode/NKCode.jenga"):
 
         pass
 
 
 
-    with include("Applications/NKCraft/NKCraft.jenga"):
+    with includeprive("Applications/NKCraft/NKCraft.jenga"):
 
         pass
 
@@ -964,87 +1021,87 @@ with workspace("Nkentseu", location="."):
 
     # ===== Sous-systeme IA (Kernel/AI) — construit bottom-up =====
 
-    with include("Kernel/AI/NKTensor/NKTensor.jenga"):
+    with includeprive("Kernel/AI/NKTensor/NKTensor.jenga"):
 
         pass
 
 
 
-    with include("Kernel/AI/NKAutograd/NKAutograd.jenga"):
+    with includeprive("Kernel/AI/NKAutograd/NKAutograd.jenga"):
 
         pass
 
 
 
-    with include("Kernel/AI/NKNN/NKNN.jenga"):
+    with includeprive("Kernel/AI/NKNN/NKNN.jenga"):
 
         pass
 
 
 
-    with include("Kernel/AI/NKOptim/NKOptim.jenga"):
+    with includeprive("Kernel/AI/NKOptim/NKOptim.jenga"):
 
         pass
 
 
 
-    with include("Kernel/AI/NKData/NKData.jenga"):
+    with includeprive("Kernel/AI/NKData/NKData.jenga"):
 
         pass
 
 
 
-    with include("Kernel/AI/NKTrain/NKTrain.jenga"):
+    with includeprive("Kernel/AI/NKTrain/NKTrain.jenga"):
 
         pass
 
 
 
-    with include("Kernel/AI/NKInfer/NKInfer.jenga"):
+    with includeprive("Kernel/AI/NKInfer/NKInfer.jenga"):
 
         pass
 
 
 
-    with include("Kernel/AI/NKRL/NKRL.jenga"):
+    with includeprive("Kernel/AI/NKRL/NKRL.jenga"):
 
         pass
 
 
 
-    with include("Kernel/AI/NKAgent/NKAgent.jenga"):
+    with includeprive("Kernel/AI/NKAgent/NKAgent.jenga"):
 
         pass
 
 
 
-    with include("Kernel/AI/NKEvolve/NKEvolve.jenga"):
+    with includeprive("Kernel/AI/NKEvolve/NKEvolve.jenga"):
 
         pass
 
 
 
-    with include("Kernel/AI/NKCivilization/NKCivilization.jenga"):
+    with includeprive("Kernel/AI/NKCivilization/NKCivilization.jenga"):
 
         pass
 
 
 
-    with include("Kernel/AI/NKEmbodied/NKEmbodied.jenga"):
+    with includeprive("Kernel/AI/NKEmbodied/NKEmbodied.jenga"):
 
         pass
 
 
 
-    with include("Kernel/AI/NKGen/NKGen.jenga"):
+    with includeprive("Kernel/AI/NKGen/NKGen.jenga"):
 
         pass
 
-    with include("Kernel/AI/NKGpt/NKGpt.jenga"):
+    with includeprive("Kernel/AI/NKGpt/NKGpt.jenga"):
 
         pass
 
-    with include("Kernel/AI/NKSpeech/NKSpeech.jenga"):
+    with includeprive("Kernel/AI/NKSpeech/NKSpeech.jenga"):
 
         pass
 
@@ -1706,13 +1763,13 @@ with workspace("Nkentseu", location="."):
 
 
 
-    with include("Engine/Noge/Noge.jenga"):
+    with includeprive("Engine/Noge/Noge.jenga"):
 
         pass
 
 
 
-    with include("Applications/Nogee/Nogee.jenga"):
+    with includeprive("Applications/Nogee/Nogee.jenga"):
 
         pass
 
@@ -1800,7 +1857,7 @@ with workspace("Nkentseu", location="."):
 
 
 
-    with include("Applications/NKUIDesign/NKUIDesign.jenga"):
+    with includeprive("Applications/NKUIDesign/NKUIDesign.jenga"):
 
         pass
 
@@ -1818,7 +1875,7 @@ with workspace("Nkentseu", location="."):
 
 
 
-    with include("Applications/NkAnimaEditor/NkAnimaEditor.jenga"):
+    with includeprive("Applications/NkAnimaEditor/NkAnimaEditor.jenga"):
 
         pass
 
@@ -1826,7 +1883,7 @@ with workspace("Nkentseu", location="."):
     # cles et plans camera sur la frise partagee, rendu en images. Sa condition
     # de naissance (le sequenceur sauve et relit .nkseq, NkSequenceCheck f7) est
     # remplie. `--selftest` : le banc sans fenetre (Applications/NKScena/ROADMAP.md).
-    with include("Applications/NKScena/NKScena.jenga"):
+    with includeprive("Applications/NKScena/NKScena.jenga"):
 
         pass
 
@@ -1874,7 +1931,7 @@ with workspace("Nkentseu", location="."):
 
 
 
-    with include("Applications/PV3DE/PV3DE.jenga"):
+    with includeprive("Applications/PV3DE/PV3DE.jenga"):
 
         pass
 
@@ -2015,12 +2072,12 @@ with workspace("Nkentseu", location="."):
 
     # L'editeur d'Unkeny. Il vit ici, pas dans Engine : un moteur ne
     # contient pas son outil.
-    with include("Applications/UnkenyEditor/UnkenyEditor.jenga"):
+    with includeprive("Applications/UnkenyEditor/UnkenyEditor.jenga"):
         pass
 
     # Le joueur autonome d'Unkeny (U5) : ce que l'editeur livre. Un jeu
     # construit compile ses sources dans un workspace genere a part.
-    with include("Applications/UnkenyPlayer/UnkenyPlayer.jenga"):
+    with includeprive("Applications/UnkenyPlayer/UnkenyPlayer.jenga"):
         pass
 
     # Le four a textures : outil en ligne de commande, sans GPU ni fenetre.
@@ -2054,3 +2111,8 @@ with workspace("Nkentseu", location="."):
     # Voir Applications/DEMOS.md.
     with include("Applications/NkMessagesEnVue/NkMessagesEnVue.jenga"):
         pass
+
+
+    # Clone sans les depots prives : retirer les projets qui dependent d'une
+    # partie absente (sans effet quand tout est present). Doit rester a la fin.
+    retirerprojetssansdependances()

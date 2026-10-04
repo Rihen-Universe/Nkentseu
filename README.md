@@ -16,7 +16,24 @@ simulation, la VR/AR/MR, les outils CAO et les applications scientifiques.
 
 ---
 
-> **Avant de contribuer :** [DETTE_LISIBILITE.md](DETTE_LISIBILITE.md) recense les
+## Cloner et construire
+
+```bash
+git clone --recurse-submodules https://github.com/Rihen-Universe/Nkentseu.git
+cd Nkentseu
+jenga build --target NkCanvasDemo
+```
+
+Les parties commerciales (moteurs `Engine/`, `Kernel/AI`, `Kernel/Bare`, `Spark`, les
+applications UnkenyEditor, Nogee, NKCode, NKCraft…) et les documents de conception
+(`Conception/` : architecture, wiki, guides) sont des **dépôts privés** de Rihen-Universe,
+montés en sous-modules. Sans accès, ces dossiers restent vides : le clone ne les demande pas,
+et Jenga construit le reste sans eux (les projets qui en dépendent sont simplement retirés).
+Avec accès : `git submodule update --init --recursive --checkout`.
+
+---
+
+> **Avant de contribuer :** [DETTE_LISIBILITE.md](Conception/DETTE_LISIBILITE.md) recense les
 > chantiers de rangement du code (découpage des gros fichiers, documents à
 > remettre à jour, garde-fous). Il signale aussi que `ARCHITECTURE.md` a divergé
 > du dépôt et ne doit pas être pris pour argent comptant tant qu'il n'est pas
@@ -24,12 +41,12 @@ simulation, la VR/AR/MR, les outils CAO et les applications scientifiques.
 
 ## Comprendre le projet en 2 minutes
 
-- **[EXPLICATION_SIMPLE.md](EXPLICATION_SIMPLE.md)** — version grand public, sans jargon.
-- **[PRESENTATION_TECHNIQUE.md](PRESENTATION_TECHNIQUE.md)** — architecture en couches,
+- **[EXPLICATION_SIMPLE.md](Conception/EXPLICATION_SIMPLE.md)** — version grand public, sans jargon.
+- **[PRESENTATION_TECHNIQUE.md](Conception/PRESENTATION_TECHNIQUE.md)** — architecture en couches,
   modules, les deux chemins de rendu (2D NKCanvas / 3D NKRenderer→NKRHI).
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — document d'architecture de référence.
-- **[ECOSYSTEM.md](ECOSYSTEM.md)** — la famille de produits (moteur, éditeurs, apps).
-- **[Guides/](Guides/)** — tutoriels pas-à-pas style SFML pour **utiliser** le moteur
+- **[ARCHITECTURE.md](Conception/ARCHITECTURE.md)** — document d'architecture de référence.
+- **[ECOSYSTEM.md](Conception/ECOSYSTEM.md)** — la famille de produits (moteur, éditeurs, apps).
+- **[Guides/](Conception/Guides/)** — tutoriels pas-à-pas style SFML pour **utiliser** le moteur
   (NKWindow, NKEvent, NKMemory, NKImage, NKCanvas, NKAudio, NKUI, NKNetwork + projet 2D complet).
 
 En une phrase : **Jenga** (build) construit **Nkentseu** (moteur C++ zero-STL) ; **Noge**
@@ -121,7 +138,7 @@ Nkentseu/
 | **NKFont** | Parsing TTF / OTF, atlas (SDF à venir) | ✅ |
 | **NKRHI** | RHI bas niveau 6 backends — validé bout-en-bout sur **5** (Vulkan · OpenGL · DX11 · DX12 · Software) ; compute & cross-compile de shaders | ✅ |
 | **NKCanvas** | Couche 2D SFML-like (sprites, formes, texte, transformations, render textures) — rend sur 5 backends (GL · DX11 · DX12 · SW · Vulkan) ; Metal en stub | 🔶 |
-| **NKRenderer** | Rendu 3D ~80 % d'un MVP UE5-like (PBR, IBL HDR + convolutions GPU, CSM/Virtual Shadow Maps, Planar Reflection, Bloom, ACES, Voxel AO) ; **4 backends GPU à parité** (Vulkan/OpenGL/DX11/DX12) ; viewport d'édition (gizmos, view modes, edit mode) ; **capture PNG + enregistrement vidéo MP4 asynchrone** (fenêtre vivante, [doc](wiki/Runtime/NKRenderer/Capture.md)) | 🔶 |
+| **NKRenderer** | Rendu 3D ~80 % d'un MVP UE5-like (PBR, IBL HDR + convolutions GPU, CSM/Virtual Shadow Maps, Planar Reflection, Bloom, ACES, Voxel AO) ; **4 backends GPU à parité** (Vulkan/OpenGL/DX11/DX12) ; viewport d'édition (gizmos, view modes, edit mode) ; **capture PNG + enregistrement vidéo MP4 asynchrone** (fenêtre vivante, [doc](Conception/wiki/Runtime/NKRenderer/Capture.md)) | 🔶 |
 | **NKECS** | ECS bas niveau à archétypes | 🔶 |
 | **NKUI** | UI immediate-mode (docking, thèmes, widgets) | 🔶 |
 | **NKCollision** | Collisions / physique | ⏳ |

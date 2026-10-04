@@ -22,51 +22,68 @@
 [submodule "Kernel/AI"]
 	path = Kernel/AI
 	url = https://github.com/Rihen-Universe/NKAI.git
+	update = none
 [submodule "Kernel/Bare"]
 	path = Kernel/Bare
 	url = https://github.com/Rihen-Universe/NKBare.git
+	update = none
 [submodule "Spark"]
 	path = Spark
 	url = https://github.com/Rihen-Universe/Spark.git
+	update = none
 [submodule "Documentation"]
 	path = Documentation
 	url = https://github.com/Rihen-Universe/Nkentseu-Documentation.git
+	update = none
 [submodule "Engine/NKEditorKit"]
 	path = Engine/NKEditorKit
 	url = https://github.com/Rihen-Universe/NKEditorKit.git
+	update = none
 [submodule "Engine/Unkeny"]
 	path = Engine/Unkeny
 	url = https://github.com/Rihen-Universe/Unkeny.git
+	update = none
 [submodule "Engine/Noge"]
 	path = Engine/Noge
 	url = https://github.com/Rihen-Universe/Noge.git
+	update = none
 [submodule "Applications/UnkenyEditor"]
 	path = Applications/UnkenyEditor
 	url = https://github.com/Rihen-Universe/UnkenyEditor.git
+	update = none
 [submodule "Applications/UnkenyPlayer"]
 	path = Applications/UnkenyPlayer
 	url = https://github.com/Rihen-Universe/UnkenyPlayer.git
+	update = none
 [submodule "Applications/Nogee"]
 	path = Applications/Nogee
 	url = https://github.com/Rihen-Universe/Nogee.git
+	update = none
 [submodule "Applications/NkAnimaEditor"]
 	path = Applications/NkAnimaEditor
 	url = https://github.com/Rihen-Universe/NkAnimaEditor.git
+	update = none
 [submodule "Applications/NKCraft"]
 	path = Applications/NKCraft
 	url = https://github.com/Rihen-Universe/NKCraft.git
+	update = none
 [submodule "Applications/NKScena"]
 	path = Applications/NKScena
 	url = https://github.com/Rihen-Universe/NKScena.git
+	update = none
 [submodule "Applications/NKUIDesign"]
 	path = Applications/NKUIDesign
 	url = https://github.com/Rihen-Universe/NKUIDesign.git
+	update = none
 [submodule "Applications/NKCode"]
 	path = Applications/NKCode
 	url = https://github.com/Rihen-Universe/NKCode.git
+	update = none
 [submodule "Applications/PV3DE"]
 	path = Applications/PV3DE
 	url = https://github.com/Rihen-Universe/PV3DE.git
+	update = none
 [submodule "Conception"]
 	path = Conception
 	url = https://github.com/Rihen-Universe/Nkentseu-Conception.git
+	update = none
