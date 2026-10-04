@@ -5,7 +5,7 @@
 //              ⚠️ DETTE ASSUMÉE, ET ELLE A UN PROPRIÉTAIRE : les six aides de
 //              texte ci-dessous (Text / TextCentered / TextRight / MeasureW)
 //              sont la TROISIÈME copie du même code dans le dépôt, après
-//              Applications/Mou/src/Mou/UI/MouDraw.h et Nkoung. Leur vraie
+//              Labo/Mou/src/Mou/UI/MouDraw.h et Nkoung. Leur vraie
 //              place est NKGui, à côté de NkGuiDrawList::AddText, qui ne sait
 //              écrire qu'à la LIGNE DE BASE — c'est ce manque qui fait que
 //              chaque application les réécrit. À promouvoir dans NKGui sous le

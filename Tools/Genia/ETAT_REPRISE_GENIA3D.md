@@ -18,7 +18,7 @@
 Code : `Kernel/Runtime/NKRenderer/src/NKRenderer/Mesh/NkCreatureScene.{h,cpp}` (lecteur
 `.nkscene 2`), `NkCreaturePeau.{h,cpp}` (la peau G1, `generateur = 2`),
 `NkCreatureMesures.{h,cpp}` (les chiffres du §6 ; les seuils dans `NkCreatureCriteres`,
-a un seul endroit). Banc : `Applications/NKCreatureHarness`
+a un seul endroit). Banc : `Labo/NKCreatureHarness`
 (`jenga build --target NKCreatureHarness`). Specification : doc 04 §5.1-5.4, §6, §14 G1.
 
 **CE QUE G1 CONSTRUIT** : un tube continu par CHAINE d'os (un os qui en porte deux =
@@ -89,7 +89,7 @@ le DQS au GPU (NkAnima) est une tache de G4. L'adresse d'une face de capuchon ne
 **AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen**
 
 Code : `Kernel/Runtime/NKRenderer/src/NKRenderer/Mesh/NkMeshR32.{h,cpp}`. Banc :
-`Applications/NKR32Harness` (`jenga build --target NKR32Harness`). Specification :
+`Labo/NKR32Harness` (`jenga build --target NKR32Harness`). Specification :
 `Applications/NKCraft/design/04-generateur-creatures-nkcraft.md` §3.2bis, §14 G0.
 
 **LE TAUX DE SURVIE, sur 3 retouches a la main (corne extrudee, bosse, creux) x 3

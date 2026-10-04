@@ -87,3 +87,7 @@
 	path = Conception
 	url = https://github.com/Rihen-Universe/Nkentseu-Conception.git
 	update = none
+[submodule "Labo"]
+	path = Labo
+	url = https://github.com/Rihen-Universe/Nkentseu-Labo.git
+	update = none

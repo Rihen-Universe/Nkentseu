@@ -47,7 +47,7 @@
 #   dossier qui ne contient AUCUNE source suivie. 18 dossiers, dont :
 #       237  Applications/NKCode/data/textures/icon
 #       237  Applications/NKCraft/data/textures/icon
-#       156  Applications/Songoo/Resources/Songoo/assets/animrihen
+#       156  Labo/Songoo/Resources/Songoo/assets/animrihen
 #        16  Applications/Nogee/design
 #        15  Kernel/Runtime/NKGraph/references
 #         2  Applications/NkAnimaEditor/important

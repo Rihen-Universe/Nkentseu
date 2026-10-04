@@ -2762,7 +2762,7 @@ int main(int argc, char **argv) {
 		}
 		// SeekFrame se contente de repositionner sur l'IDR précédente (voir implémentation) : il
 		// faut ensuite redécoder EN AVANT jusqu'à la cible, exactement comme le fait la boucle de
-		// rattrapage du lecteur (Applications/NkVideoPlayer). On plafonne les itérations pour ne
+		// rattrapage du lecteur (Labo/NkVideoPlayer). On plafonne les itérations pour ne
 		// jamais boucler indéfiniment si `CurrentIndex()` ne progresse pas comme attendu.
 		NkVideoFrame fr2;
 		int32 guard = 0;

@@ -179,7 +179,7 @@ with project("NkDames"):
     # plateforme qu'on croit couverte parce qu'un COMMENTAIRE la nomme.
     #
     # ⚠️ Non verifie sur machine : la construction iOS exige macOS + Xcode.
-    # Ces lignes suivent le modele de Applications/NKPA/NKPA.jenga, qui est
+    # Ces lignes suivent le modele de Labo/NKPA/NKPA.jenga, qui est
     # dans le meme cas. Elles rendent la cible DECLAREE, pas EPROUVEE.
     with filter("system:iOS"):
         windowedapp()

@@ -179,8 +179,8 @@ dessin local est une absence de NKGui **qui a déjà coûté deux fois**.
 
 | fichier | lignes | ce qu'il émule |
 |---|---|---|
-| `Applications/Mou/src/Mou/UI/MouDraw.h` | 155 | `CircleOutline`, `RectOutline` (arrondi) |
-| `Applications/Nkoung/src/Nkoung/UI/NkoungDraw.h` | 155 | **le même fichier** |
+| `Labo/Mou/src/Mou/UI/MouDraw.h` | 155 | `CircleOutline`, `RectOutline` (arrondi) |
+| `Labo/Nkoung/src/Nkoung/UI/NkoungDraw.h` | 155 | **le même fichier** |
 | `Engine/NKEditorKit/Applications/ConquerorLab/src/ConquerorLab/NkcDraw.h` | 145 | `NkcRing`, `NkcPolyFilled`, `NkcPolyOutline(Inset)` |
 | `Applications/NKCode/src/NKCode/Editor/NkTextDraw.h` | 400 | glyphes de repli, réparation mojibake (**spécifique NKCode, reste local**) |
 

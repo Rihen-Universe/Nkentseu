@@ -1526,7 +1526,7 @@ réordonnancement POC ✅ — voir « Livré ».)*
   seek+redécodage, compare les sommes de contrôle) : cible 0/50/200/500/1000 sur le film réel →
   toutes retombent sur l'image exacte (±1, artefact attendu de la condition d'arrêt `CurrentIndex()
   < target`, identique à la convention déjà utilisée par la boucle de rattrapage du lecteur).
-  Débloquait le scrubber UI (voir `Applications/NkVideoPlayer/ROADMAP.md`) **et** la
+  Débloquait le scrubber UI (voir `Labo/NkVideoPlayer/ROADMAP.md`) **et** la
   resynchronisation active ci-dessous.
 - ✅ **Resynchronisation active dans `NkVideoPlayer` (2026-07-21, demande explicite Rihen : "on ne
   dois pas avoir de decalage... le systeme doit etre robuste a tout moment").** Le rattrapage à

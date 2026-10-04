@@ -20,7 +20,7 @@
 //   sur les sept plateformes, sans un seul fichier a copier.
 //
 // ⚠️ CE N'EST PAS UN LOGO INVENTE
-//   C'est `Applications/Mou/assets/brand/rihen-mark.svg`, extrait du logo
+//   C'est `Labo/Mou/assets/brand/rihen-mark.svg`, extrait du logo
 //   officiel, aux couleurs exactes de la charte : petrole #0A555F, orange
 //   #F79A28. On ne DESSINE pas une marque, on rasterise la sienne.
 //

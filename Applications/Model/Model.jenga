@@ -10,7 +10,7 @@ interpolée par sommet) via la couche RHI Nkentseu, multi-backend.
   • Pipeline complet : device → shaders → vertex buffer → pipeline → boucle
 
 NB : la vraie démo d'animation procédurale (poissons/serpents/lézards IK)
-     est l'application NKPA (Applications/NKPA/).
+     est l'application NKPA (Labo/NKPA/).
 """
 
 from Jenga import *

@@ -292,10 +292,10 @@ int nkmain(const NkEntryState &state) {
 	int32 imgW = 0, imgH = 0;
 	{
 		static const char *kCandidates[] = {
-			"Applications/Mou/assets/brand/rihen-logo.png",
-			"Applications/Mou/assets/brand/noge-logo.png",
+			"Labo/Mou/assets/brand/rihen-logo.png",
+			"Labo/Mou/assets/brand/noge-logo.png",
 			"Resources/Icons/ContentBrowser/FileIcon.png",
-			"../../../Applications/Mou/assets/brand/rihen-logo.png",
+			"../../../Labo/Mou/assets/brand/rihen-logo.png",
 		};
 		NkImage img;
 		bool ok = false;

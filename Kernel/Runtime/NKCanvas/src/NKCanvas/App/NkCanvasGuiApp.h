@@ -29,8 +29,8 @@
 //      mesurer une hauteur de ligne. C'est ce manque qui force chaque
 //      application a reecrire les memes quinze lignes.
 //      Mesure : TROIS copies dans le depot avant ce fichier —
-//        Applications/Mou/src/Mou/UI/MouDraw.h
-//        Applications/Nkoung/...
+//        Labo/Mou/src/Mou/UI/MouDraw.h
+//        Labo/Nkoung/...
 //        Applications/Gemcrush/src/Gemcrush/Ui/NkGemHud.cpp  (dette datee du
 //          2026-08-27, qui nommait deja NKGui comme destination)
 //      Trois jeux de plus en auraient fait six. Elles vivent ici desormais.

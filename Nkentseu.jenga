@@ -509,7 +509,7 @@ with workspace("Nkentseu", location="."):
     with include("Applications/Sandbox/Sandbox.jenga"):
         pass
 
-    with include("Applications/ConquerorProto/ConquerorProto.jenga"):
+    with includeprive("Labo/ConquerorProto/ConquerorProto.jenga"):
         pass
 
     with include("Applications/NkAudioDemo/NkAudioDemo.jenga"):
@@ -699,18 +699,18 @@ with workspace("Nkentseu", location="."):
         pass
     # R32 (G0 du generateur de creatures, NKCraft doc 04) : adresses stables et
     # pile d'operations rejouee. Banc console, calcul pur.
-    with include("Applications/NKR32Harness/NKR32Harness.jenga"):
+    with includeprive("Labo/NKR32Harness/NKR32Harness.jenga"):
 
         pass
 
     # Generateur de creatures (NKCraft doc 04) : criteres du §6 par palier (G1+).
-    with include("Applications/NKCreatureHarness/NKCreatureHarness.jenga"):
+    with includeprive("Labo/NKCreatureHarness/NKCreatureHarness.jenga"):
 
         pass
 
     with include("Applications/NKUVUnwrapTest/NKUVUnwrapTest.jenga"):
         pass
-    with include("Applications/NKGeniaTemoin/NKGeniaTemoin.jenga"):
+    with includeprive("Labo/NKGeniaTemoin/NKGeniaTemoin.jenga"):
 
         pass
 
@@ -751,9 +751,9 @@ with workspace("Nkentseu", location="."):
         pass
     with include("Applications/NkVideoReadTest/NkVideoReadTest.jenga"):
         pass
-    with include("Applications/NkAudioPlayer/NkAudioPlayer.jenga"):
+    with includeprive("Labo/NkAudioPlayer/NkAudioPlayer.jenga"):
         pass
-    with include("Applications/NkVideoPlayer/NkVideoPlayer.jenga"):
+    with includeprive("Labo/NkVideoPlayer/NkVideoPlayer.jenga"):
         pass
     with include("Applications/NKOpusRef/NKOpusRef.jenga"):
         pass
@@ -897,7 +897,7 @@ with workspace("Nkentseu", location="."):
     with include("Applications/NKNormalesTest/NKNormalesTest.jenga"):
         pass
 
-    with include("Applications/NKSculptHarness/NKSculptHarness.jenga"):
+    with includeprive("Labo/NKSculptHarness/NKSculptHarness.jenga"):
         pass
 
     with includeprive("Kernel/AI/Applications/NKMeshRenderTest/NKMeshRenderTest.jenga"):
@@ -937,7 +937,7 @@ with workspace("Nkentseu", location="."):
     with include("Applications/NkTemporelProbe/NkTemporelProbe.jenga"):
         pass
 
-    with include("Applications/NKPA/NKPA.jenga"):
+    with includeprive("Labo/NKPA/NKPA.jenga"):
         pass
 
     # NKECS (ECS bas niveau archetypes) — DOIT etre enregistre AVANT Noge qui en
@@ -1069,16 +1069,16 @@ with workspace("Nkentseu", location="."):
     # TODO(Songoo) : migration rendu GL -> NKCanvas a FINIR (12 scenes UI utilisent encore
     # Render/GLContext|GLRenderer2D|Texture2D|FontAtlas supprimes). Desactive du build pour
     # ne pas casser `jenga build`. Le code source reste dans main ; reactiver apres migration.
-    # with include("Applications/Songoo/Songoo.jenga"):
+    # with includeprive("Labo/Songoo/Songoo.jenga"):
     #     pass
     if False:
-        with include("Applications/Songoo/Songoo.jenga"):
+        with includeprive("Labo/Songoo/Songoo.jenga"):
             pass
 
-    with include("Applications/Nkoung/Nkoung.jenga"):
+    with includeprive("Labo/Nkoung/Nkoung.jenga"):
         pass
 
-    with include("Applications/Mou/Mou.jenga"):
+    with includeprive("Labo/Mou/Mou.jenga"):
         pass
 
     with include("Applications/NkImeTest/NkImeTest.jenga"):

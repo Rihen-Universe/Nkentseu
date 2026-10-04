@@ -26,8 +26,8 @@
 # Chemins relatifs a la racine du depot, separateur `/`.
 # -----------------------------------------------------------------------------
 Applications/Model/Model.jenga
-Applications/Mou/Mou.jenga
-Applications/NKPA/NKPA.jenga
+Labo/Mou/Mou.jenga
+Labo/NKPA/NKPA.jenga
 Engine/Noge/Applications/NkAgentEcsDemo/NkAgentEcsDemo.jenga
 Engine/Noge/Applications/NkAssetIODemo/NkAssetIODemo.jenga
 Engine/Noge/Applications/NkAudioECSDemo/NkAudioECSDemo.jenga
@@ -40,7 +40,7 @@ Engine/Noge/Applications/NkNavDemo/NkNavDemo.jenga
 Engine/Noge/Applications/NkNetWorldDemo/NkNetWorldDemo.jenga
 Engine/Noge/Applications/NkSVGImportDemo/NkSVGImportDemo.jenga
 Engine/Noge/Applications/NkUIHudDemo/NkUIHudDemo.jenga
-Applications/Nkoung/Nkoung.jenga
+Labo/Nkoung/Nkoung.jenga
 Applications/Nogee/Nogee.jenga
 Applications/PV3DE/PV3DE.jenga
 Applications/Pong copy/Pong.jenga
@@ -50,7 +50,7 @@ Applications/RihenDefi/RihenDefi.jenga
 Applications/Sandbox/ContextSandbox.jenga
 Applications/Sandbox/RendererSandbox.jenga
 Applications/Sandbox/RhiSandbox.jenga
-Applications/Songoo/Songoo.jenga
+Labo/Songoo/Songoo.jenga
 Engine/Noge/Noge.jenga
 Integrations/NKUI/NKUIIntegration.jenga
 Kernel/Runtime/NKCanvas/NKCanvas.jenga
