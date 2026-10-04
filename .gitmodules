@@ -19,3 +19,54 @@
 [submodule "Externals/Libs/Vulkan-Headers-1.4.350"]
 	path = Externals/Libs/Vulkan-Headers-1.4.350
 	url = https://github.com/Rihen-Universe/Vulkan-Headers.git
+[submodule "Kernel/AI"]
+	path = Kernel/AI
+	url = https://github.com/Rihen-Universe/NKAI.git
+[submodule "Kernel/Bare"]
+	path = Kernel/Bare
+	url = https://github.com/Rihen-Universe/NKBare.git
+[submodule "Spark"]
+	path = Spark
+	url = https://github.com/Rihen-Universe/Spark.git
+[submodule "Documentation"]
+	path = Documentation
+	url = https://github.com/Rihen-Universe/Nkentseu-Documentation.git
+[submodule "Engine/NKEditorKit"]
+	path = Engine/NKEditorKit
+	url = https://github.com/Rihen-Universe/NKEditorKit.git
+[submodule "Engine/Unkeny"]
+	path = Engine/Unkeny
+	url = https://github.com/Rihen-Universe/Unkeny.git
+[submodule "Engine/Noge"]
+	path = Engine/Noge
+	url = https://github.com/Rihen-Universe/Noge.git
+[submodule "Applications/UnkenyEditor"]
+	path = Applications/UnkenyEditor
+	url = https://github.com/Rihen-Universe/UnkenyEditor.git
+[submodule "Applications/UnkenyPlayer"]
+	path = Applications/UnkenyPlayer
+	url = https://github.com/Rihen-Universe/UnkenyPlayer.git
+[submodule "Applications/Nogee"]
+	path = Applications/Nogee
+	url = https://github.com/Rihen-Universe/Nogee.git
+[submodule "Applications/NkAnimaEditor"]
+	path = Applications/NkAnimaEditor
+	url = https://github.com/Rihen-Universe/NkAnimaEditor.git
+[submodule "Applications/NKCraft"]
+	path = Applications/NKCraft
+	url = https://github.com/Rihen-Universe/NKCraft.git
+[submodule "Applications/NKScena"]
+	path = Applications/NKScena
+	url = https://github.com/Rihen-Universe/NKScena.git
+[submodule "Applications/NKUIDesign"]
+	path = Applications/NKUIDesign
+	url = https://github.com/Rihen-Universe/NKUIDesign.git
+[submodule "Applications/NKCode"]
+	path = Applications/NKCode
+	url = https://github.com/Rihen-Universe/NKCode.git
+[submodule "Applications/PV3DE"]
+	path = Applications/PV3DE
+	url = https://github.com/Rihen-Universe/PV3DE.git
+[submodule "Conception"]
+	path = Conception
+	url = https://github.com/Rihen-Universe/Nkentseu-Conception.git

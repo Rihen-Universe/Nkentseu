@@ -3,7 +3,7 @@
                        (NKENTSEU + JENGA + JEUX)
 ================================================================================
 
-Copyright (c) 2026 Rihen Universe.
+Copyright (c) 2022-2026 TEUGUIA TADJUIDJE Rodolf Sederis ("Rihen"), operating as Rihen Universe.
 All Rights Reserved. Tous droits reserves.
 
 Cette licence couvre l'ensemble de l'ecosysteme logiciel Rihen Universe,
@@ -28,8 +28,11 @@ PROPRIETARY AND CONFIDENTIAL.
    Tous les droits, titres et interets sur le Logiciel, incluant le code
    source, les binaires, les ressources audiovisuelles, la documentation,
    les marques deposees et les designs, sont et resteront la propriete
-   exclusive de Rihen Universe (le "Concedant"). Aucun droit
-   non explicitement accorde dans cette licence n'est cede.
+   exclusive de leur auteur, TEUGUIA TADJUIDJE Rodolf Sederis, dit
+   « Rihen », qui les exploite sous le nom Rihen Universe (le "Concedant").
+   Dans toute cette licence, « Rihen Universe » designe le Concedant. Aucun
+   droit non explicitement accorde dans cette licence n'est cede. Le
+   Logiciel est developpe depuis 2022 (depots LeTeguis/Nkentseu et suivants).
 
 2. LICENCE D'UTILISATION
    Sous reserve du respect de cette licence, le Concedant vous accorde une
@@ -178,9 +181,12 @@ PROPRIETARY AND CONFIDENTIAL.
 1. INTELLECTUAL PROPERTY
    All rights, title and interest in the Software, including source code,
    binaries, audiovisual assets, documentation, trademarks and designs,
-   are and shall remain the exclusive property of Rihen Universe / Jordan
-   Smit (the "Licensor"). No rights are granted other than those expressly
-   stated herein.
+   are and shall remain the exclusive property of their author, TEUGUIA
+   TADJUIDJE Rodolf Sederis, known as "Rihen", who operates them under the
+   name Rihen Universe (the "Licensor"). Throughout this license, "Rihen
+   Universe" designates the Licensor. No rights are granted other than those
+   expressly stated herein. The Software has been developed since 2022
+   (repositories LeTeguis/Nkentseu and following).
 
 2. LICENSE GRANT
    Subject to compliance with this license, the Licensor grants You a
@@ -291,6 +297,40 @@ PROPRIETARY AND CONFIDENTIAL.
     e) Entire Agreement: This license constitutes the entire agreement
        between the parties regarding the Software.
 
+12bis. EXPLICIT PROHIBITIONS / INTERDICTIONS EXPLICITES (added 2026-10-04)
+    Without the prior written permission of Rihen Universe, it is forbidden to:
+      a) copy, reproduce, modify, translate, adapt or create derivative works
+         of the Software, in whole or in part, including its architecture,
+         documentation, examples, file formats and public interfaces;
+      b) distribute, publish, sublicense, sell or otherwise make the Software
+         or any part of it available to third parties;
+      c) use the Software, in whole or in part, to train, fine-tune, evaluate
+         or otherwise feed any artificial intelligence or machine-learning
+         system, dataset or model;
+      d) submit the Software, in whole or in part, to an artificial
+         intelligence tool or service in order to reproduce, rewrite, port
+         or derive a competing or similar product.
+    Viewing the source code where it is publicly accessible grants none of
+    these rights. Every file of the Software remains covered by this license
+    even when it is copied separately.
+
+    Sans l'autorisation ecrite prealable de Rihen Universe, il est interdit :
+      a) de copier, reproduire, modifier, traduire, adapter ou deriver le
+         Logiciel, en tout ou en partie, y compris son architecture, sa
+         documentation, ses exemples, ses formats de fichiers et ses
+         interfaces publiques ;
+      b) de le distribuer, publier, sous-licencier, vendre ou mettre a la
+         disposition de tiers, en tout ou en partie ;
+      c) de l'utiliser, en tout ou en partie, pour entrainer, affiner,
+         evaluer ou alimenter tout systeme, jeu de donnees ou modele
+         d'intelligence artificielle ou d'apprentissage automatique ;
+      d) de le soumettre, en tout ou en partie, a un outil ou service
+         d'intelligence artificielle afin de reproduire, reecrire, porter ou
+         deriver un produit concurrent ou similaire.
+    La consultation du code source la ou il est accessible publiquement ne
+    confere aucun de ces droits. Chaque fichier du Logiciel reste couvert par
+    cette licence, meme copie isolement.
+
 13. CONTACT
     Rihen Universe
        Email     : rihen.universe@gmail.com
@@ -309,7 +349,7 @@ d'etre lie par ses termes. Si vous n'acceptez pas, n'installez pas et
 n'utilisez pas le Logiciel.
 
 ================================================================================
-                  (c) 2026 Rihen Universe
+        (c) 2022-2026 TEUGUIA TADJUIDJE Rodolf Sederis - Rihen Universe
                             All Rights Reserved
                            PROPRIETARY SOFTWARE
 ================================================================================

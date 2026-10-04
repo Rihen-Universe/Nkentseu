@@ -192,8 +192,11 @@ Gabarit des modules `System`, à reprendre tel quel :
 // Algorithmes implémentés :
 //   - Ceux qui méritent d'être nommés
 //
-// Auteur   : Rihen
-// Copyright: (c) 2024-2026 Rihen. Tous droits réservés.
+// Auteur   : TEUGUIA TADJUIDJE Rodolf Séderis (« Rihen »)
+// Copyright: (c) 2022-2026 TEUGUIA TADJUIDJE Rodolf Séderis — Rihen Universe.
+//            Tous droits réservés. Logiciel propriétaire : voir LICENSE.
+//            Copie, reproduction, modification, redistribution et usage par une
+//            IA interdits sans autorisation écrite.
 // =============================================================================
 
 #pragma once
@@ -216,18 +219,40 @@ Le `#pragma once` **et** la garde nommée : les deux, pas l'un ou l'autre.
 | Membre | `mPascalCase` | `mClipStack` |
 | Variable locale | `camelCase` | `edgeCount` |
 | Constante, macro | `UPPER_SNAKE_CASE` | `NK_PDF_STREAM` |
-| Valeur d'énumération | `Nk_<Type sans Nk>_<Valeur>` | `NkR32Statut::Nk_R32Statut_Orpheline` |
+| Valeur d'énumération | `NK_<Type sans Nk>_<Mots_De_La_Valeur>` | `NkKeyType::NK_KeyType_Left_Shift` |
 | Fonction DSL utilisateur (Jenga) | `minuscules` | `consoleapp()` |
 
 **Pas de `snake_case`** pour les fonctions et les types, en C++ comme en Python.
 
-**Valeurs d'énumération — décision de Rodolf, 29/09/2026.** Elles s'écrivent
-`Nk_<Type sans Nk>_<Valeur>` pour se distinguer d'un coup d'œil des macros et
-constantes (`NK_…`) et des types (`NkPascal`). Effet de bord utile : une valeur
-préfixée ne peut plus entrer en collision avec une macro système (`Bool`, `None`,
-`Status` de X11 — c'est ce qui cassait NKRenderer sous Linux). Cette forme remplace
-`NK_<VALEUR>` (guide `NOMENCLATURE_ET_DOCUMENTATION.md` §1.2.6) pour le code neuf ;
-l'existant se met en conformité **seulement là où on le touche** (§6).
+### 5.1 Énumérations — décision de Rodolf, 04/10/2026 (remplace celle du 29/09)
+
+```cpp
+enum class NkKeyType {
+    NK_KeyType_Value_0,
+    NK_KeyType_Left_Shift,
+    NK_KeyType_F1
+};
+enum class NkGraphicsApi { NK_GraphicsApi_OpenGL, NK_GraphicsApi_DX11, NK_GraphicsApi_Vulkan };
+```
+
+- Le **type** garde son nom `NkPascalCase` (`NkKeyType`).
+- Chaque **valeur** s'écrit `NK_` + le nom du type **sans** `Nk` + les mots de la valeur,
+  chacun avec une majuscule, séparés par `_` (Upper_Snake_Case). Vaut aussi pour les
+  `enum class` : c'est redondant avec `NkKeyType::`, mais cohérent et retrouvable partout.
+- Les **sigles** gardent leur écriture usuelle : `OpenGL`, `DX11`, `IK`, `UI`, `GPU`.
+- **Pourquoi** : les en-têtes système définissent des MACROS, qui ignorent espaces de noms et
+  `enum class` — Windows (`DELETE`, `ERROR`, `IGNORE`, `OPAQUE`, `TRANSPARENT`, `IN`, `OUT`,
+  `min`, `max`…), X11 (`None`, `Status`, `Bool`, `Success`, `Always`, `KeyPress`…), Linux et
+  Android (`KEY_A`, `AKEYCODE_A`…). Une valeur nommée `None` ou `Delete` casse la
+  compilation sur une plateforme et pas sur l'autre. Aucun en-tête système ne définit
+  `NK_KeyType_…` : plus de collision, et la valeur se reconnaît d'un coup d'œil (projet,
+  type, valeur). Les formes `Nk_<Type>_<Valeur>` (29/09) et `NK_<VALEUR>` sont abandonnées.
+- **Contrôles automatiques** (lancés avec les bancs) : (1) un vérificateur refuse toute valeur
+  d'énumération qui ne suit pas `NK_<Type>_<Mots>` ; (2) un banc de collision compile un
+  fichier qui inclut `windows.h` (et X11 sous Linux) **avec** tous les en-têtes Nkentseu.
+- **Mise en conformité** : par une refonte globale décidée par Rodolf (dans tous les dépôts,
+  publics et privés, chaque usage mis à jour, compilation et bancs verts module par module) —
+  exception explicite à la règle du §6.
 
 ---
 
