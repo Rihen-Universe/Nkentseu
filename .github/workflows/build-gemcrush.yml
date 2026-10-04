@@ -67,12 +67,12 @@ jobs:
       - name: Version de Jenga exigee par NKCode
         id: jenga-version
         run: |
-          # SOURCE UNIQUE : Applications/NKCode/JENGA_VERSION. Aucun numero en
+          # SOURCE UNIQUE : config/JENGA_VERSION. Aucun numero en
           # dur ici, donc aucune divergence possible. Ce champ a porte
           # `feat/evenement-avertissement` (Jenga 2.4.0) pendant que NKCode
           # passait a 2.8.0 : le chargement du workspace s'arretait sur
           # « name 'appurl' is not defined », message qui ne parle pas de Jenga.
-          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Jenga exige par NKCode : $V"
@@ -137,12 +137,12 @@ jobs:
       - name: Version de Jenga exigee par NKCode
         id: jenga-version
         run: |
-          # SOURCE UNIQUE : Applications/NKCode/JENGA_VERSION. Aucun numero en
+          # SOURCE UNIQUE : config/JENGA_VERSION. Aucun numero en
           # dur ici, donc aucune divergence possible. Ce champ a porte
           # `feat/evenement-avertissement` (Jenga 2.4.0) pendant que NKCode
           # passait a 2.8.0 : le chargement du workspace s'arretait sur
           # « name 'appurl' is not defined », message qui ne parle pas de Jenga.
-          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Jenga exige par NKCode : $V"
@@ -200,12 +200,12 @@ jobs:
       - name: Version de Jenga exigee par NKCode
         id: jenga-version
         run: |
-          # SOURCE UNIQUE : Applications/NKCode/JENGA_VERSION. Aucun numero en
+          # SOURCE UNIQUE : config/JENGA_VERSION. Aucun numero en
           # dur ici, donc aucune divergence possible. Ce champ a porte
           # `feat/evenement-avertissement` (Jenga 2.4.0) pendant que NKCode
           # passait a 2.8.0 : le chargement du workspace s'arretait sur
           # « name 'appurl' is not defined », message qui ne parle pas de Jenga.
-          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Jenga exige par NKCode : $V"

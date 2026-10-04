@@ -74,8 +74,8 @@ jobs:
       - name: Version de Jenga exigee par NKCode
         id: jenga-version
         run: |
-          # SOURCE UNIQUE : Applications/NKCode/JENGA_VERSION (voir build-macos.yml).
-          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          # SOURCE UNIQUE : config/JENGA_VERSION (voir build-macos.yml).
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
           # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
@@ -136,7 +136,7 @@ jobs:
       - name: Version de Jenga exigee par NKCode
         id: jenga-version
         run: |
-          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
           # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
@@ -292,7 +292,7 @@ jobs:
       - name: Version de Jenga exigee par NKCode
         id: jenga-version
         run: |
-          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
           # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
@@ -409,7 +409,7 @@ jobs:
       - name: Version de Jenga exigee par NKCode
         id: jenga-version
         run: |
-          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
           # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
@@ -492,7 +492,7 @@ jobs:
       - name: Version de Jenga exigee par NKCode
         id: jenga-version
         run: |
-          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
           # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.

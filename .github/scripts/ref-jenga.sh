@@ -4,7 +4,7 @@
 # =============================================================================
 # POURQUOI IL EXISTE
 #
-#   La CI recupere Jenga au TAG v<JENGA_VERSION> (Applications/NKCode/
+#   La CI recupere Jenga au TAG v<JENGA_VERSION> (config/
 #   JENGA_VERSION) et c'est la bonne regle : une branche mouvante a deja fait
 #   construire la CI avec Jenga 2.4.0 pendant que NKCode exigeait 2.8.0.
 #

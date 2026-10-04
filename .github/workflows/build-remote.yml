@@ -49,12 +49,12 @@ jobs:
       - name: Version de Jenga exigee par NKCode
         id: jenga-version
         run: |
-          # SOURCE UNIQUE : Applications/NKCode/JENGA_VERSION. Ce fichier ne
+          # SOURCE UNIQUE : config/JENGA_VERSION. Ce fichier ne
           # porte plus de numero en dur ici, donc il ne peut plus diverger.
           # Avant, `ref:` etait ecrit a la main et il est reste en 2.6.3 pendant
           # que NKCode passait a 2.8.0 : la construction macOS s'arretait sur
           # « name 'appurl' is not defined », message qui ne parle pas de Jenga.
-          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Jenga exige par NKCode : $V"
@@ -228,7 +228,7 @@ jobs:
         if: inputs.target == 'NKCode' && inputs.platform != 'ios'
         run: |
           set -e
-          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
           T=$(mktemp -d); H=$(mktemp -d); P=$(mktemp -d)
           tar -xzf "NKCode-${{ inputs.platform }}.tar.gz" -C "$T"
           APP="$T/NKCode"

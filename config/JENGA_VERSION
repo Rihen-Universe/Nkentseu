@@ -1,0 +1,25 @@
+# La version de Jenga que Nkentseu EXIGE (NKCode, la CI publique et privee).
+#
+# Deplacee ici le 05/10/2026 depuis Applications/NKCode/JENGA_VERSION : NKCode est
+# devenu un depot prive, et la CI publique ne le voit plus. Ce fichier reste public.
+#
+# SOURCE UNIQUE. Tous les workflows la lisent, plus le fichier de projet :
+#   - .github/workflows/build-remote.yml       (tag a extraire)
+#   - .github/workflows/build-macos.yml        (idem)
+#   - .github/workflows/build-gemcrush.yml     (idem)
+#   - .github/workflows/build-jeux-plateau.yml (idem)
+#   - Applications/NKCode/NKCode.jenga         (verifie le wheel embarque, depot prive)
+#   - vous, quand vous vous demandez sur quoi NKCode est construit
+#
+# Les trois derniers workflows ne la lisaient PAS avant le 10 septembre 2026 :
+# ils restaient epingles sur une branche figee en Jenga 2.4.0. Le jour ou
+# NKCode.jenga a employe appurl(), ils se sont tous arretes sur
+# « name 'appurl' is not defined », un message qui ne nomme jamais Jenga.
+#
+# Pour passer a une nouvelle version de Jenga : changer CE numero, et
+# reconstruire le wheel (./cri.sh dans le depot Jenga). Le CI suit tout
+# seul, et NKCode refuse de se construire si le wheel ne suit pas.
+#
+# Le tag correspondant doit exister sur Rihen-Universe/Jenga, prefixe
+# d'un « v » : 2.8.10 ici, v2.8.10 la-bas.
+2.8.10
