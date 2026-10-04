@@ -27,7 +27,9 @@ namespace nkentseu {
 			};
 			const Paire kSuffixes[] = {{".L", ".R"}, {".l", ".r"}, {"_L", "_R"}, {"_l", "_r"}, {"-L", "-R"}, {" L", " R"}};
 			const Paire kPrefixes[] = {{"L_", "R_"}, {"l_", "r_"}, {"L.", "R."}};
-			const Paire kMots[] = {{"Left", "Right"}, {"left", "right"}, {"LEFT", "RIGHT"}, {"Gauche", "Droite"}, {"gauche", "droite"}, {"GAUCHE", "DROITE"}};
+			// Les infixes (« arm_joint_L_2 » de CesiumMan, « hand.L.001 ») avant les mots.
+			const Paire kMots[] = {{"_L_", "_R_"}, {"_l_", "_r_"}, {".L.", ".R."}, {"-L-", "-R-"},
+								   {"Left", "Right"}, {"left", "right"}, {"LEFT", "RIGHT"}, {"Gauche", "Droite"}, {"gauche", "droite"}, {"GAUCHE", "DROITE"}};
 
 			bool FinitPar(const char *s, const char *f) {
 				const usize ls = std::strlen(s), lf = std::strlen(f);
