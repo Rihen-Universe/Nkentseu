@@ -208,6 +208,46 @@ namespace nkentseu {
 				bool sortAsc = true;			   ///< sens du tri
 		};
 
+		/// (02/10) LE STYLE DE MENU QU'UN HOTE PEUT DECLARER — NKCode, menu ≡ de la
+		/// Synthese (maquette D, variante 2) : entrees de 30 px, colonne d'icones,
+		/// survol doux, et les SOUS-MENUS poses DANS une colonne du panneau au lieu de
+		/// surgir a cote.
+		/// ⚠️ INACTIF PAR DEFAUT, et c'est la condition : `actif == false` laisse le
+		///    dessin historique de TOUS les menus de TOUTES les applications au pixel
+		///    pres. L'hote l'arme autour de son dessin, puis le desarme.
+		struct NkGuiMenuStyle {
+				bool actif = false;
+				/// Le niveau de popup du panneau de l'hote : le style vaut a ce niveau et
+				/// au-dessus ; ses sous-menus sont au niveau suivant.
+				int32 niveau = 0;
+				float32 hauteur = 30.f;	  ///< hauteur d'une entree
+				float32 rayon = 7.f;	  ///< arrondi du survol
+				float32 retrait = 10.f;	  ///< retrait de l'icone (ou du libelle) dans l'entree
+				float32 icone = 15.f;	  ///< cote de l'icone ; 0 = pas de colonne d'icones
+				float32 ecart = 10.f;	  ///< entre l'icone et le libelle
+				float32 separateur = 11.f; ///< hauteur d'un separateur (trait au milieu)
+				NkColor survol{0, 0, 0, 0};	  ///< fond d'une entree survolee / sous-menu ouvert
+				NkColor texte{0, 0, 0, 0};	  ///< libelle (le survol ne le change pas)
+				NkColor grise{0, 0, 0, 0};	  ///< libelle d'une entree sans backend
+				NkColor discret{0, 0, 0, 0};  ///< raccourcis, chevrons, titre de colonne
+				NkColor teinte{0, 0, 0, 0};	  ///< teinte des icones
+				NkColor trait{0, 0, 0, 0};	  ///< separateurs
+				/// L'icone d'une entree, d'apres son libelle (0 = pas d'icone, la place
+				/// reste : les libelles restent alignes, comme dans la maquette).
+				/// `teinte` arrive a `teinte` du style : une icone COLOREE (pastille) la
+				/// remet a blanc pour garder ses couleurs.
+				uint32 (*iconeDe)(void *user, const char *libelle, const char *fin, NkColor *teinte) = nullptr;
+				void *iconeUser = nullptr;
+				/// LA COLONNE DES SOUS-MENUS : un sous-menu ouvert depuis le niveau
+				/// `niveau` se pose DANS ce rectangle (sans cadre propre), son titre en
+				/// capitales en tete. w <= 0 : le sous-menu surgit a cote, comme avant.
+				NkRect colonne{0.f, 0.f, 0.f, 0.f};
+				float32 titreColonne = 30.f; ///< hauteur du titre de la colonne
+				/// Pose par BeginMenu juste avant d'ouvrir le popup de la colonne, lu (et
+				/// remis a faux) par le popup : fond sans cadre, trait a gauche.
+				bool colonneEnCours = false;
+		};
+
 		// Contexte principal. Explicite (multi-instance) ; un « contexte courant »
 		// permet l'API immédiate terse (nkgui::Button(...) sans passer ctx).
 		struct NKENTSEU_NKGUI_CLASS_EXPORT NkGuiContext {
@@ -483,6 +523,12 @@ namespace nkentseu {
 				bool menuBarDeborde = false;			   ///< un menu au moins est tombé dedans
 				bool menuBarDebordOuvert = false;		   ///< le puits « … » est déroulé cette image
 				int32 menuBarDebordCompte = 0;			   ///< combien de menus y sont tombés
+				/// (02/10) Le style de menu de l'hote (NKCode : le menu ≡ de la Synthese).
+				/// Inactif par defaut : rien ne change ailleurs.
+				NkGuiMenuStyle menuStyle;
+				/// (02/10) Le rectangle de la DERNIERE entree de menu posee (grisee ou non) :
+				/// l'hote y accroche l'info-bulle qui dit POURQUOI une entree est grisee.
+				NkRect menuDernierItem{0.f, 0.f, 0.f, 0.f};
 
 				// IDs d'interaction
 				NkGuiId hotId = NKGUI_ID_NONE;	   ///< widget survolé (greedy : dernier soumis = au-dessus)
