@@ -741,7 +741,7 @@ un NKRHI **sans son dorsal OpenGL**. Changement annulé.
 
 > **Dette restante, nommée** : NKTensor a besoin de toute la pile RHI et son
 > entrée de registre ne le dit pas. Chaque consommateur compense à la main (cf.
-> `Applications/NKGenTest/NKGenTest.jenga`), et celui qui l'ignore ne l'apprend
+> `Kernel/AI/Applications/NKGenTest/NKGenTest.jenga`), et celui qui l'ignore ne l'apprend
 > qu'à l'édition de liens. Le remède demande de rendre le registre capable
 > d'exprimer une dépendance externe — chantier Jenga, pas NKRenderer.
 

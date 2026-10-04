@@ -175,7 +175,7 @@ with project("NKRenderer"):
             # de dutc/dute, et le dossier tests/ n existait pas). Premiere
             # construction le 2026-09-06 : NKRenderer seul laisse 200 references non
             # resolues (NkShaderConvert -> glslang / SPIRV-Cross, NkImage, NkFont...).
-            # La liste ci-dessous est celle de DemoRW (Applications/DemoRW/demorw.jenga),
+            # La liste ci-dessous est celle de DemoRW (Kernel/AI/Applications/DemoRW/demorw.jenga),
             # qui lie le meme renderer et fonctionne : meme ORDRE, parce que le linker
             # GNU est mono-passe et resout vers l aval.
             # ⚠️ NKVFX est place AVANT NKRenderer, et ce n'est pas cosmetique : il y

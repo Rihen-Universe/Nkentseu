@@ -6,7 +6,7 @@
 // pathfinding A* — DÉCOUPLÉE de Noge/ECS (zéro dépendance à `Noge`, à
 // `NkNavAgentComponent`/`NkNavigationSystem`).
 //
-// Raison d'être de cette démo SÉPARÉE de `Applications/NkNavDemo`
+// Raison d'être de cette démo SÉPARÉE de `Engine/Noge/Applications/NkNavDemo`
 // (l'intégration ECS complète) : au moment de ce chantier, la lib `Noge`
 // dans son ensemble ne compile pas — 3 fichiers SANS RAPPORT avec la
 // navigation (`Noge/Doc/NkVectorDocument.cpp`, `Noge/IO/NkSVGIO.cpp` —

@@ -568,7 +568,7 @@ atteignable aujourd'hui : `CesiumMan.glb` est bien **versionné**, mais `NkGLTFI
 `ecs::NkSkeleton` dont `NkBone::name` reste **vide**, alors que `NkFootIK` demande les **indices**
 de la cuisse, du mollet et du pied. *Un indice n'est pas un nom* : les deviner fabriquerait un faux
 signal. Le squelette est donc **procédural** — neuf os, mêmes indices que les valeurs par défaut de
-`NkFootIK`, repris de `Applications/NkLocomotionDemo`.
+`NkFootIK`, repris de `Engine/Noge/Applications/NkLocomotionDemo`.
 **Condition de retrait : le jour où un humanoïde riggé se chargera avec des os NOMMÉS, cette
 éprouvette est remplacée par lui.**
 

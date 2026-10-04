@@ -40,7 +40,6 @@ with project("NKThreading"):
     files([
         "src/NKThreading/**.cpp",
         "src/NKThreading/**.h",
-        "Synchronization/**.h",
     ])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")

@@ -220,7 +220,7 @@ namespace nkentseu::converse {
 	//
 	// ET IL Y A UNE SECONDE RAISON, MESUREE CELLE-LA (14/09) : le moteur local
 	//    occupe **4 444 Mo de VRAM sur une carte de 8 Go**. L'en-tete de
-	//    `Applications/NKQwen2Chat` porte la mesure de Rodolf du 9 aout : deux
+	//    `Kernel/AI/Applications/NKQwen2Chat` porte la mesure de Rodolf du 9 aout : deux
 	//    instances sur cette carte, « le pilote Vulkan ACCEPTE quand meme
 	//    l'allocation en debordant sur la memoire systeme. Aucun appel n'echoue
 	//    [...] mais le calcul lit n'importe quoi, et la generation sort

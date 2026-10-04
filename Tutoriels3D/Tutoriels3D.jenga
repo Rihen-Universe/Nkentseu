@@ -4,7 +4,7 @@
 5 projets, un par étape, du plus simple (fenêtre) au plus complet (meshes custom
 + sélection). Un helper unique déclare chaque étape avec les mêmes dépendances
 (pile NKWindow/NKEvent/NKRHI/NKRenderer), structure calquée sur
-Applications/DemoRW/demorw.jenga."""
+Kernel/AI/Applications/DemoRW/demorw.jenga."""
 from Jenga import *
 from jengaconfig import *
 

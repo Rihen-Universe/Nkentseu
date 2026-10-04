@@ -3,7 +3,7 @@
 Noge/ECS (zéro dépendance à `Noge`) -- voir le commentaire de tête de
 src/main.cpp pour la raison (Noge est temporairement cassé par des fichiers
 sans rapport, en cours d'écriture par d'autres agents en parallèle : Doc/
-Color, NKNetwork). Complète Applications/NkNavDemo (intégration ECS complète,
+Color, NKNetwork). Complète Engine/Noge/Applications/NkNavDemo (intégration ECS complète,
 code écrit et compile mais exécution bloquée par ce même incident externe).
 
 Contexte : `jenga test` / `*_Tests` sont bloqués par une politique de

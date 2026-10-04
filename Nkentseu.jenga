@@ -1,445 +1,226 @@
 #!/usr/bin/env python3
-
 # -*- coding: utf-8 -*-
 # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-
 r"""
-
 =============================================================================
-
 Nkentseu.jenga => Workspace principal du framework Nkentseu
-
 =============================================================================
-
-
 
 Framework C++ multi-plateforme de gestion de fenetres, d'evenements
-
 et de rendu pixel. Namespace : nkentseu
-
-
 
 Architecture et ordre de dependances :
 
-
-
   NKPlatform  => Detection OS/arch/compilateur/CPU         (C++20)
-
        ↓
-
   NKCore      => Types, macros, assertions, bits            (C++20)
-
        ↓            ↓
-
   NKMath      => Types géométriques (Vec2, Rect, …)        (C++17)
-
   NKLogger    => Journalisation asynchrone multi-sink       (C++17)
-
        ↓            ↓                   ↓
-
   NKTime      => Gestion du temps / chrono                  (C++17)
-
   NKStream    => Flux de données (fichier, binaire…)        (C++17)
-
   NKMemory    => Gestion mémoire + smart pointers           (C++17)
-
        ↓
-
   NKWindow    => Fenetrage, evenements, entrees             (C++17)
-
        ↓
-
   NKRenderer  => Rendu graphique (Software, OpenGL…)        (C++17)
-
        ↓
-
   Sandbox     => Application de demonstration (tous OS)     (C++17)
 
-
-
 Chaque projet possède son propre fichier .jenga dans son répertoire.
-
 Ce fichier workspace les réunit via include().
 
-
-
 Plateformes supportees :
-
   Windows     => Backend Win32                   (clang-mingw)
-
   Linux XLib  => Backend X11/XLib (defaut)       (clang-native / WSL2)
-
   Linux XCB   => Backend X11/XCB                 (clang-native / WSL2)
-
   Linux Wayland => Backend Wayland + xdg-shell   (clang-native / WSL2)
-
   Linux NOOP  => Backend headless (CI/WSL)        (clang-native / WSL2)
-
   macOS       => Backend Cocoa                   (clang-native)
-
   Android     => NativeActivity+EGL              (android-ndk)
-
   iOS         => Backend UIKit
-
   Web         => Emscripten+Canvas               (emscripten)
-
   HarmonyOS   => ArkUI Native
-
   XboxSeries  => UWP GameCore                    (xbox-clang)
-
   XboxOne     => UWP GameCore                    (xbox-clang)
 
-
-
 Usage :
-
   jenga build                                                   # Hote (XLib)
-
   jenga build --platform windows                                # Windows
-
   jenga build --platform linux                                  # Linux XLib (defaut)
-
   jenga build --platform linux --linux-backend xcb
-
   jenga build --platform linux --linux-backend wayland
-
   jenga build --platform linux --linux-backend headless         # Linux headless
-
   jenga build --platform macos                                  # macOS Cocoa
-
   jenga build --platform android                                # Android (NDK)
-
   jenga build --platform ios                                    # iOS (UIKit)
-
   jenga build --platform web                                    # Web (Emscripten)
-
   jenga build --platform windows --windows-runtime desktop      # Windows desktop (Win32)
-
   jenga build --platform windows --windows-runtime uwp          # UWP (Windows Runtime)
-
   jenga build --platform xboxseries                             # Xbox Series
-
   jenga build --platform xboxone                                # Xbox One
-
   jenga build --config Release                                  # Build Release
 
-
-
 =============================================================================
-
 PACKAGING (jenga package) -- creer des installers distribuables
-
 =============================================================================
-
-
 
 Une fois le build OK, on peut empaqueter le binaire dans 3 formats Windows :
 
-
-
   jenga package --platform windows --project Pong --type zip --config Release
-
                 --output ./dist
-
         => Pong.zip : archive portable (decompresser + lancer .exe)
 
-
-
   jenga package --platform windows --project Pong --type exe --config Release
-
                 --output ./dist
-
         => Pong_setup.exe : installer Inno Setup avec wizard complet
-
            (EULA + choix dossier + raccourcis bureau/menu)
 
-
-
   jenga package --platform windows --project Pong --type msi --config Release
-
                 --output ./dist
-
         => Pong.msi : Windows Installer officiel (WiX 5), idem fonctions
 
-
-
 Linux : --type deb (dpkg-deb), --type rpm/appimage/snap (stubs)
-
 macOS : --type pkg (pkgbuild), --type dmg (create-dmg)
-
 Web   : --type zip (favicon + html + wasm + assets)
 
-
-
 -----------------------------------------------------------------------------
-
 PREREQUIS A INSTALLER avant de packager (Windows)
-
 -----------------------------------------------------------------------------
-
-
 
   ZIP : aucun (Python stdlib seulement)
 
-
-
   EXE (Inno Setup) :
-
     winget install JRSoftware.InnoSetup
-
     -> installe iscc dans %LOCALAPPDATA%\\Programs\\Inno Setup 6\
-
     -> jenga le detecte auto (pas besoin de toucher au PATH)
 
-
-
   MSI (WiX Toolset) :
-
     dotnet tool install --global wix --version 5.0.2
-
     -> ATTENTION : ne pas installer WiX 7+ qui demande l'OSMF EULA payante.
-
     -> jenga ajoute auto WiX a son PATH session
 
-
-
   Pillow (pour conversion icones PNG -> .ico/.icns/mipmap) :
-
     pip install Pillow>=10.0
-
     -> deja installe normalement (dep jenga via requirements.txt)
 
-
-
 =============================================================================
-
 ICONES D'APPLICATION (DSL Jenga, voir Core/IconConverter.py)
-
 =============================================================================
-
-
 
   Dans un .jenga de projet (ex: Pong.jenga, hors filter) :
 
-
-
   appicon("Resources/MyApp/icon.png")
-
         # Source UNIQUE, dispatchee a TOUTES les plateformes :
-
         #   - Windows : convertit en .ico embedded via .res
-
         #   - macOS   : convertit en .icns dans bundle .app
-
         #   - Android : genere hierarchie res/mipmap-* (ldpi..xxxhdpi)
-
         #   - iOS     : copie + reference dans Info.plist
-
         #   - Web     : favicon.ico + favicon-{16,32,180,192,512}.png
 
-
-
   # Overrides par plateforme (gagnent sur appicon) :
-
   androidappicon("path.png")    # accepte PNG ou dossier res/mipmap-*/
-
   windowsicon   ("path.ico")    # accepte PNG ou .ico natif
-
   macosicon     ("path.icns")   # accepte PNG ou .icns natif
-
   iosappicon    ("path.png")    # ou dossier AppIcon.appiconset
-
   webfavicon    ("path.png")    # PNG converti automatiquement
 
-
-
   Note : Pong.exe affiche son icone correctement dans la taskbar/titre/
-
   Alt+Tab grace a un AppUserModelID stable defini dans NKWindow Win32
-
   (Rihen.Nkentseu.<NomApp>). Sans ca, Windows utilise un AUMID auto
-
   base sur le ProductCode MSI -> icone generique cassee.
 
-
-
 =============================================================================
-
 METADONNEES INSTALLER (MSI/EXE/DEB/PKG)
-
 =============================================================================
-
-
 
   Dans un .jenga de projet (hors filter) :
 
-
-
   appversion           ("1.0.0")                  # affichee dans Programs & Features
-
   apppublisher         ("Rihen Universe")         # nom editeur
-
   licensefile          ("../../LICENSE")          # .txt/.md (auto-converti en RTF pour WiX), ou .rtf direct
-
   createdesktopshortcut(True)                     # toggle raccourci bureau
 
-
-
   # Bag d'options libres (extensible) pour les besoins avances :
-
   installeroption("autostart_on_login", True)
-
   installeroption("registry_entry",     r\"HKLM\\Software\\Pong")
-
   installeroption("autoupdate_url",     "https://updates.example.com")
 
-
-
   # Ressources runtime a embarquer dans le package :
-
   dependfiles(["../../Resources/MyApp"])          # dossier ou fichier
-
         # Preserve la hierarchie relative au workspace.
-
         # Auto-inclut aussi les SHARED_LIB declarees via dependson().
 
-
-
 =============================================================================
-
 CYCLE DE BUILD + PACKAGE TYPIQUE (Pong exemple)
-
 =============================================================================
-
-
 
   # 1. Build optimise
-
   jenga build --target Pong --config Release
 
-
-
   # 2. Generer les 3 packages Windows
-
   jenga package --platform windows --project Pong --type zip --config Release
-
   jenga package --platform windows --project Pong --type exe --config Release
-
   jenga package --platform windows --project Pong --type msi --config Release
 
-
-
   # 3. (optionnel) Build + APK Android
-
   jenga build --target Pong --config Release --platform android
-
   jenga deploy --platform android --project Pong --config Release \
-
                --apk path/to/Pong-Release.apk --force-stop --run
 
-
-
   Distribution typique pour testeurs : envoyer Pong_setup.exe (Inno EXE)
-
   car wizard plus convivial que MSI. ZIP comme alternative sans install.
 
-
-
 =============================================================================
-
 IDE auto-config (jenga ide-setup)
-
 =============================================================================
-
-
 
   jenga le fait automatiquement au premier `jenga build` :
-
     - VSCode/Cursor/Windsurf : .vscode/settings.json (associations .jenga
-
       = Python, extraPaths Jenga, diagnostics)
-
     - pyrightconfig.json universel (Neovim+pyright, Helix, Emacs+lsp-mode,
-
       Sublime+LSP, Zed)
-
   Merge non-destructif : preserve toutes vos prefs IDE existantes.
-
   Desactiver : JENGA_NO_IDE_CONFIG=1
 
-
-
   Reload editor apres premiere installation pour activer la coloration
-
   Python + autocomplete sur les .jenga.
 
-
-
   Notes Wayland :
-
     Prerequis : libwayland-dev, libxkbcommon-dev, wayland-protocols, libdecor-0-dev
-
     Generer xdg-shell-client-protocol.h :
-
       wayland-scanner client-header
-
         /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml
-
         Kernel/Runtime/NKWindow/src/NKWindow/Platform/Wayland/xdg-shell-client-protocol.h
-
       wayland-scanner private-code
-
         /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml
-
         Kernel/Runtime/NKWindow/src/NKWindow/Platform/Wayland/xdg-shell-protocol.c
 
-
-
 Auteur : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-
 Date   : 2026
-
 =============================================================================
-
 """
 
-
-
 import os
-
 import sys
-
 import shutil
-
 from Jenga import *
-
 from jengaconfig import *
 
-
-
 # Ensure workspace root is in sys.path so '' works in all .jenga files
-
 _WORKSPACE_ROOT = os.path.dirname(os.path.abspath(__file__)) if "__file__" in dir() else os.getcwd()
-
 if _WORKSPACE_ROOT not in sys.path:
-
     sys.path.insert(0, _WORKSPACE_ROOT)
 
-
-
 # Config partagee (registre des modules : kind static/shared + dependances).
-
 # Chargee UNE fois ici via useconfig() et propagee a TOUS les .jenga inclus
-
 # (feature Jenga 2.0.5) -> fini le bloc config inline (~285 lignes).
-
 useconfig("config/modules.jenga")
-
 useconfig("config/toolchain.jenga")
-
 useconfig("config/graphics.jenga")   # Vulkan SDK / glslang / SPIRV-Cross (partage)
-
 useconfig("config/wayland.jenga")    # backend Wayland Linux (partage)
+
 
 # =========================================================================
 # Parties PRIVEES (04/10/2026) : Kernel/AI, Kernel/Bare, Spark, Engine/ et les
@@ -498,823 +279,424 @@ def retirerprojetssansdependances():
           f"non clones) : {len(retires)} projet(s) qui en dependent ne seront pas construits.")
 
 
-
-
 with workspace("Nkentseu", location="."):
     nkentseutoolchain()
 
-
-
     dutc(enable=True, allow=["NKCore_Tests", "NKMath_Tests", "NKContainers_Tests", "NKMemory_Tests", "NKPhysics_Tests", "NKFileSystem_Tests", "NKStream_Tests", "NKReflection_Tests", "NKWindow_Tests", "NKCamera_Tests", "NKCollision_Tests", "NKImage_Tests", "NKPlatform_Tests", "NKLogger_Tests", "NKTime_Tests", "Noge_Tests", "NKThreading_Tests", "NKAnima_Tests", "NKSerialization_Smoke_Tests", "NKECS_EntitySerialization_Tests", "NKXR_Xr_Tests", "NKAudio_Audio_Tests", "NKSerialization_ReflectSerializer_Tests", "NKSerialization_ReflectPhase3_Tests", "NKSerialization_ReflectObjContainer_Tests", "NKSerialization_Bench_Tests", "NKECS_ReflectBridge_Tests", "NKECS_Hierarchy_Tests", "NKXR_Ar_Tests", "NKSerialization_ReflectPhase5_Tests", "NKRenderer_Tests", "NKImage_TextureBake_Tests", "NKRenderer_TextureAsset_Tests"])  # reouverture module par module (2026-09-04, Rodolf : « on suit ta recommandation »)
-
     dute(enable=True, allow=["NKCore_Tests", "NKMath_Tests", "NKContainers_Tests", "NKMemory_Tests", "NKPhysics_Tests", "NKFileSystem_Tests", "NKStream_Tests", "NKReflection_Tests", "NKWindow_Tests", "NKCamera_Tests", "NKCollision_Tests", "NKImage_Tests", "NKPlatform_Tests", "NKLogger_Tests", "NKTime_Tests", "Noge_Tests", "NKThreading_Tests", "NKAnima_Tests", "NKSerialization_Smoke_Tests", "NKECS_EntitySerialization_Tests", "NKXR_Xr_Tests", "NKAudio_Audio_Tests", "NKSerialization_ReflectSerializer_Tests", "NKSerialization_ReflectPhase3_Tests", "NKSerialization_ReflectObjContainer_Tests", "NKSerialization_Bench_Tests", "NKECS_ReflectBridge_Tests", "NKECS_Hierarchy_Tests", "NKXR_Ar_Tests", "NKSerialization_ReflectPhase5_Tests", "NKRenderer_Tests", "NKImage_TextureBake_Tests", "NKRenderer_TextureAsset_Tests"])
-
-
 
     configurations(["Debug", "Release"])
 
-
-
     # ===== Options Linux : choix du backend de fenetrage ========================
-
     newoption(
-
         trigger="linux-backend",
-
         value="BACKEND",
-
         allowed=[
-
             ["xlib",     "X11/XLib  (defaut, le plus compatible)"],
-
             ["xcb",      "X11/XCB   (plus leger, asynchrone)"],
-
             ["wayland",  "Wayland   (compositeurs modernes, sans X11)"],
-
             ["headless", "Pas de fenetre (CI, serveurs, WSL sans ecran)"],
-
         ],
-
         default="xlib",
-
         description="Backend de fenetrage Linux"
-
     )
-
-
 
     newoption(
-
         trigger="headless",
-
         description="[Obsolete] Utiliser --options linux-backend=headless"
-
     )
-
-
 
     # ===== Option Windows : Desktop vs UWP ====================================
-
     # Jenga v2.0.1 n'expose pas TargetOS.UWP; on route UWP via une option.
-
     newoption(
-
         trigger="windows-runtime",
-
         value="RUNTIME",
-
         allowed=[
-
             ["desktop", "Windows desktop classique (Win32)"],
-
             ["uwp",     "Windows Runtime (UWP)"],
-
         ],
-
         default="desktop",
-
         description="Runtime Windows cible (desktop ou UWP)"
-
     )
 
-
-
     # ===== Plateformes et architectures cibles ==================================
-
     targetoses([
-
         TargetOS.WINDOWS,
-
         TargetOS.LINUX,
-
         TargetOS.MACOS,
-
         TargetOS.ANDROID,
-
         TargetOS.IOS,
-
         TargetOS.WEB,
-
         TargetOS.HARMONYOS,
-
         TargetOS.XBOX_SERIES,
-
         TargetOS.XBOX_ONE,
-
     ])
-
-
 
     targetarchs([
-
         TargetArch.X86_64,   # Desktop (Windows, Linux, macOS, Xbox)
-
         TargetArch.ARM64,    # Mobile  (Android, iOS)
-
         TargetArch.WASM32,   # Web     (Emscripten)
-
     ])
-
-
 
     with unitest() as u:
         u.Compile()
 
-
-
     startproject("Sandbox")
 
-
-
     # Backend de fenetrage Linux : le define NKENTSEU_FORCE_WINDOWING_*_ONLY est
-
     # emis par _emit_linux_backend_defines() dans config/modules.jenga, appele
-
     # par nkentseudependson() — donc par CHAQUE projet. Ne pas le poser ici :
-
     # hors projet, defines() est ignore silencieusement par Jenga (essaye, sans
-
     # effet ; l'explication complete est dans config/modules.jenga).
 
-
-
     # =========================================================================
-
     # Inclusion de chaque projet depuis son propre fichier .jenga
-
     # L'ordre respecte la chaine de dependances.
-
     # =========================================================================
-
-
 
     with include("Kernel/Foundation/NKPlatform/NKPlatform.jenga"):
-
         pass
-
-
 
     with include("Kernel/Foundation/NKCore/NKCore.jenga"):
-
         pass
-
-
 
     with include("Kernel/System/NKLogger/NKLogger.jenga"):
-
         pass
-
-
 
     with include("Kernel/Foundation/NKMath/NKMath.jenga"):
-
         pass
-
-
 
     with include("Kernel/Foundation/NKMemory/NKMemory.jenga"):
-
         pass
-
-
 
     with include("Kernel/Foundation/NKContainers/NKContainers.jenga"):
-
         pass
-
-
 
     with include("Kernel/Runtime/NKImage/NKImage.jenga"):
-
         pass
-
-
 
     with include("Kernel/Runtime/NKFont/NKFont.jenga"):
-
         pass
-
-
 
     with include("Kernel/Runtime/NKAudio/NKAudio.jenga"):
-
         pass
-
     with include("Kernel/Runtime/NKMedia/NKMedia.jenga"):
-
         pass
-
-
 
     with include("Kernel/System/NKTime/NKTime.jenga"):
-
         pass
-
-
 
     # NKConverse : parler a un modele (invite -> reponse, ou refus nomme).
     # Extrait de NKUIDesign/DesignAI.h le 2026-09-17 : le meme patron etait
     # ecrit trois fois (PV3DE, NKUIDesign, NKCode).
     with include("Kernel/System/NKConverse/NKConverse.jenga"):
-
         pass
-
     with include("Kernel/System/NKStream/NKStream.jenga"):
-
         pass
-
-
 
     with include("Kernel/System/NKThreading/NKThreading.jenga"):
-
         pass
-
-
 
     with include("Kernel/System/NKFileSystem/NKFileSystem.jenga"):
-
         pass
-
-
 
     with include("Kernel/System/NKReflection/NKReflection.jenga"):
-
         pass
-
-
 
     with include("Kernel/System/NKNetwork/NKNetwork.jenga"):
-
         pass
-
-
 
     with include("Kernel/System/NKSerialization/NKSerialization.jenga"):
-
         pass
-
-
 
     with include("Externals/Libs/NKGlad/NKGlad.jenga"):
-
         pass
-
-
 
     with include("Externals/Libs/NKGLSlang/NKGLSlang.jenga"):
-
         pass
-
-
 
     with include("Externals/Libs/NKSPIRVCross/NKSPIRVCross.jenga"):
-
         pass
-
-
 
     with include("Externals/Libs/NKMbedTLS/NKMbedTLS.jenga"):
-
         pass
-
-
 
     with include("Externals/Libs/pybind11/pybind11.jenga"):
-
         pass
-
-
 
     with include("Kernel/Runtime/NKEvent/NKEvent.jenga"):
-
         pass
-
-
 
     with include("Kernel/Runtime/NKWindow/NKWindow.jenga"):
-
         pass
-
-
 
     with include("Kernel/Runtime/NKSL/NKSL.jenga"):
-
         pass
-
-
 
     with include("Kernel/Runtime/NKCanvas/NKCanvas.jenga"):
-
         pass
-
-
 
     with include("Kernel/Runtime/NKRHI/NKRHI.jenga"):
-
         pass
-
-
 
     with include("Kernel/Runtime/NKUI/NKUI.jenga"):
-
         pass
-
-
 
     # NKGui (framework UI immediat) + NKEditorKit (coquille d'editeur) : requis par NKCode.
-
     with include("Kernel/Runtime/NKGui/NKGui.jenga"):
-
         pass
-
-
 
     with includeprive("Engine/NKEditorKit/NKEditorKit.jenga"):
-
         pass
-
     # Unkeny — moteur de jeu 2D sur NKCanvas. Il COMPOSE NKECS, NKCollision
     # et NKPhysics ; il n'en reecrit rien. Son editeur vit dans
     # Applications/UnkenyEditor : un moteur ne contient pas son outil.
     with includeprive("Engine/Unkeny/Unkeny.jenga"):
-
         pass
-
-
 
     with includeprive("Applications/NKCode/NKCode.jenga"):
-
         pass
-
-
 
     with includeprive("Applications/NKCraft/NKCraft.jenga"):
-
         pass
-
-
 
     # Integrations decouplees (ImGui / NKUI -> NKCanvas/NKRHI). Optionnelles :
-
     # une app les lie seulement si elle en a besoin (ImGui n'est PAS tire dans
-
     # le coeur de NKCanvas/NKRHI).
-
     with include("Integrations/ImGui/NKImGuiIntegration.jenga"):
-
         pass
-
-
 
     with include("Integrations/NKUI/NKUIIntegration.jenga"):
-
         pass
-
-
 
     with include("Integrations/NKGui/NKGuiIntegration.jenga"):
-
         pass
-
-
 
     with include("Kernel/Runtime/NKCamera/NKCamera.jenga"):
-
         pass
-
-
 
     # NKCollision (collision 2D+3D, zero-STL).
-
     with include("Kernel/Runtime/NKCollision/NKCollision.jenga"):
-
         pass
-
-
 
     # NKPhysics (dynamique corps rigide 2D+3D, sur NKCollision).
-
     with include("Kernel/Runtime/NKPhysics/NKPhysics.jenga"):
-
         pass
-
-
 
     # NKAnimPhysics a REJOINT NKAnima le 2026-09-04 (NKAnima/src/NKAnima/Physics/) :
     # decision de Rodolf, motivee par un CYCLE -- NKAnima dependait d animphys, et
     # animphys devait consommer NkSkeletonDef qui vit dans NKAnima. Meme socle,
     # zero GPU. 21 modules Runtime au lieu de 22.
 
-
-
     # NKAnima (substrat d animation : clips, blend 1D/2D, HFSM, reciblage,
     # motion path, edition de pose-cles). Extrait de NKRenderer/Tools/Animation
     # le 2026-08-14. Foundation seule ; le renderer n en garde que la facade
     # de rendu et le debug-draw, et les CONSOMME.
-
     with include("Kernel/Runtime/NKAnima/NKAnima.jenga"):
-
         pass
-
-
 
     # NKNavigation (NavMesh + pathfinding A*, sur NKCollision -- raycast reel
     # de sondage walkable). Voir Engine/Noge/ROADMAP.md, pilier Navigation IA.
-
     with include("Kernel/Runtime/NKNavigation/NKNavigation.jenga"):
-
         pass
-
-
 
     # NKXR (runtime VR/AR/XR : sessions, espaces, poses, entrees par actions,
     # swapchains par oeil ; backend n°1 = simulateur desktop). Etage 0 de la
     # mission XR_MISSION_IA.md.
-
     with include("Kernel/Runtime/NKXR/NKXR.jenga"):
-
         pass
-
-
 
     with include("Applications/Sandbox/Sandbox.jenga"):
-
         pass
-
-
 
     with include("Applications/ConquerorProto/ConquerorProto.jenga"):
-
         pass
-
-
 
     with include("Applications/NkAudioDemo/NkAudioDemo.jenga"):
-
         pass
-
-
 
     with include("Applications/NkCameraDemos/NkCameraDemos.jenga"):
-
         pass
-
     # NkEauEcsProbe : le pont ECS -> producteur d eau (NkWaterSystem), eprouve
     # SANS DEVICE, avec son controle de vie (2026-09-12). Lie NKVFX puis NKRenderer.
     with include("Applications/NkEauEcsProbe/NkEauEcsProbe.jenga"):
-
         pass
-
-
 
     with include("Sandbox/System/NKFileSystem/NKFileSystemSandbox.jenga"):
-
         pass
-
-
 
     with include("Sandbox/System/NKLogger/NKLoggerSandbox.jenga"):
-
         pass
-
-
 
     with include("Sandbox/System/NKReflection/NKReflectionSandbox.jenga"):
-
         pass
-
-
 
     with include("Sandbox/System/NKNetwork/NKNetworkSandbox.jenga"):
-
         pass
-
-
 
     with include("Sandbox/System/NKSerialization/NKSerializationSandbox.jenga"):
-
         pass
-
-
 
     with include("Sandbox/System/NKArchive/NKArchiveSandbox.jenga"):
-
         pass
-
-
 
     with include("Kernel/Runtime/NKRenderer/NKRenderer.jenga"):
-
         pass
-
-
 
     # NKVFX (effets : eau, eclaboussures, particules ; APRES NKRenderer dont il
     # depend). Sans cette inclusion le module serait declare dans le registre et
     # JAMAIS construit -- « declare mais pas honore » au niveau du build.
-
     with include("Kernel/Runtime/NKVFX/NKVFX.jenga"):
-
         pass
-
-
 
     # ===== Sous-systeme IA (Kernel/AI) — construit bottom-up =====
-
     with includeprive("Kernel/AI/NKTensor/NKTensor.jenga"):
-
         pass
-
-
 
     with includeprive("Kernel/AI/NKAutograd/NKAutograd.jenga"):
-
         pass
-
-
 
     with includeprive("Kernel/AI/NKNN/NKNN.jenga"):
-
         pass
-
-
 
     with includeprive("Kernel/AI/NKOptim/NKOptim.jenga"):
-
         pass
-
-
 
     with includeprive("Kernel/AI/NKData/NKData.jenga"):
-
         pass
-
-
 
     with includeprive("Kernel/AI/NKTrain/NKTrain.jenga"):
-
         pass
-
-
 
     with includeprive("Kernel/AI/NKInfer/NKInfer.jenga"):
-
         pass
-
-
 
     with includeprive("Kernel/AI/NKRL/NKRL.jenga"):
-
         pass
-
-
 
     with includeprive("Kernel/AI/NKAgent/NKAgent.jenga"):
-
         pass
-
-
 
     with includeprive("Kernel/AI/NKEvolve/NKEvolve.jenga"):
-
         pass
-
-
 
     with includeprive("Kernel/AI/NKCivilization/NKCivilization.jenga"):
-
         pass
-
-
 
     with includeprive("Kernel/AI/NKEmbodied/NKEmbodied.jenga"):
-
         pass
-
-
 
     with includeprive("Kernel/AI/NKGen/NKGen.jenga"):
-
         pass
-
     with includeprive("Kernel/AI/NKGpt/NKGpt.jenga"):
-
         pass
-
     with includeprive("Kernel/AI/NKSpeech/NKSpeech.jenga"):
-
         pass
 
-
-
-    with include("Applications/NKTensorDemo/NKTensorDemo.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKTensorDemo/NKTensorDemo.jenga"):
         pass
-
-
 
     with include("Applications/NkSLComputeCheck/NkSLComputeCheck.jenga"):
-
         pass
-
-
 
     with include("Applications/NkGpuProbe/NkGpuProbe.jenga"):
-
         pass
-
-
 
     with include("Applications/NkFluidGridProbe/NkFluidGridProbe.jenga"):
-
         pass
-
-
 
     with include("Applications/NkFluidEcsProbe/NkFluidEcsProbe.jenga"):
-
         pass
-
-
 
     with include("Applications/NkComputeNkSL/NkComputeNkSL.jenga"):
-
         pass
 
-
-
-    with include("Applications/NkTensorGpuTest/NkTensorGpuTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NkTensorGpuTest/NkTensorGpuTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKGpuBenchTest/NKGpuBenchTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKGpuBenchTest/NKGpuBenchTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKConvBenchTest/NKConvBenchTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKConvBenchTest/NKConvBenchTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKConvResidentBench/NKConvResidentBench.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKConvResidentBench/NKConvResidentBench.jenga"):
         pass
 
-
-
-    with include("Applications/NKMlpResidentBench/NKMlpResidentBench.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKMlpResidentBench/NKMlpResidentBench.jenga"):
         pass
 
-
-
-    with include("Applications/NKMnistGpuTrain/NKMnistGpuTrain.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKMnistGpuTrain/NKMnistGpuTrain.jenga"):
         pass
 
-
-
-    with include("Applications/NKRebasinTest/NKRebasinTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKRebasinTest/NKRebasinTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKMnistCnnGpuTrain/NKMnistCnnGpuTrain.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKMnistCnnGpuTrain/NKMnistCnnGpuTrain.jenga"):
         pass
 
-
-
-    with include("Applications/NKTransformerTest/NKTransformerTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKTransformerTest/NKTransformerTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKGptTrain/NKGptTrain.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKGptTrain/NKGptTrain.jenga"):
         pass
 
-
-
-    with include("Applications/NKIlyana/NKIlyana.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKIlyana/NKIlyana.jenga"):
         pass
 
-
-
-    with include("Applications/NKAutogradTest/NKAutogradTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKAutogradTest/NKAutogradTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKNNTest/NKNNTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKNNTest/NKNNTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKConvTest/NKConvTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKConvTest/NKConvTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKDataTest/NKDataTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKDataTest/NKDataTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKBpeTest/NKBpeTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKBpeTest/NKBpeTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKLlamaBlockTest/NKLlamaBlockTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKLlamaBlockTest/NKLlamaBlockTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKRebasinTransformer/NKRebasinTransformer.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKRebasinTransformer/NKRebasinTransformer.jenga"):
         pass
 
-
-
-    with include("Applications/NKTrainTest/NKTrainTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKTrainTest/NKTrainTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKFp16Test/NKFp16Test.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKFp16Test/NKFp16Test.jenga"):
         pass
 
-
-
-    with include("Applications/NKRnnCtcTest/NKRnnCtcTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKRnnCtcTest/NKRnnCtcTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKASRTest/NKASRTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKASRTest/NKASRTest.jenga"):
         pass
-
-
 
     with include("Applications/NKImageCodecTest/NKImageCodecTest.jenga"):
-
         pass
-
-    with include("Applications/NkEditableMeshDemo/NkEditableMeshDemo.jenga"):
-
+    with includeprive("Engine/Noge/Applications/NkEditableMeshDemo/NkEditableMeshDemo.jenga"):
         pass
-
-    with include("Applications/NkLocomotionDemo/NkLocomotionDemo.jenga"):
-
+    with includeprive("Engine/Noge/Applications/NkLocomotionDemo/NkLocomotionDemo.jenga"):
         pass
-
-    with include("Applications/NkAssetIODemo/NkAssetIODemo.jenga"):
-
+    with includeprive("Engine/Noge/Applications/NkAssetIODemo/NkAssetIODemo.jenga"):
         pass
-
     with include("Applications/NkQualityProfileTest/NkQualityProfileTest.jenga"):
-
         pass
-
-    with include("Applications/NkSystemsRevivalTest/NkSystemsRevivalTest.jenga"):
-
+    with includeprive("Engine/Noge/Applications/NkSystemsRevivalTest/NkSystemsRevivalTest.jenga"):
         pass
-
     with include("Applications/NkFBXParityDemo/NkFBXParityDemo.jenga"):
-
         pass
-
-    with include("Applications/NkSVGImportDemo/NkSVGImportDemo.jenga"):
-
+    with includeprive("Engine/Noge/Applications/NkSVGImportDemo/NkSVGImportDemo.jenga"):
         pass
-
-    with include("Applications/NKMeshAITest/NKMeshAITest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKMeshAITest/NKMeshAITest.jenga"):
         pass
-
     with include("Applications/NKEditMeshHarness/NKEditMeshHarness.jenga"):
-
         pass
-
     # R32 (G0 du generateur de creatures, NKCraft doc 04) : adresses stables et
     # pile d'operations rejouee. Banc console, calcul pur.
     with include("Applications/NKR32Harness/NKR32Harness.jenga"):
@@ -1338,14 +720,10 @@ with workspace("Nkentseu", location="."):
 
         pass
     # NKTexte3D : « une phrase -> un maillage editable ». Console pure, CPU pur.
-    with include("Applications/NKTexte3D/NKTexte3D.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKTexte3D/NKTexte3D.jenga"):
         pass
-
     with include("Applications/NkAnimaTest/NkAnimaTest.jenga"):
-
         pass
-
     # NkMatInventaireTest : banc ARRETE (cc6aba5b), RETIRE du workspace le 17/08.
     # Il echoue au lien PAR CONSTRUCTION -- 118 symboles Demo3DHost* definis dans
     # NkDemo3D.cpp, jamais compile ici -- et c'etait documente dans son en-tete
@@ -1357,437 +735,231 @@ with workspace("Nkentseu", location="."):
     # fait arreter ce banc. Ses sources restent dans Applications/ avec leur
     # en-tete d'arret ; il se re-enregistre le jour ou Demo3DHost devient une
     # bibliotheque -- il linkera alors sans une ligne de plus.
-    # with include("Applications/NkMatInventaireTest/NkMatInventaireTest.jenga"):
+    # with includeprive("Engine/NKEditorKit/Applications/NkMatInventaireTest/NkMatInventaireTest.jenga"):
     #     pass
-
     with include("Applications/NkMicRecord/NkMicRecord.jenga"):
-
         pass
-
-    with include("Applications/NKSpeechTest/NKSpeechTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKSpeechTest/NKSpeechTest.jenga"):
         pass
-
-    with include("Applications/NKTTSTrain/NKTTSTrain.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKTTSTrain/NKTTSTrain.jenga"):
         pass
-
-    with include("Applications/NkVoiceLoopDemo/NkVoiceLoopDemo.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NkVoiceLoopDemo/NkVoiceLoopDemo.jenga"):
         pass
-
-    with include("Applications/NKSpeechFeatureDemo/NKSpeechFeatureDemo.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKSpeechFeatureDemo/NKSpeechFeatureDemo.jenga"):
         pass
-
     with include("Applications/NKMediaTest/NKMediaTest.jenga"):
-
         pass
-
     with include("Applications/NkVideoReadTest/NkVideoReadTest.jenga"):
-
         pass
-
     with include("Applications/NkAudioPlayer/NkAudioPlayer.jenga"):
-
         pass
-
     with include("Applications/NkVideoPlayer/NkVideoPlayer.jenga"):
-
         pass
-
     with include("Applications/NKOpusRef/NKOpusRef.jenga"):
-
         pass
-
     with include("Applications/NKVideoTest/NKVideoTest.jenga"):
-
         pass
 
-
-
-    with include("Applications/NKInferTest/NKInferTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKInferTest/NKInferTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKGGUFInspectTest/NKGGUFInspectTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKGGUFInspectTest/NKGGUFInspectTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKLLMInferTest/NKLLMInferTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKLLMInferTest/NKLLMInferTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKQwenTokenizerTest/NKQwenTokenizerTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKQwenTokenizerTest/NKQwenTokenizerTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKQwen2BackwardTest/NKQwen2BackwardTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKQwen2BackwardTest/NKQwen2BackwardTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKQwen2SftTest/NKQwen2SftTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKQwen2SftTest/NKQwen2SftTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKQ4MatmulTest/NKQ4MatmulTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKQ4MatmulTest/NKQ4MatmulTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKQwen2GpuTest/NKQwen2GpuTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKQwen2GpuTest/NKQwen2GpuTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKQwen2Chat/NKQwen2Chat.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKQwen2Chat/NKQwen2Chat.jenga"):
         pass
-
 
     # NKDesignLLM : l'autre cote du contrat de NkUIDesign -- une invite dans un
     # FICHIER, une reponse dans un FICHIER. L'application de design ne le connait
     # pas : elle connait un gabarit de ligne de commande a deux trous. C'est
     # l'equivalent exact du pont GENIA du modeleur, et c'est ce qui permettra a
     # un modele entraine chez Rihen de le remplacer sans qu'une ligne bouge.
-    with include("Applications/NKDesignLLM/NKDesignLLM.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKDesignLLM/NKDesignLLM.jenga"):
         pass
 
-
-
-    with include("Applications/NKQwen2SftGpuTest/NKQwen2SftGpuTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKQwen2SftGpuTest/NKQwen2SftGpuTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKQwen2Train/NKQwen2Train.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKQwen2Train/NKQwen2Train.jenga"):
         pass
 
-
-
-    with include("Applications/NKQwen2Ask/NKQwen2Ask.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKQwen2Ask/NKQwen2Ask.jenga"):
         pass
 
-
-
-    with include("Applications/NKRLTest/NKRLTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKRLTest/NKRLTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKAgentTest/NKAgentTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKAgentTest/NKAgentTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKAgentLLMTest/NKAgentLLMTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKAgentLLMTest/NKAgentLLMTest.jenga"):
         pass
 
-
-    with include("Applications/NkAgentEcsDemo/NkAgentEcsDemo.jenga"):
-
+    with includeprive("Engine/Noge/Applications/NkAgentEcsDemo/NkAgentEcsDemo.jenga"):
         pass
 
-
-
-    with include("Applications/NKEmbodiedTest/NKEmbodiedTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKEmbodiedTest/NKEmbodiedTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKEvolveTest/NKEvolveTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKEvolveTest/NKEvolveTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKEvolveNNTest/NKEvolveNNTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKEvolveNNTest/NKEvolveNNTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKCivilizationTest/NKCivilizationTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKCivilizationTest/NKCivilizationTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKCivilizationSocialTest/NKCivilizationSocialTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKCivilizationSocialTest/NKCivilizationSocialTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKCivilizationScaleTest/NKCivilizationScaleTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKCivilizationScaleTest/NKCivilizationScaleTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKGenTest/NKGenTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKGenTest/NKGenTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKVAETest/NKVAETest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKVAETest/NKVAETest.jenga"):
         pass
 
-
-
-    with include("Applications/NKMnistVAETest/NKMnistVAETest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKMnistVAETest/NKMnistVAETest.jenga"):
         pass
 
-
-
-    with include("Applications/NKMnistConvVAETest/NKMnistConvVAETest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKMnistConvVAETest/NKMnistConvVAETest.jenga"):
         pass
 
-
-
-    with include("Applications/NKConvVAETest/NKConvVAETest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKConvVAETest/NKConvVAETest.jenga"):
         pass
 
-
-
-    with include("Applications/NKDiffusionTest/NKDiffusionTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKDiffusionTest/NKDiffusionTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKVoxelGenTest/NKVoxelGenTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKVoxelGenTest/NKVoxelGenTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKObjectGenTest/NKObjectGenTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKObjectGenTest/NKObjectGenTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKGen3DTest/NKGen3DTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKGen3DTest/NKGen3DTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKGenMeshTest/NKGenMeshTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKGenMeshTest/NKGenMeshTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKSmoothMeshTest/NKSmoothMeshTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKSmoothMeshTest/NKSmoothMeshTest.jenga"):
         pass
-
-    with include("Applications/NKMatTypeResetTest/NKMatTypeResetTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKMatTypeResetTest/NKMatTypeResetTest.jenga"):
         pass
-
-    with include("Applications/NkMsaaContractCheck/NkMsaaContractCheck.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NkMsaaContractCheck/NkMsaaContractCheck.jenga"):
         pass
-
-
 
     with include("Applications/NkMsaaDeviceCheck/NkMsaaDeviceCheck.jenga"):
-
         pass
-
 
     with include("Applications/NkMsaaVulkanCheck/NkMsaaVulkanCheck.jenga"):
-
         pass
-
     with include("Applications/NkIblEnabledCheck/NkIblEnabledCheck.jenga"):
-
         pass
-
     with include("Applications/NkDebugOverlayCheck/NkDebugOverlayCheck.jenga"):
-
         pass
 
-
-
-    with include("Applications/NKEditTargetTest/NKEditTargetTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKEditTargetTest/NKEditTargetTest.jenga"):
         pass
 
-
-
-    with include("Applications/NKMeshMenuTest/NKMeshMenuTest.jenga"):
-
+    with includeprive("Engine/NKEditorKit/Applications/NKMeshMenuTest/NKMeshMenuTest.jenga"):
         pass
-
-
 
     with include("Applications/NKFoldTest/NKFoldTest.jenga"):
-
         pass
-
     # NKAiFilTest (20/09) : un bloc du fil IA se designe-t-il par sa position
     # ou par son nom. Pose a cote de NKFoldTest, meme famille de defaut.
-    with include("Applications/NKAiFilTest/NKAiFilTest.jenga"):
-
+    with includeprive("Engine/NKEditorKit/Applications/NKAiFilTest/NKAiFilTest.jenga"):
         pass
-
-
 
     with include("Applications/NKNormalesTest/NKNormalesTest.jenga"):
-
         pass
-
-
 
     with include("Applications/NKSculptHarness/NKSculptHarness.jenga"):
-
         pass
 
-
-
-    with include("Applications/NKMeshRenderTest/NKMeshRenderTest.jenga"):
-
+    with includeprive("Kernel/AI/Applications/NKMeshRenderTest/NKMeshRenderTest.jenga"):
         pass
-
-
 
     with include("Applications/Model/Model.jenga"):
-
         pass
-
-
 
     with include("Applications/NkSLCheck/NkSLCheck.jenga"):
-
         pass
-
-
 
     # Banc du graphe de materiaux (couche 3 sur NKGraph). Voisin de NkSLCheck
     # parce qu il partage exactement ses dependances : NKSL + Foundation, sans
     # GPU ni fenetre.
     with include("Applications/NkMatGraphCheck/NkMatGraphCheck.jenga"):
-
         pass
-
-
 
     with include("Applications/NkMatGraphDemo/NkMatGraphDemo.jenga"):
-
         pass
-
-
 
     # NkTerrainCheck -- une image de hauteurs devient un terrain dont chaque sommet
-
     # est a la hauteur que l image dit. Meme chaine de liaison que NkMatGraphDemo
-
     # (l autre banc hors-ecran qui tire NKRenderer) : enregistre juste apres lui.
-
     with include("Applications/NkTerrainCheck/NkTerrainCheck.jenga"):
-
         pass
-
-
 
     # NkSableCheck -- une roue passe, le sol garde-t-il son orniere ? et le tas
-
     # s effondre-t-il au-dela de son angle de repos ? Meme chaine que NkTerrainCheck
-
     # (NkTerrainSable vit dans le meme module) : enregistre juste apres lui.
-
     with include("Applications/NkSableCheck/NkSableCheck.jenga"):
-
         pass
-
-
 
     # NkTemporelProbe -- le TAA s execute-t-il, et qu est-ce qui bouge quand il
-
     # tourne ? Banc hors-ecran qui tire le NkRenderer COMPLET (graphe, post-process,
-
     # TAA) et relit ses pixels, la ou les autres bancs hors-ecran s arretent au RHI.
-
     # Meme chaine de liaison que NkTerrainCheck : enregistre apres NkSableCheck.
-
     with include("Applications/NkTemporelProbe/NkTemporelProbe.jenga"):
-
         pass
-
-
 
     with include("Applications/NKPA/NKPA.jenga"):
-
         pass
-
-
 
     # NKECS (ECS bas niveau archetypes) — DOIT etre enregistre AVANT Noge qui en
-
     # depend (sinon %{NKECS.location} vide -> includes NKECS/* introuvables).
-
     with include("Kernel/Runtime/NKECS/NKECS.jenga"):
-
         pass
-
-
 
     with includeprive("Engine/Noge/Noge.jenga"):
-
         pass
-
-
 
     with includeprive("Applications/Nogee/Nogee.jenga"):
-
         pass
 
-
-
-    with include("Applications/NKEditorKitDemo/NKEditorKitDemo.jenga"):
-
+    with includeprive("Engine/NKEditorKit/Applications/NKEditorKitDemo/NKEditorKitDemo.jenga"):
         pass
-
 
     # SONDE DE MESURE (canal chrome, mesure b1) -- PAS UN PRODUIT.
     # Mesure si `NkEditorShell::SetHeaderLayout` honore ses pixels.
     # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-    with include("Applications/NkChromeProbe/NkChromeProbe.jenga"):
+    with includeprive("Engine/NKEditorKit/Applications/NkChromeProbe/NkChromeProbe.jenga"):
 
         pass
-
-
 
     # SONDE DE MESURE (canal NKWindow) -- PAS UN PRODUIT, et elle n'affiche rien.
     # Mesure, propriete par propriete, ce que le SYSTEME repond a `NkWindowConfig`
@@ -1810,12 +982,12 @@ with workspace("Nkentseu", location="."):
     # La DEMO du contact : une bille tombe sur un plan et s arrete ; une case
     # coupe la collision et elle traverse. Elle passe par le VRAI pont de Noge
     # (NkPhysicsSystem), donc elle montre le CABLAGE et non le module.
-    with include("Applications/NkDemoContact/NkDemoContact.jenga"):
+    with includeprive("Engine/Noge/Applications/NkDemoContact/NkDemoContact.jenga"):
         pass
     # EPROUVETTE : les pieds epousent une pente -- ou la traversent quand on
     # debranche le monde physique de l IK. Elle prouve le fil pose dans
     # NkEngineLayer (SetPhysicsWorld + enregistrement de NkFootIKSystem).
-    with include("Applications/NkDemoPiedsSurLaPente/NkDemoPiedsSurLaPente.jenga"):
+    with includeprive("Engine/Noge/Applications/NkDemoPiedsSurLaPente/NkDemoPiedsSurLaPente.jenga"):
         pass
     # BANC : le fil de NkEngineLayer traverse-t-il ? Une scene porte
     # NkSkeleton + NkFootIK et le banc ne configure RIEN -- c est la couche
@@ -1825,7 +997,7 @@ with workspace("Nkentseu", location="."):
     # part. Personne ne s en apercevait parce que personne ne le liait.
     # La macro est desormais INERTE par defaut, et l activer echoue a la
     # COMPILATION tant qu aucune implementation n existe (voir NkProfiler.h).
-    with include("Applications/NkFilMoteurProbe/NkFilMoteurProbe.jenga"):
+    with includeprive("Engine/Noge/Applications/NkFilMoteurProbe/NkFilMoteurProbe.jenga"):
         pass
     # LE PREMIER RESULTAT DE NOGE (2026-09-30) : une scene 3D (sol, cube pousse,
     # balle qui tombe, camera, soleil) jouee par le VRAI chemin du moteur --
@@ -1833,115 +1005,66 @@ with workspace("Nkentseu", location="."):
     # d'entree du noyau (NkInputMap) -- sauvee et rechargee par NkSceneSerializer.
     # `--selftest` (banc sans fenetre) et `--capture=` (pixels verifies).
     # Voir Engine/Noge/ETAT_2026-09-30.md.
-    with include("Applications/NogeDemo/NogeDemo.jenga"):
+    with includeprive("Engine/Noge/Applications/NogeDemo/NogeDemo.jenga"):
         pass
-
-
-
 
     # SONDE DE MESURE (canal onglets : o1 la bande partagee, o2 les accents).
     # PAS UN PRODUIT -- sa fenetre le dit dans son titre et elle se ferme seule.
     # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-    with include("Applications/NkOngletSonde/NkOngletSonde.jenga"):
+    with includeprive("Engine/NKEditorKit/Applications/NkOngletSonde/NkOngletSonde.jenga"):
 
         pass
-
-
 
     # Banc SANS FENETRE de NKEditorKit : resolution des roles de theme (le
     # magenta du 18/08) et vocabulaire du backend graphique (Metal compris).
     # Console, aucun GPU, code de sortie 0/1 -- il peut donc tourner partout.
-    with include("Applications/NKEditorKitTest/NKEditorKitTest.jenga"):
-
+    with includeprive("Engine/NKEditorKit/Applications/NKEditorKitTest/NKEditorKitTest.jenga"):
         pass
-
-
 
     with includeprive("Applications/NKUIDesign/NKUIDesign.jenga"):
-
         pass
 
-
-
-    with include("Applications/ConquerorLab/ConquerorLab.jenga"):
-
+    with includeprive("Engine/NKEditorKit/Applications/ConquerorLab/ConquerorLab.jenga"):
         pass
-
-
 
     with include("Applications/NkRef/NkRef.jenga"):
-
         pass
-
-
 
     with includeprive("Applications/NkAnimaEditor/NkAnimaEditor.jenga"):
-
         pass
-
     # NKScena (nee le 2026-10-02) : pose le TEMPS sur une scene Noge -- pistes,
     # cles et plans camera sur la frise partagee, rendu en images. Sa condition
     # de naissance (le sequenceur sauve et relit .nkseq, NkSequenceCheck f7) est
     # remplie. `--selftest` : le banc sans fenetre (Applications/NKScena/ROADMAP.md).
     with includeprive("Applications/NKScena/NKScena.jenga"):
-
         pass
-
-
 
     with include("Applications/ImGuiRef/ImGuiRef.jenga"):
-
         pass
-
-
 
     with include("Applications/NKGuiDrawTest/NKGuiDrawTest.jenga"):
-
         pass
-
-
 
     with include("Applications/NKGuiMonteTest/NKGuiMonteTest.jenga"):
-
         pass
 
-
-
-    with include("Applications/NKDesignIABanc/NKDesignIABanc.jenga"):
-
+    with includeprive("Engine/NKEditorKit/Applications/NKDesignIABanc/NKDesignIABanc.jenga"):
         pass
-
-
 
     with include("Applications/NKGuiInteractTest/NKGuiInteractTest.jenga"):
-
         pass
-
-
 
     with include("Applications/NKGuiDemo/NKGuiDemo.jenga"):
-
         pass
-
-
 
     with include("Applications/NKViewportDemo/NKViewportDemo.jenga"):
-
         pass
-
-
 
     with includeprive("Applications/PV3DE/PV3DE.jenga"):
-
         pass
-
-
 
     with include("Applications/Pong/Pong.jenga"):
-
         pass
-
-
 
     # TODO(Songoo) : migration rendu GL -> NKCanvas a FINIR (12 scenes UI utilisent encore
     # Render/GLContext|GLRenderer2D|Texture2D|FontAtlas supprimes). Desactive du build pour
@@ -1952,83 +1075,49 @@ with workspace("Nkentseu", location="."):
         with include("Applications/Songoo/Songoo.jenga"):
             pass
 
-
-
     with include("Applications/Nkoung/Nkoung.jenga"):
-
         pass
-
-
 
     with include("Applications/Mou/Mou.jenga"):
-
         pass
-
-
 
     with include("Applications/NkImeTest/NkImeTest.jenga"):
-
         pass
-
-
 
     with include("Applications/NkImageDemo/NkImageDemo.jenga"):
-
         pass
-
-
 
     with include("Applications/RihenDefi/RihenDefi.jenga"):
-
         pass
 
-
-
-    with include("Applications/NkAudioECSDemo/NkAudioECSDemo.jenga"):
-
+    with includeprive("Engine/Noge/Applications/NkAudioECSDemo/NkAudioECSDemo.jenga"):
+        pass
+    with includeprive("Engine/Noge/Applications/NkNetWorldDemo/NkNetWorldDemo.jenga"):
         pass
 
-    with include("Applications/NkNetWorldDemo/NkNetWorldDemo.jenga"):
-
+    with includeprive("Engine/Noge/Applications/NkNavDemo/NkNavDemo.jenga"):
         pass
-
-
-
-    with include("Applications/NkNavDemo/NkNavDemo.jenga"):
-
-        pass
-
-
 
     with include("Applications/NkNavCoreDemo/NkNavCoreDemo.jenga"):
-
         pass
-
 
     # Jalon G2.3 Noge : scripting C++ natif hot-reload (DLL) — démo console
     # (compile un script en .dll a runtime, hot-reload avec etat preserve).
-    with include("Applications/NkHotReloadDemo/NkHotReloadDemo.jenga"):
+    with includeprive("Engine/Noge/Applications/NkHotReloadDemo/NkHotReloadDemo.jenga"):
 
         pass
-
 
     # Jalon G2.1 Noge : systeme ECS UI in-game (HUD) — demo console headless
     # (NKCanvas backend Software CPU + NKFont embarque, assertions de pixels).
-    with include("Applications/NkUIHudDemo/NkUIHudDemo.jenga"):
+    with includeprive("Engine/Noge/Applications/NkUIHudDemo/NkUIHudDemo.jenga"):
 
         pass
-
-
 
     # Serie d'apprentissage : concevoir une app 3D avec NKRenderer pas a pas
     # (5 etapes/projets : fenetre -> renderer -> scene -> camera -> meshes custom).
     # Voir Tutoriels3D/README.md.
-
     with include("Tutoriels3D/Tutoriels3D.jenga"):
-
         pass
-
-
 
     # Etage 0 XR : scene NKRenderer en stereo SIMULEE via NKXR (simulateur
     # desktop, souris = tete). Voir XR_MISSION_IA.md.
@@ -2036,12 +1125,9 @@ with workspace("Nkentseu", location="."):
     with include("Applications/NKXRDemo/NKXRDemo.jenga"):
         pass
 
-
-
     # Etage 3 XR : realite augmentee a marqueurs (camera + NkArSession).
     with include("Applications/NKARDemo/NKARDemo.jenga"):
         pass
-
 
     # GemCrush — SEULEMENT si son .jenga est la. Sur cette branche le dossier
     # n'a jamais ete commite (il l'est sur main) : depuis f9b68097 (2026-09-01)
@@ -2067,7 +1153,7 @@ with workspace("Nkentseu", location="."):
     # Physic2D : la demo de simulation 2D d'Unkeny (corps mous, blobs,
     # fluides, cristaux, rigides couples). Le solveur est NKPhysics, la scene
     # Unkeny ; l'editeur facon UE5 est UnkenyEditor, juste en dessous.
-    with include("Applications/Physic2D/Physic2D.jenga"):
+    with includeprive("Engine/Unkeny/Applications/Physic2D/Physic2D.jenga"):
         pass
 
     # L'editeur d'Unkeny. Il vit ici, pas dans Engine : un moteur ne
@@ -2088,7 +1174,7 @@ with workspace("Nkentseu", location="."):
     # sortent. Sans fenetre et sans GPU -- les pixels sont peints par le
     # processeur. Il prouve le pilote temporel (cles -> pose ECS -> fichiers),
     # PAS le moteur de rendu, qui est une question separee.
-    with include("Applications/NkSequenceCheck/NkSequenceCheck.jenga"):
+    with includeprive("Engine/Noge/Applications/NkSequenceCheck/NkSequenceCheck.jenga"):
         pass
 
     # Sonde : un NkIDevice se cree-t-il SANS FENETRE, et la couleur relue est-elle
@@ -2109,9 +1195,8 @@ with workspace("Nkentseu", location="."):
     # n'appellent QUE `logger.Info/Warn/Error`, et dont les messages apparaissent
     # DANS LA VUE. Le quatrieme debranche le puits -- c'est le negatif, a la main.
     # Voir Applications/DEMOS.md.
-    with include("Applications/NkMessagesEnVue/NkMessagesEnVue.jenga"):
+    with includeprive("Engine/NKEditorKit/Applications/NkMessagesEnVue/NkMessagesEnVue.jenga"):
         pass
-
 
     # Clone sans les depots prives : retirer les projets qui dependent d'une
     # partie absente (sans effet quand tout est present). Doit rester a la fin.
