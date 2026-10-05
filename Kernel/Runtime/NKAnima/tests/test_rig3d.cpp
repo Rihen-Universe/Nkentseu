@@ -182,6 +182,16 @@ TEST_CASE(NKAnima, RIG3D_r1_Armature) {
 	ASSERT_TRUE(anim::NkArmature::MirrorName("LeftHand") == NkString("RightHand"));
 	ASSERT_TRUE(anim::NkArmature::MirrorName("main_gauche") == NkString("main_droite"));
 	ASSERT_TRUE(anim::NkArmature::MirrorName("hips").Empty());
+	// (05/10) LES INFIXES : CesiumMan nomme ses os « Skeleton_arm_joint_L__2_ » et
+	// Blender double « hand.L.001 ». Sans les infixes, ces os n'avaient AUCUN cote :
+	// pas de miroir, pas de couleur .L / .R, la symetrie des poids les ignorait.
+	ASSERT_TRUE(anim::NkArmature::MirrorName("Skeleton_arm_joint_L__2_") == NkString("Skeleton_arm_joint_R__2_"));
+	ASSERT_TRUE(anim::NkArmature::SideOfName("Skeleton_arm_joint_L__2_") == anim::NkBoneSide::NK_GAUCHE);
+	ASSERT_TRUE(anim::NkArmature::SideOfName("Skeleton_leg_joint_R__3_") == anim::NkBoneSide::NK_DROITE);
+	ASSERT_TRUE(anim::NkArmature::MirrorName("hand.L.001") == NkString("hand.R.001"));
+	// Contre-epreuve : un nom SANS cote reste sans cote (l'infixe ne se devine pas).
+	ASSERT_TRUE(anim::NkArmature::MirrorName("Skeleton_neck_joint_1").Empty());
+	ASSERT_TRUE(anim::NkArmature::SideOfName("Skeleton_torso_joint_2") == anim::NkBoneSide::NK_CENTRE);
 	ASSERT_TRUE(s.Symmetrize((uint32)tronc) < 0); // un os du milieu n'a pas de miroir
 }
 

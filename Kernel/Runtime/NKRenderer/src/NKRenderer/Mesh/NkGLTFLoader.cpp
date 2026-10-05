@@ -555,6 +555,14 @@ namespace nkentseu {
 				if (magic != GLTF_GLB_MAGIC)
 					return false;
 				(void)version;
+				// (05/10) UN .glb TRONQUE EST REFUSE. Avant, le chunk BIN coupe etait
+				// saute en silence : chaque accessor lisait des zeros (les lectures sont
+				// bornees) et le fichier « se chargeait » -- 6 474 sommets a l'origine,
+				// une peau vide. L'en-tete annonce la longueur totale : on la croit.
+				if ((nk_size)length > file.Size()) {
+					logger.Warnf("[NkGLTFLoader] .glb tronque : %u octets annonces, %u lus\n", length, (uint32)file.Size());
+					return false;
+				}
 
 				nk_size pos = 12;
 				bool haveJson = false;
@@ -563,8 +571,10 @@ namespace nkentseu {
 					memcpy(&chunkLen, p + pos + 0, 4);
 					memcpy(&chunkType, p + pos + 4, 4);
 					pos += 8;
-					if (pos + chunkLen > file.Size())
-						break;
+					if (pos + chunkLen > file.Size()) {
+						logger.Warnf("[NkGLTFLoader] .glb : un chunk depasse la fin du fichier\n");
+						return false;
+					}
 					if (chunkType == GLTF_CHUNK_JSON) {
 						outJson = NkString((const char *)(p + pos), (nk_size)chunkLen);
 						haveJson = true;
