@@ -6,6 +6,7 @@
 #include "NKAnima/Clip/NkAnimation.h"
 #include "NKAnima/Rig/NkRigMath.h"
 #include "NKAnima/Rig/NkArmature.h"
+#include "NKAnima/Skin/NkSkinMesh.h"
 
 #include <cmath>
 #include <cstdio>
@@ -157,6 +158,95 @@ namespace nkentseu {
 						p[(uint32)m] = Add(p[(uint32)m], Mul(MiroirX(delta), f));
 						fait[(uint32)m] = 1;
 					}
+				}
+			}
+		}
+
+		const char *NkShapeBrushName(NkShapeBrush b) {
+			switch (b) {
+				case NkShapeBrush::NK_ShapeBrush_Saisir: return "Saisir";
+				case NkShapeBrush::NK_ShapeBrush_Lisser: return "Lisser";
+				case NkShapeBrush::NK_ShapeBrush_Gonfler: return "Gonfler";
+				case NkShapeBrush::NK_ShapeBrush_Degonfler: return "Dégonfler";
+				case NkShapeBrush::NK_ShapeBrush_Effacer: return "Effacer";
+				default: return "?";
+			}
+		}
+
+		void NkShapeKeySet::SculptVertices(uint32 k, NkShapeBrush brush, const uint32 *verts, const float32 *factors, uint32 n, float32 amount,
+										   const NkSkinMesh &mesh, bool symetrie) {
+			if (k == 0 || k >= Count() || verts == nullptr || brush == NkShapeBrush::NK_ShapeBrush_Saisir) {
+				return;
+			}
+			NkVector<NkVec3f> &p = keys[k].positions;
+			const uint32 nv = (uint32)p.Size();
+			const NkShapeKey &s = keys[k];
+			const int32 r = (s.relativeTo >= 0 && (uint32)s.relativeTo < Count() && s.relativeTo != (int32)k) ? s.relativeTo : 0;
+			const NkVector<NkVec3f> &ref = keys[(uint32)r].positions;
+			if ((uint32)ref.Size() != nv) {
+				return;
+			}
+			// Les sommets touches (et leurs miroirs), chacun une fois.
+			NkVector<uint32> vs;
+			NkVector<float32> fs;
+			NkVector<uint8> fait;
+			fait.Resize(nv, 0);
+			const bool miroir = symetrie && (uint32)mesh.mirror.Size() == nv;
+			for (uint32 i = 0; i < n; ++i) {
+				const uint32 v = verts[i];
+				const float32 f = factors != nullptr ? factors[i] : 1.f;
+				if (v >= nv || !(f > 0.f)) {
+					continue;
+				}
+				if (!fait[v]) {
+					fait[v] = 1;
+					vs.PushBack(v);
+					fs.PushBack(f > 1.f ? 1.f : f);
+				}
+				const int32 m = miroir ? mesh.mirror[v] : -1;
+				if (m >= 0 && !fait[(uint32)m]) {
+					fait[(uint32)m] = 1;
+					vs.PushBack((uint32)m);
+					fs.PushBack(f > 1.f ? 1.f : f);
+				}
+			}
+			if (brush == NkShapeBrush::NK_ShapeBrush_Lisser) {
+				// Les MOYENNES d'abord, sur les decalages d'avant le coup.
+				const bool voisins = (uint32)mesh.rep.Size() == nv && !mesh.adjDebut.Empty();
+				NkVector<NkVec3f> moy;
+				moy.Resize(vs.Size(), NkVec3f{0.f, 0.f, 0.f});
+				for (uint32 i = 0; i < (uint32)vs.Size(); ++i) {
+					const uint32 v = vs[i];
+					NkVec3f d = Sub(p[v], ref[v]);
+					if (voisins) {
+						const uint32 rv = mesh.rep[v];
+						const uint32 a = mesh.adjDebut[rv], z = mesh.adjDebut[rv + 1u];
+						if (z > a) {
+							NkVec3f somme{0.f, 0.f, 0.f};
+							for (uint32 q = a; q < z; ++q) {
+								const uint32 w = mesh.soudes[mesh.adj[q]];
+								somme = Add(somme, Sub(p[w], ref[w]));
+							}
+							d = Mul(somme, 1.f / (float32)(z - a));
+						}
+					}
+					moy[i] = d;
+				}
+				for (uint32 i = 0; i < (uint32)vs.Size(); ++i) {
+					const uint32 v = vs[i];
+					const NkVec3f d = Sub(p[v], ref[v]);
+					p[v] = Add(ref[v], Lerp(d, moy[i], fs[i]));
+				}
+				return;
+			}
+			const bool normales = (uint32)mesh.normals.Size() == nv;
+			for (uint32 i = 0; i < (uint32)vs.Size(); ++i) {
+				const uint32 v = vs[i];
+				if (brush == NkShapeBrush::NK_ShapeBrush_Effacer) {
+					p[v] = Lerp(p[v], ref[v], fs[i]);
+				} else if (normales) {
+					const float32 sens = brush == NkShapeBrush::NK_ShapeBrush_Gonfler ? 1.f : -1.f;
+					p[v] = Add(p[v], Mul(mesh.normals[v], sens * amount * fs[i]));
 				}
 			}
 		}

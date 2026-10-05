@@ -782,3 +782,98 @@ TEST_CASE(NKAnima, RIG3D_r11_MilieuDuVolume) {
 	std::printf("  [r11] contre-epreuve (boite ouverte) : z = %.4f, epaisseur %.4f\n", (double)mil.z, (double)ep);
 	ASSERT_FALSE(PresV(mil, V(0.25f, 0.25f, 0.f)));
 }
+
+// (r12) (05/10) LES VERROUS DES POIDS ET LE DEGRADE.
+//   ATTENDU : un sommet (A 0,5 ; B 0,3 ; C 0,2), B verrouille ; A peint a 0,6
+//   (remplacer, force 1) -> A 0,6, B 0,3 EXACT, C 0,1 ; A vise a 0,9 -> borne a
+//   0,7 (ce que B laisse) ; peindre B ne change rien ; la normalisation garde B.
+//   Le degrade (valeurs 1 -> 0 par sommet, force 1) pose ces valeurs.
+//   CONTRE-EPREUVE : sans le verrou, B change (0,3 -> 0,24).
+TEST_CASE(NKAnima, RIG3D_r12_VerrousEtDegrade) {
+	anim::NkArmature a;
+	(void)a.Add("A", V(0, 0, 0), V(0, 1, 0));
+	(void)a.Add("B", V(0, 1, 0), V(0, 2, 0));
+	(void)a.Add("C", V(0, 2, 0), V(0, 3, 0));
+	anim::NkSkinMesh m;
+	for (uint32 i = 0; i < 4; ++i) {
+		m.positions.PushBack(V((float32)i, 0.f, 0.f));
+	}
+	auto Prepare = [](anim::NkSkinWeights &w) {
+		w.Resize(4);
+		for (uint32 v = 0; v < 4; ++v) {
+			w.Set(v, 0, 0.5f);
+			w.Set(v, 1, 0.3f);
+			w.Set(v, 2, 0.2f);
+		}
+	};
+	anim::NkSkinWeights w;
+	Prepare(w);
+	w.Lock(1, true);
+	anim::NkWeightBrush b;
+	b.mode = anim::NkBrushMode::NK_BrushMode_Remplacer;
+	b.strength = 1.f;
+	b.value = 0.6f;
+	const uint32 v0 = 0;
+	const float32 un = 1.f;
+	(void)anim::NkApplyBrush(w, m, a, 0, b, &v0, &un, 1);
+	std::printf("  [r12] B verrouille, A -> 0,6 : A %.4f B %.4f C %.4f\n", (double)w.Get(0, 0), (double)w.Get(0, 1), (double)w.Get(0, 2));
+	ASSERT_TRUE(Pres(w.Get(0, 0), 0.6f) && Pres(w.Get(0, 1), 0.3f, 1e-7f) && Pres(w.Get(0, 2), 0.1f));
+	b.value = 0.9f;
+	(void)anim::NkApplyBrush(w, m, a, 0, b, &v0, &un, 1);
+	ASSERT_TRUE(Pres(w.Get(0, 0), 0.7f) && Pres(w.Get(0, 1), 0.3f, 1e-7f) && Pres(w.Sum(0), 1.f));
+	ASSERT_TRUE(anim::NkApplyBrush(w, m, a, 1, b, &v0, &un, 1) == 0u && Pres(w.Get(0, 1), 0.3f, 1e-7f));
+	w.Set(1, 0, 0.9f); // somme faussee : 0,9 + 0,3 + 0,2
+	w.Normalize(1);
+	ASSERT_TRUE(Pres(w.Get(1, 1), 0.3f, 1e-7f) && Pres(w.Sum(1), 1.f));
+	// Le degrade : des valeurs par sommet.
+	const uint32 vs[3] = {1, 2, 3};
+	const float32 vals[3] = {1.f, 0.5f, 0.f};
+	w.Lock(1, false);
+	(void)anim::NkApplyWeightValues(w, m, a, 2, b, vs, vals, 3, 1.f);
+	std::printf("  [r12] degrade sur C : %.3f %.3f %.3f\n", (double)w.Get(1, 2), (double)w.Get(2, 2), (double)w.Get(3, 2));
+	ASSERT_TRUE(Pres(w.Get(1, 2), 1.f) && Pres(w.Get(2, 2), 0.5f) && Pres(w.Get(3, 2), 0.f) && Pres(w.Sum(2), 1.f));
+	// CONTRE-EPREUVE : sans verrou, B change.
+	anim::NkSkinWeights libre;
+	Prepare(libre);
+	b.value = 0.6f;
+	(void)anim::NkApplyBrush(libre, m, a, 0, b, &v0, &un, 1);
+	std::printf("  [r12] contre-epreuve sans verrou : B %.4f\n", (double)libre.Get(0, 1));
+	ASSERT_FALSE(Pres(libre.Get(0, 1), 0.3f, 1e-4f));
+}
+
+// (r13) (05/10) LES PINCEAUX DE SCULPTURE DES FORMES.
+//   ATTENDU (mannequin) : une forme ou un sommet est tire de 5 cm ; LISSER le
+//   rapproche de ses voisins (son decalage diminue) ; GONFLER de 1 cm le pousse
+//   de 1 cm le long de sa normale ; EFFACER (force 1) le rend a la base.
+//   CONTRE-EPREUVE : DEGONFLER ne pousse pas le long de la normale (il recule).
+TEST_CASE(NKAnima, RIG3D_r13_PinceauxDesFormes) {
+	anim::NkSkinMesh m = Mannequin(anim::NkMannequinKind::NK_MannequinKind_Humanoide_T);
+	anim::NkShapeKeySet s;
+	s.SetBasis(m.positions.Data(), m.VertexCount());
+	const int32 k = s.AddFromBasis("bosse");
+	ASSERT_TRUE(k > 0);
+	// Un sommet du torse (le plus avant, +Z).
+	uint32 v = 0;
+	for (uint32 i = 1; i < m.VertexCount(); ++i) {
+		v = m.positions[i].z > m.positions[v].z ? i : v;
+	}
+	const float32 un = 1.f;
+	s.MoveVertices((uint32)k, &v, &un, 1, V(0.f, 0.f, 0.05f), false, nullptr);
+	const float32 avant = Dist(s.keys[(uint32)k].positions[v], m.positions[v]);
+	s.SculptVertices((uint32)k, anim::NkShapeBrush::NK_ShapeBrush_Lisser, &v, &un, 1, 0.f, m, false);
+	const float32 lisse = Dist(s.keys[(uint32)k].positions[v], m.positions[v]);
+	std::printf("  [r13] lisser : decalage %.4f -> %.4f\n", (double)avant, (double)lisse);
+	ASSERT_TRUE(avant > 0.049f && lisse < avant * 0.5f);
+	const NkVec3f p0 = s.keys[(uint32)k].positions[v];
+	s.SculptVertices((uint32)k, anim::NkShapeBrush::NK_ShapeBrush_Gonfler, &v, &un, 1, 0.01f, m, false);
+	const NkVec3f d = Sub(s.keys[(uint32)k].positions[v], p0);
+	ASSERT_TRUE(Pres(Len(d), 0.01f, 1e-5f) && Dot(d, m.normals[v]) > 0.0099f);
+	s.SculptVertices((uint32)k, anim::NkShapeBrush::NK_ShapeBrush_Effacer, &v, &un, 1, 0.f, m, false);
+	ASSERT_TRUE(Dist(s.keys[(uint32)k].positions[v], m.positions[v]) < 1e-6f);
+	// CONTRE-EPREUVE : degonfler recule.
+	const NkVec3f q0 = s.keys[(uint32)k].positions[v];
+	s.SculptVertices((uint32)k, anim::NkShapeBrush::NK_ShapeBrush_Degonfler, &v, &un, 1, 0.01f, m, false);
+	const NkVec3f dq = Sub(s.keys[(uint32)k].positions[v], q0);
+	std::printf("  [r13] contre-epreuve degonfler : le long de la normale %.4f\n", (double)Dot(dq, m.normals[v]));
+	ASSERT_FALSE(Dot(dq, m.normals[v]) > 0.0099f);
+}

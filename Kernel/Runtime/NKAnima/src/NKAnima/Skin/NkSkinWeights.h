@@ -81,8 +81,17 @@ namespace nkentseu {
 				/// vrai) donne ses poids a son miroir, os remplaces par leur miroir.
 				uint32 MirrorX(const NkSkinMesh &mesh, const NkArmature &arm, bool depuisGauche);
 
+				// ── (05/10) LES VERROUS (le cadenas d'un groupe de sommets de Blender) ──
+				/// Le poids d'un os VERROUILLE ne change plus : ni peint, ni repris par la
+				/// normalisation, qui repartit le reste sur les os libres.
+				void Lock(int32 bone, bool on);
+				bool Locked(int32 bone) const;
+				/// La somme des poids verrouilles de `v` (sans `sauf`).
+				float32 LockedSum(uint32 v, int32 sauf = -1) const;
+
 				NkVector<NkSkinInfluence> data; ///< count * kSlots
 				uint32 count = 0;
+				NkVector<uint8> verrous; ///< (05/10) un par os (vide : aucun verrou)
 		};
 
 		// =====================================================================
@@ -132,6 +141,12 @@ namespace nkentseu {
 		/// la symetrie (miroir) ; `arm`, au nom de l'os miroir.
 		uint32 NkApplyBrush(NkSkinWeights &w, const NkSkinMesh &mesh, const NkArmature &arm, int32 bone, const NkWeightBrush &brush,
 							const uint32 *verts, const float32 *factors, uint32 n);
+
+		/// (05/10) DES VALEURS PAR SOMMET (le DEGRADE) : `values[i]` est le poids vise
+		/// de `verts[i]`, atteint a `force` (0..1). Normalisation, verrous et symetrie
+		/// X comme le pinceau (`brush` en donne les reglages). Rend le nombre change.
+		uint32 NkApplyWeightValues(NkSkinWeights &w, const NkSkinMesh &mesh, const NkArmature &arm, int32 bone, const NkWeightBrush &brush,
+								   const uint32 *verts, const float32 *values, uint32 n, float32 force);
 
 		// =====================================================================
 		// LA VERIFICATION

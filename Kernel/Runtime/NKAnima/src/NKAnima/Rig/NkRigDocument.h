@@ -160,6 +160,15 @@ namespace nkentseu {
 				bool SetShapeDriver(uint32 k, const NkShapeDriver &d);
 				void MoveShapeVertices(uint32 k, const uint32 *verts, const float32 *factors, uint32 n, const math::NkVec3f &delta,
 									   uint32 fusion = 0);
+				/// (05/10) Un coup de pinceau de sculpture (Lisser, Gonfler, Degonfler,
+				/// Effacer) ; meme cle `fusion` : le trait entier est UNE entree.
+				void SculptShape(uint32 k, NkShapeBrush brush, const uint32 *verts, const float32 *factors, uint32 n, float32 amount,
+								 uint32 fusion = 0);
+				/// (05/10) Le VERROU des poids d'un os (Blender : le cadenas) ; annulable.
+				void LockBoneWeights(uint32 bone, bool on);
+				/// (05/10) Le DEGRADE : des poids vises par sommet (NkApplyWeightValues),
+				/// UNE entree d'annulation ; rend le nombre de sommets changes.
+				uint32 WeightValues(int32 bone, const uint32 *verts, const float32 *values, uint32 n, float32 force, const NkWeightBrush &brush);
 				int32 MirrorShape(uint32 k);
 				/// Des FORMES DE VISAGE de depart (machoire_ouverte, sourire, joues_gonflees,
 				/// sourcils_leves, clin_oeil.L/.R, levres_pincees), par deformation de

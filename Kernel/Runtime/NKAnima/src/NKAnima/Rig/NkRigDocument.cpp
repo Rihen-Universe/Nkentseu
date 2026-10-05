@@ -649,6 +649,42 @@ namespace nkentseu {
 			Touch(NK_RigPart_Formes);
 		}
 
+		void NkRigDocument::SculptShape(uint32 k, NkShapeBrush brush, const uint32 *verts, const float32 *factors, uint32 n, float32 amount,
+										uint32 fusion) {
+			if (k == 0 || k >= shapes.Count() || n == 0) {
+				return;
+			}
+			Begin("Sculpter une forme", NK_RigPart_Formes, fusion);
+			shapes.SculptVertices(k, brush, verts, factors, n, amount, mesh, symetrie);
+			Touch(NK_RigPart_Formes);
+		}
+
+		void NkRigDocument::LockBoneWeights(uint32 bone, bool on) {
+			if (bone >= armature.Count() || weights.Locked((int32)bone) == on) {
+				return;
+			}
+			Begin(on ? "Verrouiller les poids d'un os" : "Deverrouiller les poids d'un os", NK_RigPart_Poids);
+			weights.Lock((int32)bone, on);
+			Touch(NK_RigPart_Poids);
+		}
+
+		uint32 NkRigDocument::WeightValues(int32 bone, const uint32 *verts, const float32 *values, uint32 n, float32 force,
+										   const NkWeightBrush &brush) {
+			if (bone < 0 || (uint32)bone >= armature.Count() || n == 0) {
+				return 0;
+			}
+			Begin("Degrade de poids", NK_RigPart_Poids);
+			NkWeightBrush b = brush;
+			b.symmetryX = symetrie;
+			const uint32 c = NkApplyWeightValues(weights, mesh, armature, bone, b, verts, values, n, force);
+			if (c == 0) {
+				Cancel();
+				return 0;
+			}
+			Touch(NK_RigPart_Poids);
+			return c;
+		}
+
 		int32 NkRigDocument::MirrorShape(uint32 k) {
 			if (k == 0 || k >= shapes.Count()) {
 				return -1;

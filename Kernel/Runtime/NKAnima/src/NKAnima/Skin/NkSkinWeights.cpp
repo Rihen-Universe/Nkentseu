@@ -99,6 +99,21 @@ namespace nkentseu {
 		}
 
 		void NkSkinWeights::Normalize(uint32 v) {
+			if (!verrous.Empty() && v < count) {
+				// (05/10) Les verrous gardent leur poids ; les os libres prennent le reste.
+				const float32 l = LockedSum(v);
+				const float32 libres = Sum(v) - l;
+				if (libres > 1e-12f) {
+					const float32 k = (l < 1.f ? 1.f - l : 0.f) / libres;
+					NkSkinInfluence *s = Of(v);
+					for (uint32 i = 0; i < kSlots; ++i) {
+						if (s[i].bone >= 0 && !Locked(s[i].bone)) {
+							s[i].weight *= k;
+						}
+					}
+				}
+				return;
+			}
 			const float32 t = Sum(v);
 			if (t > 1e-12f) {
 				NkSkinInfluence *s = Of(v);
@@ -108,6 +123,37 @@ namespace nkentseu {
 					}
 				}
 			}
+		}
+
+		void NkSkinWeights::Lock(int32 bone, bool on) {
+			if (bone < 0) {
+				return;
+			}
+			if ((uint32)bone >= (uint32)verrous.Size()) {
+				if (!on) {
+					return;
+				}
+				verrous.Resize((usize)bone + 1u, 0);
+			}
+			verrous[(uint32)bone] = on ? 1 : 0;
+		}
+
+		bool NkSkinWeights::Locked(int32 bone) const {
+			return bone >= 0 && (uint32)bone < (uint32)verrous.Size() && verrous[(uint32)bone] != 0;
+		}
+
+		float32 NkSkinWeights::LockedSum(uint32 v, int32 sauf) const {
+			if (verrous.Empty() || v >= count) {
+				return 0.f;
+			}
+			float32 s = 0.f;
+			const NkSkinInfluence *in = Of(v);
+			for (uint32 i = 0; i < kSlots; ++i) {
+				if (in[i].bone >= 0 && in[i].bone != sauf && Locked(in[i].bone)) {
+					s += in[i].weight;
+				}
+			}
+			return s;
 		}
 
 		void NkSkinWeights::NormalizeAll() {
@@ -228,6 +274,19 @@ namespace nkentseu {
 
 		void NkSkinWeights::RemapBones(const NkVector<int32> &remap, const NkVector<int32> &heritier) {
 			const uint32 nb = (uint32)remap.Size();
+			if (!verrous.Empty()) {
+				// (05/10) Les verrous suivent leur os.
+				NkVector<uint8> nv;
+				for (uint32 b = 0; b < nb && b < (uint32)verrous.Size(); ++b) {
+					if (verrous[b] != 0 && remap[b] >= 0) {
+						if ((uint32)nv.Size() <= (uint32)remap[b]) {
+							nv.Resize((usize)remap[b] + 1u, 0);
+						}
+						nv[(uint32)remap[b]] = 1;
+					}
+				}
+				verrous = nv;
+			}
 			for (uint32 v = 0; v < count; ++v) {
 				NkSkinInfluence avant[kSlots];
 				std::memcpy(avant, Of(v), sizeof(avant));
@@ -945,23 +1004,31 @@ namespace nkentseu {
 			/// AUTRES os se partagent le reste en proportion (la « normalisation
 			/// automatique » de Blender). Un os seul reste a 1.
 			void PoserNormalise(NkSkinWeights &w, uint32 v, int32 bone, float32 nw, bool autoNorm) {
+				// (05/10) Un os VERROUILLE ne se peint pas ; les verrous des autres
+				// bornent ce qu'il peut prendre et ne sont pas repris.
+				if (w.Locked(bone)) {
+					return;
+				}
+				const float32 l = w.LockedSum(v, bone);
+				const float32 libre = l < 1.f ? 1.f - l : 0.f;
 				nw = nw < 0.f ? 0.f : (nw > 1.f ? 1.f : nw);
 				if (!autoNorm) {
 					w.Set(v, bone, nw);
 					return;
 				}
+				nw = nw > libre ? libre : nw;
 				const float32 ancien = w.Get(v, bone);
-				const float32 autres = w.Sum(v) - ancien;
+				const float32 autres = w.Sum(v) - ancien - l;
 				if (autres <= 1e-6f) {
 					if (nw > 1e-6f) {
-						w.Set(v, bone, 1.f);
+						w.Set(v, bone, libre);
 					}
 					return;
 				}
-				const float32 k = (1.f - nw) / autres;
+				const float32 k = (libre - nw) / autres;
 				NkSkinInfluence *s = w.Of(v);
 				for (uint32 i = 0; i < NkSkinWeights::kSlots; ++i) {
-					if (s[i].bone >= 0 && s[i].bone != bone) {
+					if (s[i].bone >= 0 && s[i].bone != bone && !w.Locked(s[i].bone)) {
 						s[i].weight *= k;
 						if (s[i].weight < 1e-6f) {
 							s[i].bone = -1;
@@ -1039,6 +1106,39 @@ namespace nkentseu {
 						const float32 am = w.Get((uint32)mv, osMiroir);
 						PoserNormalise(w, (uint32)mv, osMiroir, NouvellePeinture(br, am, moyM.Empty() ? 0.f : moyM[i], f), br.autoNormalize);
 						changes += std::fabs(w.Get((uint32)mv, osMiroir) - am) > 1e-7f ? 1u : 0u;
+					}
+				}
+			}
+			return changes;
+		}
+
+		uint32 NkApplyWeightValues(NkSkinWeights &w, const NkSkinMesh &mesh, const NkArmature &arm, int32 bone, const NkWeightBrush &br,
+								   const uint32 *verts, const float32 *values, uint32 n, float32 force) {
+			if (bone < 0 || (uint32)bone >= arm.Count() || verts == nullptr || values == nullptr || !(force > 0.f)) {
+				return 0;
+			}
+			int32 osMiroir = bone;
+			if (br.symmetryX) {
+				const NkString nm = NkArmature::MirrorName(arm.bones[(uint32)bone].name.CStr());
+				const int32 j = nm.Empty() ? -1 : arm.Find(nm.CStr());
+				osMiroir = j >= 0 ? j : bone;
+			}
+			const bool miroir = br.symmetryX && (uint32)mesh.mirror.Size() == w.VertexCount();
+			const float32 f = force > 1.f ? 1.f : force;
+			uint32 changes = 0;
+			for (uint32 i = 0; i < n; ++i) {
+				const uint32 v = verts[i];
+				if (v >= w.VertexCount()) {
+					continue;
+				}
+				const float32 avant = w.Get(v, bone);
+				PoserNormalise(w, v, bone, avant + (values[i] - avant) * f, br.autoNormalize);
+				changes += std::fabs(w.Get(v, bone) - avant) > 1e-7f ? 1u : 0u;
+				if (miroir) {
+					const int32 mv = mesh.mirror[v];
+					if (mv >= 0 && (uint32)mv != v) {
+						const float32 am = w.Get((uint32)mv, osMiroir);
+						PoserNormalise(w, (uint32)mv, osMiroir, am + (values[i] - am) * f, br.autoNormalize);
 					}
 				}
 			}

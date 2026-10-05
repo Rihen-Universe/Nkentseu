@@ -32,6 +32,22 @@
 namespace nkentseu {
 	namespace anim {
 
+		struct NkSkinMesh;
+
+		/// (05/10) LES PINCEAUX DE SCULPTURE d'une forme (Blender) : SAISIR (le
+		/// deplacement, MoveVertices), LISSER (le decalage tend vers celui des
+		/// voisins), GONFLER / DEGONFLER (le long de la normale), EFFACER (retour
+		/// vers la forme de reference).
+		enum class NkShapeBrush : uint8 {
+			NK_ShapeBrush_Saisir = 0,
+			NK_ShapeBrush_Lisser,
+			NK_ShapeBrush_Gonfler,
+			NK_ShapeBrush_Degonfler,
+			NK_ShapeBrush_Effacer,
+			NK_ShapeBrush_Count
+		};
+		const char *NkShapeBrushName(NkShapeBrush b);
+
 		class NkAnimationClip;
 
 		/// Ce qui pilote une forme (en plus de son curseur).
@@ -91,6 +107,11 @@ namespace nkentseu {
 				/// sommet (table `mirror`, -1 aucun) recoit le deplacement en miroir X.
 				void MoveVertices(uint32 k, const uint32 *verts, const float32 *factors, uint32 n, const math::NkVec3f &delta,
 								  bool symetrie, const NkVector<int32> *mirror);
+				/// (05/10) Un coup de PINCEAU de sculpture (sauf Saisir : MoveVertices).
+				/// `amount` : la hauteur de Gonfler / Degonfler (unite du maillage) ;
+				/// `mesh` : les voisins (Lisser), les normales (Gonfler), le miroir.
+				void SculptVertices(uint32 k, NkShapeBrush brush, const uint32 *verts, const float32 *factors, uint32 n, float32 amount,
+									const NkSkinMesh &mesh, bool symetrie);
 				/// Le MIROIR X d'une forme : « sourire.L » -> « sourire.R » (nouvelle
 				/// forme ou mise a jour). Rend l'indice, -1 si refus.
 				int32 Mirror(uint32 k, const NkVector<int32> &mirror, const char *nouveauNom = nullptr);
