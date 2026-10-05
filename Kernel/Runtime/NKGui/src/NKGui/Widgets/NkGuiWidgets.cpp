@@ -5664,7 +5664,8 @@ namespace nkentseu {
 
 		bool BeginMenuBar(NkGuiContext &ctx, const NkRect &rect) noexcept {
 			ctx.DL().AddRectFilled(rect, ctx.theme.header, 0.f);
-			ctx.DL().AddRectFilled({rect.x, rect.y + rect.h - 1.f, rect.w, 1.f}, ctx.theme.border);
+			if (ctx.menuBarTraitBas)
+				ctx.DL().AddRectFilled({rect.x, rect.y + rect.h - 1.f, rect.w, 1.f}, ctx.theme.border);
 			ctx.menuBarRect = rect;
 			ctx.menuBarX = rect.x + 4.f;
 			// ⚠️ LA LIMITE CÉDÉE AUX TITRES N'EST PAS LA LARGEUR DE LA BANDE, et la
