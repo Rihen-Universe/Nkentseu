@@ -30,7 +30,7 @@
 namespace nkentseu {
 	namespace anim {
 
-		enum class NkRigTemplate : uint8 { NK_HUMANOIDE = 0, NK_QUADRUPEDE, NK_CHAINE, NK_COUNT };
+		enum class NkRigTemplate : uint8 { NK_RigTemplate_Humanoide = 0, NK_RigTemplate_Quadrupede, NK_RigTemplate_Chaine, NK_RigTemplate_Count };
 		const char *NkRigTemplateName(NkRigTemplate t);
 
 		/// Un REPERE du rig automatique.
@@ -52,7 +52,7 @@ namespace nkentseu {
 
 		struct NkAutoRigOptions {
 				uint32 coupes = 96;		 ///< coupes horizontales du maillage
-				uint32 maillonsChaine = 6; ///< NK_CHAINE : nombre d'os
+				uint32 maillonsChaine = 6; ///< NK_RigTemplate_Chaine : nombre d'os
 				uint32 vertebres = 3;	 ///< humanoide : os de la colonne (bassin compris)
 		};
 
@@ -73,17 +73,17 @@ namespace nkentseu {
 		// LES CONTROLES (Rigify / Control Rig)
 		// =====================================================================
 		enum class NkRigControlKind : uint8 {
-			NK_IK_DEUX_OS = 0, ///< bras, jambe : cible de l'extremite + pole du coude/genou
-			NK_COLONNE,		   ///< la colonne : une poignee au sommet, la chaine se courbe
-			NK_RACINE,		   ///< deplace tout le personnage
-			NK_REGARD,		   ///< la tete vise la cible
-			NK_COUNT
+			NK_RigControlKind_IK_Deux_Os = 0, ///< bras, jambe : cible de l'extremite + pole du coude/genou
+			NK_RigControlKind_Colonne,		   ///< la colonne : une poignee au sommet, la chaine se courbe
+			NK_RigControlKind_Racine,		   ///< deplace tout le personnage
+			NK_RigControlKind_Regard,		   ///< la tete vise la cible
+			NK_RigControlKind_Count
 		};
 		const char *NkRigControlKindName(NkRigControlKind k);
 
 		struct NkRigControl {
 				NkString name;		  ///< « IK_bras.L »
-				NkRigControlKind kind = NkRigControlKind::NK_IK_DEUX_OS;
+				NkRigControlKind kind = NkRigControlKind::NK_RigControlKind_IK_Deux_Os;
 				NkVector<int32> chain; ///< os, de la racine de la chaine a son bout
 				math::NkVec3f target{0.f, 0.f, 0.f}; ///< au repos : le bout de la chaine
 				math::NkVec3f pole{0.f, 0.f, 0.f};	 ///< IK : ou pointe le coude / le genou

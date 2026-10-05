@@ -20,19 +20,19 @@ namespace nkentseu {
 
 		const char *NkRigTemplateName(NkRigTemplate t) {
 			switch (t) {
-				case NkRigTemplate::NK_HUMANOIDE: return "Humanoide";
-				case NkRigTemplate::NK_QUADRUPEDE: return "Quadrupede";
-				case NkRigTemplate::NK_CHAINE: return "Chaine (queue, tentacule, serpent)";
+				case NkRigTemplate::NK_RigTemplate_Humanoide: return "Humanoide";
+				case NkRigTemplate::NK_RigTemplate_Quadrupede: return "Quadrupede";
+				case NkRigTemplate::NK_RigTemplate_Chaine: return "Chaine (queue, tentacule, serpent)";
 				default: return "?";
 			}
 		}
 
 		const char *NkRigControlKindName(NkRigControlKind k) {
 			switch (k) {
-				case NkRigControlKind::NK_IK_DEUX_OS: return "IK a deux os";
-				case NkRigControlKind::NK_COLONNE: return "Colonne";
-				case NkRigControlKind::NK_RACINE: return "Racine";
-				case NkRigControlKind::NK_REGARD: return "Regard";
+				case NkRigControlKind::NK_RigControlKind_IK_Deux_Os: return "IK a deux os";
+				case NkRigControlKind::NK_RigControlKind_Colonne: return "Colonne";
+				case NkRigControlKind::NK_RigControlKind_Racine: return "Racine";
+				case NkRigControlKind::NK_RigControlKind_Regard: return "Regard";
 				default: return "?";
 			}
 		}
@@ -69,10 +69,10 @@ namespace nkentseu {
 			const Def kChaine[] = {{"debut", "Début de la chaîne"}, {"fin", "Fin de la chaîne"}};
 
 			void Liste(NkRigTemplate t, const Def *&d, uint32 &n) {
-				if (t == NkRigTemplate::NK_QUADRUPEDE) {
+				if (t == NkRigTemplate::NK_RigTemplate_Quadrupede) {
 					d = kQuadrupede;
 					n = (uint32)(sizeof(kQuadrupede) / sizeof(kQuadrupede[0]));
-				} else if (t == NkRigTemplate::NK_CHAINE) {
+				} else if (t == NkRigTemplate::NK_RigTemplate_Chaine) {
 					d = kChaine;
 					n = 2;
 				} else {
@@ -260,7 +260,7 @@ namespace nkentseu {
 					l[(uint32)j].manuel = true;
 				} else {
 					// Un repere du milieu reste sur le plan de symetrie.
-					l[(uint32)i].position.x = NkArmature::SideOfName(id) == NkBoneSide::NK_CENTRE ? 0.f : p.x;
+					l[(uint32)i].position.x = NkArmature::SideOfName(id) == NkBoneSide::NK_BoneSide_Centre ? 0.f : p.x;
 				}
 			}
 			return true;
@@ -280,7 +280,7 @@ namespace nkentseu {
 			const NkVec3f e = Sub(bmax, bmin);
 			const float32 cx = (bmin.x + bmax.x) * 0.5f, cz = (bmin.z + bmax.z) * 0.5f;
 			auto P = [&](float32 fx, float32 fy, float32 fz) { return V(cx + fx * e.x * 0.5f, bmin.y + fy * e.y, cz + fz * e.z * 0.5f); };
-			if (t == NkRigTemplate::NK_HUMANOIDE) {
+			if (t == NkRigTemplate::NK_RigTemplate_Humanoide) {
 				// Un T : proportions moyennes (hauteur 1 ; aine a 0,47 ; epaules a 0,81).
 				Poser(out, "sommet_tete", P(0.f, 1.f, 0.f));
 				Poser(out, "menton", P(0.f, 0.87f, 0.f));
@@ -296,7 +296,7 @@ namespace nkentseu {
 					Poser(out, Cote("cheville", g).CStr(), P(k * 0.11f, 0.04f, 0.f));
 					Poser(out, Cote("orteils", g).CStr(), P(k * 0.11f, 0.01f, 0.9f));
 				}
-			} else if (t == NkRigTemplate::NK_QUADRUPEDE) {
+			} else if (t == NkRigTemplate::NK_RigTemplate_Quadrupede) {
 				Poser(out, "museau", P(0.f, 0.85f, 1.f));
 				Poser(out, "crane", P(0.f, 0.95f, 0.75f));
 				Poser(out, "garrot", P(0.f, 0.7f, 0.45f));
@@ -707,9 +707,9 @@ namespace nkentseu {
 				return false;
 			}
 			bool ok = false;
-			if (t == NkRigTemplate::NK_HUMANOIDE) {
+			if (t == NkRigTemplate::NK_RigTemplate_Humanoide) {
 				ok = DetecterHumanoide(m, opt, out, rp);
-			} else if (t == NkRigTemplate::NK_QUADRUPEDE) {
+			} else if (t == NkRigTemplate::NK_RigTemplate_Quadrupede) {
 				ok = DetecterQuadrupede(m, out, rp);
 			} else {
 				ok = DetecterChaine(m, out, rp);
@@ -723,7 +723,7 @@ namespace nkentseu {
 		// =====================================================================
 		bool NkRigBuildArmature(NkRigTemplate t, const NkVector<NkRigLandmark> &l, const NkAutoRigOptions &opt, NkArmature &a) {
 			a = NkArmature();
-			if (t == NkRigTemplate::NK_CHAINE) {
+			if (t == NkRigTemplate::NK_RigTemplate_Chaine) {
 				const NkVec3f d = Lire(l, "debut"), f = Lire(l, "fin");
 				const uint32 n = opt.maillonsChaine < 1 ? 1 : (opt.maillonsChaine > 48 ? 48 : opt.maillonsChaine);
 				int32 prec = -1;
@@ -732,7 +732,7 @@ namespace nkentseu {
 				}
 				return a.Count() == n;
 			}
-			if (t == NkRigTemplate::NK_QUADRUPEDE) {
+			if (t == NkRigTemplate::NK_RigTemplate_Quadrupede) {
 				const NkVec3f bassin = Lire(l, "bassin"), garrot = Lire(l, "garrot"), crane = Lire(l, "crane"), museau = Lire(l, "museau");
 				const int32 hips = a.Add("hips", bassin, Lerp(bassin, garrot, 1.f / 3.f));
 				const int32 spine = a.Add("spine", a.bones[(uint32)hips].tail, Lerp(bassin, garrot, 2.f / 3.f), hips, true);
@@ -809,7 +809,7 @@ namespace nkentseu {
 				}
 				NkRigControl k;
 				k.name = NkString(nom);
-				k.kind = NkRigControlKind::NK_IK_DEUX_OS;
+				k.kind = NkRigControlKind::NK_RigControlKind_IK_Deux_Os;
 				k.chain.PushBack(ia);
 				k.chain.PushBack(ib);
 				k.chain.PushBack(ic);
@@ -843,34 +843,34 @@ namespace nkentseu {
 				out.PushBack(k);
 			};
 			const NkVec3f avant = V(0.f, 0.f, 1.f), arriere = V(0.f, 0.f, -1.f);
-			if (t == NkRigTemplate::NK_HUMANOIDE) {
+			if (t == NkRigTemplate::NK_RigTemplate_Humanoide) {
 				static const char *const kRacine[1] = {"hips"};
 				static const char *const kColonne[4] = {"hips", "spine", "chest", "chest.001"};
-				Chaine("racine", NkRigControlKind::NK_RACINE, kRacine, 1, false);
-				Chaine("colonne", NkRigControlKind::NK_COLONNE, kColonne, 4, true);
+				Chaine("racine", NkRigControlKind::NK_RigControlKind_Racine, kRacine, 1, false);
+				Chaine("colonne", NkRigControlKind::NK_RigControlKind_Colonne, kColonne, 4, true);
 				Ik("IK_bras.L", "upperarm.L", "forearm.L", "hand.L", arriere);
 				Ik("IK_bras.R", "upperarm.R", "forearm.R", "hand.R", arriere);
 				Ik("IK_jambe.L", "thigh.L", "shin.L", "foot.L", avant);
 				Ik("IK_jambe.R", "thigh.R", "shin.R", "foot.R", avant);
 				static const char *const kTete[1] = {"head"};
-				Chaine("regard", NkRigControlKind::NK_REGARD, kTete, 1, true);
-			} else if (t == NkRigTemplate::NK_QUADRUPEDE) {
+				Chaine("regard", NkRigControlKind::NK_RigControlKind_Regard, kTete, 1, true);
+			} else if (t == NkRigTemplate::NK_RigTemplate_Quadrupede) {
 				static const char *const kRacine[1] = {"hips"};
 				static const char *const kColonne[3] = {"hips", "spine", "chest"};
-				Chaine("racine", NkRigControlKind::NK_RACINE, kRacine, 1, false);
-				Chaine("colonne", NkRigControlKind::NK_COLONNE, kColonne, 3, true);
+				Chaine("racine", NkRigControlKind::NK_RigControlKind_Racine, kRacine, 1, false);
+				Chaine("colonne", NkRigControlKind::NK_RigControlKind_Colonne, kColonne, 3, true);
 				Ik("IK_patte_av.L", "upperarm.L", "forearm.L", "hand.L", arriere);
 				Ik("IK_patte_av.R", "upperarm.R", "forearm.R", "hand.R", arriere);
 				Ik("IK_patte_ar.L", "thigh.L", "shin.L", "foot.L", avant);
 				Ik("IK_patte_ar.R", "thigh.R", "shin.R", "foot.R", avant);
 				static const char *const kTete[1] = {"head"};
-				Chaine("regard", NkRigControlKind::NK_REGARD, kTete, 1, true);
+				Chaine("regard", NkRigControlKind::NK_RigControlKind_Regard, kTete, 1, true);
 			} else {
 				NkVector<const char *> os;
 				for (uint32 b = 0; b < arm.Count(); ++b) {
 					os.PushBack(arm.bones[b].name.CStr());
 				}
-				Chaine("chaine", NkRigControlKind::NK_COLONNE, os.Data(), (uint32)os.Size(), true);
+				Chaine("chaine", NkRigControlKind::NK_RigControlKind_Colonne, os.Data(), (uint32)os.Size(), true);
 			}
 		}
 

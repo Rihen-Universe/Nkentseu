@@ -297,9 +297,9 @@ namespace nkentseu {
 		// =====================================================================
 		const char *NkAutoWeightMethodName(NkAutoWeightMethod m) {
 			switch (m) {
-				case NkAutoWeightMethod::NK_CHALEUR: return "Chaleur (diffusion sur la surface)";
-				case NkAutoWeightMethod::NK_VOXELS_GEODESIQUES: return "Voxels geodesiques (distance dans le volume)";
-				case NkAutoWeightMethod::NK_PROXIMITE: return "Proximite (os le plus proche)";
+				case NkAutoWeightMethod::NK_AutoWeightMethod_Chaleur: return "Chaleur (diffusion sur la surface)";
+				case NkAutoWeightMethod::NK_AutoWeightMethod_Voxels_Geodesiques: return "Voxels geodesiques (distance dans le volume)";
+				case NkAutoWeightMethod::NK_AutoWeightMethod_Proximite: return "Proximite (os le plus proche)";
 				default: return "?";
 			}
 		}
@@ -561,7 +561,7 @@ namespace nkentseu {
 				}
 			}
 
-			if (opt.method == NkAutoWeightMethod::NK_PROXIMITE) {
+			if (opt.method == NkAutoWeightMethod::NK_AutoWeightMethod_Proximite) {
 				for (uint32 r = 0; r < ns; ++r) {
 					for (uint32 b = 0; b < nb; ++b) {
 						const float32 d = dist[(usize)r * nb + b] / diag + 1e-4f;
@@ -575,9 +575,9 @@ namespace nkentseu {
 			}
 
 			Grille g;
-			rp.voxelsSolides = g.Construire(m, opt.method == NkAutoWeightMethod::NK_CHALEUR ? 64u : opt.voxelResolution);
+			rp.voxelsSolides = g.Construire(m, opt.method == NkAutoWeightMethod::NK_AutoWeightMethod_Chaleur ? 64u : opt.voxelResolution);
 
-			if (opt.method == NkAutoWeightMethod::NK_VOXELS_GEODESIQUES) {
+			if (opt.method == NkAutoWeightMethod::NK_AutoWeightMethod_Voxels_Geodesiques) {
 				if (rp.voxelsSolides == 0) {
 					rp.message = NkString("la voxelisation n'a rien rendu");
 					return false;
@@ -932,10 +932,10 @@ namespace nkentseu {
 		// =====================================================================
 		const char *NkBrushModeName(NkBrushMode m) {
 			switch (m) {
-				case NkBrushMode::NK_AJOUTER: return "Ajouter";
-				case NkBrushMode::NK_SOUSTRAIRE: return "Soustraire";
-				case NkBrushMode::NK_LISSER: return "Lisser";
-				case NkBrushMode::NK_REMPLACER: return "Remplacer";
+				case NkBrushMode::NK_BrushMode_Ajouter: return "Ajouter";
+				case NkBrushMode::NK_BrushMode_Soustraire: return "Soustraire";
+				case NkBrushMode::NK_BrushMode_Lisser: return "Lisser";
+				case NkBrushMode::NK_BrushMode_Remplacer: return "Remplacer";
 				default: return "?";
 			}
 		}
@@ -974,10 +974,10 @@ namespace nkentseu {
 
 			float32 NouvellePeinture(const NkWeightBrush &br, float32 ancien, float32 moyenne, float32 f) {
 				switch (br.mode) {
-					case NkBrushMode::NK_AJOUTER: return ancien + f;
-					case NkBrushMode::NK_SOUSTRAIRE: return ancien - f;
-					case NkBrushMode::NK_REMPLACER: return ancien + (br.value - ancien) * f;
-					case NkBrushMode::NK_LISSER: return ancien + (moyenne - ancien) * f;
+					case NkBrushMode::NK_BrushMode_Ajouter: return ancien + f;
+					case NkBrushMode::NK_BrushMode_Soustraire: return ancien - f;
+					case NkBrushMode::NK_BrushMode_Remplacer: return ancien + (br.value - ancien) * f;
+					case NkBrushMode::NK_BrushMode_Lisser: return ancien + (moyenne - ancien) * f;
 					default: return ancien;
 				}
 			}
@@ -1014,7 +1014,7 @@ namespace nkentseu {
 				return s / (float32)(z - a);
 			};
 			NkVector<float32> moy, moyM;
-			if (br.mode == NkBrushMode::NK_LISSER) {
+			if (br.mode == NkBrushMode::NK_BrushMode_Lisser) {
 				moy.Resize(n, 0.f);
 				moyM.Resize(n, 0.f);
 				for (uint32 i = 0; i < n; ++i) {

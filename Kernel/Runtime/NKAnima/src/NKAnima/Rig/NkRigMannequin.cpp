@@ -52,7 +52,7 @@ namespace nkentseu {
 					}
 
 					float32 Distance(const NkVec3f &p) const {
-						if (kind == NkMannequinKind::NK_QUADRUPEDE) {
+						if (kind == NkMannequinKind::NK_MannequinKind_Quadrupede) {
 							float32 d = Ellipsoide(p, V(0.f, 0.5f, -0.02f), V(0.15f, 0.14f, 0.36f));
 							d = Smin(d, Ellipsoide(p, V(0.f, 0.5f, 0.18f), V(0.16f, 0.16f, 0.18f)), 0.05f);
 							d = Smin(d, Capsule(p, V(0.f, 0.56f, 0.28f), V(0.f, 0.7f, 0.42f), 0.09f, 0.07f), 0.04f);
@@ -98,10 +98,10 @@ namespace nkentseu {
 			out = NkSkinMesh();
 			Forme f;
 			f.kind = kind;
-			f.angleBras = kind == NkMannequinKind::NK_HUMANOIDE_A ? 0.698f : 0.f;
+			f.angleBras = kind == NkMannequinKind::NK_MannequinKind_Humanoide_A ? 0.698f : 0.f;
 			NkVec3f bmin, bmax;
 			float32 hauteur;
-			if (kind == NkMannequinKind::NK_QUADRUPEDE) {
+			if (kind == NkMannequinKind::NK_MannequinKind_Quadrupede) {
 				bmin = V(-0.22f, -0.02f, -0.68f);
 				bmax = V(0.22f, 0.86f, 0.72f);
 				hauteur = 0.86f;

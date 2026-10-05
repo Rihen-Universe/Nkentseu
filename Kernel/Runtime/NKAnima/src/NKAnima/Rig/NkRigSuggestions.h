@@ -74,8 +74,8 @@ namespace nkentseu {
 				NkVector<math::NkVec3f> positions;
 				NkVector<int32> bones;
 				NkVector<NkString> names;
-				NkRigTemplate rigTemplate = NkRigTemplate::NK_HUMANOIDE;
-				NkAutoWeightMethod method = NkAutoWeightMethod::NK_CHALEUR;
+				NkRigTemplate rigTemplate = NkRigTemplate::NK_RigTemplate_Humanoide;
+				NkAutoWeightMethod method = NkAutoWeightMethod::NK_AutoWeightMethod_Chaleur;
 		};
 
 		/// UN CONSEIL.

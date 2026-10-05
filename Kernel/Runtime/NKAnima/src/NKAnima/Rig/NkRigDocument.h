@@ -30,12 +30,12 @@ namespace nkentseu {
 
 		/// Les PARTIES d'un document (ce qu'une photo d'annulation garde).
 		enum NkRigPart : uint32 {
-			NK_RIG_ARMATURE = 1u,
-			NK_RIG_POIDS = 2u,
-			NK_RIG_FORMES = 4u,
-			NK_RIG_REPERES = 8u,
-			NK_RIG_CONTROLES = 16u,
-			NK_RIG_TOUT = 31u,
+			NK_RigPart_Armature = 1u,
+			NK_RigPart_Poids = 2u,
+			NK_RigPart_Formes = 4u,
+			NK_RigPart_Reperes = 8u,
+			NK_RigPart_Controles = 16u,
+			NK_RigPart_Tout = 31u,
 		};
 
 		class NkRigDocument {
@@ -45,7 +45,7 @@ namespace nkentseu {
 				NkSkinWeights weights;
 				NkShapeKeySet shapes;
 				NkVector<NkRigLandmark> landmarks;
-				NkRigTemplate rigTemplate = NkRigTemplate::NK_HUMANOIDE;
+				NkRigTemplate rigTemplate = NkRigTemplate::NK_RigTemplate_Humanoide;
 				NkVector<NkRigControl> controls;
 				/// La SYMETRIE X des gestes (os, reperes, peinture, sculpture).
 				bool symetrie = true;
@@ -174,7 +174,7 @@ namespace nkentseu {
 						NkShapeKeySet shapes;
 						NkVector<NkRigLandmark> landmarks;
 						NkVector<NkRigControl> controls;
-						NkRigTemplate rigTemplate = NkRigTemplate::NK_HUMANOIDE;
+						NkRigTemplate rigTemplate = NkRigTemplate::NK_RigTemplate_Humanoide;
 				};
 				Photo Prendre(const char *label, uint32 parts) const;
 				void Rendre(const Photo &p);

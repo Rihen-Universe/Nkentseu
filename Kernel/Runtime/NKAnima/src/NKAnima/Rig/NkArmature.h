@@ -40,10 +40,10 @@ namespace nkentseu {
 
 		/// Le cote d'un os, lu dans son NOM d'abord (.L/.R, Left/Right...), sinon
 		/// dans sa position (x > 0 : gauche).
-		enum class NkBoneSide : uint8 { NK_CENTRE = 0, NK_GAUCHE, NK_DROITE };
+		enum class NkBoneSide : uint8 { NK_BoneSide_Centre = 0, NK_BoneSide_Gauche, NK_BoneSide_Droite };
 
 		/// La forme d'affichage d'un os (Blender : Octahedral, Stick, Envelope, B-Bone).
-		enum class NkBoneDisplay : uint8 { NK_OCTAEDRE = 0, NK_BATON, NK_ENVELOPPE, NK_BBONE, NK_COUNT };
+		enum class NkBoneDisplay : uint8 { NK_BoneDisplay_Octaedre = 0, NK_BoneDisplay_Baton, NK_BoneDisplay_Enveloppe, NK_BoneDisplay_BBone, NK_BoneDisplay_Count };
 
 		struct NkArmatureBone {
 				NkString name;

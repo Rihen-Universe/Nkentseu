@@ -38,7 +38,7 @@ namespace nkentseu {
 			shapes.SetBasis(mesh.positions.Data(), n);
 			weights.Resize(n);
 			ClearHistory();
-			Touch(NK_RIG_TOUT);
+			Touch(NK_RigPart_Tout);
 		}
 
 		// =====================================================================
@@ -48,44 +48,44 @@ namespace nkentseu {
 			Photo p;
 			p.label = NkString(label != nullptr ? label : "");
 			p.parts = parts;
-			if (parts & NK_RIG_ARMATURE) {
+			if (parts & NK_RigPart_Armature) {
 				p.armature = armature;
 			}
-			if (parts & NK_RIG_POIDS) {
+			if (parts & NK_RigPart_Poids) {
 				p.weights = weights;
 			}
-			if (parts & NK_RIG_FORMES) {
+			if (parts & NK_RigPart_Formes) {
 				p.shapes = shapes;
 			}
-			if (parts & NK_RIG_REPERES) {
+			if (parts & NK_RigPart_Reperes) {
 				p.landmarks = landmarks;
 				p.rigTemplate = rigTemplate;
 			}
-			if (parts & NK_RIG_CONTROLES) {
+			if (parts & NK_RigPart_Controles) {
 				p.controls = controls;
 			}
 			return p;
 		}
 
 		void NkRigDocument::Rendre(const Photo &p) {
-			if (p.parts & NK_RIG_ARMATURE) {
+			if (p.parts & NK_RigPart_Armature) {
 				// L'uid suivant ne RECULE jamais : un os cree apres l'annulation ne doit pas
 				// reprendre l'identite d'un os annule (ses pistes d'animation la portent).
 				const uint32 suivant = armature.nextUid;
 				armature = p.armature;
 				armature.nextUid = suivant > armature.nextUid ? suivant : armature.nextUid;
 			}
-			if (p.parts & NK_RIG_POIDS) {
+			if (p.parts & NK_RigPart_Poids) {
 				weights = p.weights;
 			}
-			if (p.parts & NK_RIG_FORMES) {
+			if (p.parts & NK_RigPart_Formes) {
 				shapes = p.shapes;
 			}
-			if (p.parts & NK_RIG_REPERES) {
+			if (p.parts & NK_RigPart_Reperes) {
 				landmarks = p.landmarks;
 				rigTemplate = p.rigTemplate;
 			}
-			if (p.parts & NK_RIG_CONTROLES) {
+			if (p.parts & NK_RigPart_Controles) {
 				controls = p.controls;
 			}
 		}
@@ -161,12 +161,12 @@ namespace nkentseu {
 		}
 
 		int32 NkRigDocument::AddBone(const char *name, const NkVec3f &head, const NkVec3f &tail, int32 parent, bool connected) {
-			Begin("Ajouter un os", NK_RIG_ARMATURE);
+			Begin("Ajouter un os", NK_RigPart_Armature);
 			const int32 i = armature.Add(name, head, tail, parent, connected);
-			if (i >= 0 && symetrie && armature.Side((uint32)i) != NkBoneSide::NK_CENTRE) {
+			if (i >= 0 && symetrie && armature.Side((uint32)i) != NkBoneSide::NK_BoneSide_Centre) {
 				(void)armature.Symmetrize((uint32)i);
 			}
-			Touch(NK_RIG_ARMATURE);
+			Touch(NK_RigPart_Armature);
 			return i;
 		}
 
@@ -174,12 +174,12 @@ namespace nkentseu {
 			if (i >= armature.Count()) {
 				return -1;
 			}
-			Begin("Extruder un os", NK_RIG_ARMATURE);
+			Begin("Extruder un os", NK_RigPart_Armature);
 			const int32 k = armature.Extrude(i, tail);
-			if (k >= 0 && symetrie && armature.Side((uint32)k) != NkBoneSide::NK_CENTRE) {
+			if (k >= 0 && symetrie && armature.Side((uint32)k) != NkBoneSide::NK_BoneSide_Centre) {
 				(void)armature.Symmetrize((uint32)k);
 			}
-			Touch(NK_RIG_ARMATURE);
+			Touch(NK_RigPart_Armature);
 			return k;
 		}
 
@@ -187,7 +187,7 @@ namespace nkentseu {
 			if (i >= armature.Count()) {
 				return false;
 			}
-			Begin("Subdiviser un os", NK_RIG_ARMATURE);
+			Begin("Subdiviser un os", NK_RigPart_Armature);
 			const NkString miroir = symetrie && MirrorBone(i) >= 0 ? armature.bones[(uint32)MirrorBone(i)].name : NkString();
 			if (!armature.Subdivide(i, cuts)) {
 				Cancel();
@@ -199,7 +199,7 @@ namespace nkentseu {
 					(void)armature.Subdivide((uint32)m, cuts);
 				}
 			}
-			Touch(NK_RIG_ARMATURE);
+			Touch(NK_RigPart_Armature);
 			return true;
 		}
 
@@ -207,7 +207,7 @@ namespace nkentseu {
 			if (i >= armature.Count()) {
 				return false;
 			}
-			Begin("Supprimer un os", NK_RIG_ARMATURE | NK_RIG_POIDS | NK_RIG_CONTROLES);
+			Begin("Supprimer un os", NK_RigPart_Armature | NK_RigPart_Poids | NK_RigPart_Controles);
 			const NkString miroir = symetrie && MirrorBone(i) >= 0 ? armature.bones[(uint32)MirrorBone(i)].name : NkString();
 			auto Retirer = [&](uint32 b) {
 				NkVector<int32> heritier;
@@ -241,7 +241,7 @@ namespace nkentseu {
 					Retirer((uint32)m);
 				}
 			}
-			Touch(NK_RIG_ARMATURE | NK_RIG_POIDS | NK_RIG_CONTROLES);
+			Touch(NK_RigPart_Armature | NK_RigPart_Poids | NK_RigPart_Controles);
 			return true;
 		}
 
@@ -249,59 +249,59 @@ namespace nkentseu {
 			if (i >= armature.Count()) {
 				return;
 			}
-			Begin("Deplacer la tete d'un os", NK_RIG_ARMATURE, fusion);
+			Begin("Deplacer la tete d'un os", NK_RigPart_Armature, fusion);
 			armature.SetHead(i, p);
 			const int32 m = symetrie ? MirrorBone(i) : -1;
 			if (m >= 0) {
 				armature.SetHead((uint32)m, MiroirX(p));
 			}
-			Touch(NK_RIG_ARMATURE);
+			Touch(NK_RigPart_Armature);
 		}
 
 		void NkRigDocument::MoveTail(uint32 i, const NkVec3f &p, uint32 fusion) {
 			if (i >= armature.Count()) {
 				return;
 			}
-			Begin("Deplacer la queue d'un os", NK_RIG_ARMATURE, fusion);
+			Begin("Deplacer la queue d'un os", NK_RigPart_Armature, fusion);
 			armature.SetTail(i, p);
 			const int32 m = symetrie ? MirrorBone(i) : -1;
 			if (m >= 0) {
 				armature.SetTail((uint32)m, MiroirX(p));
 			}
-			Touch(NK_RIG_ARMATURE);
+			Touch(NK_RigPart_Armature);
 		}
 
 		void NkRigDocument::TranslateBone(uint32 i, const NkVec3f &d, uint32 fusion) {
 			if (i >= armature.Count()) {
 				return;
 			}
-			Begin("Deplacer un os", NK_RIG_ARMATURE, fusion);
+			Begin("Deplacer un os", NK_RigPart_Armature, fusion);
 			armature.Translate(i, d);
 			const int32 m = symetrie ? MirrorBone(i) : -1;
 			if (m >= 0) {
 				armature.Translate((uint32)m, MiroirX(d));
 			}
-			Touch(NK_RIG_ARMATURE);
+			Touch(NK_RigPart_Armature);
 		}
 
 		void NkRigDocument::SetRoll(uint32 i, float32 r, uint32 fusion) {
 			if (i >= armature.Count()) {
 				return;
 			}
-			Begin("Roulis d'un os", NK_RIG_ARMATURE, fusion);
+			Begin("Roulis d'un os", NK_RigPart_Armature, fusion);
 			armature.SetRoll(i, r);
 			const int32 m = symetrie ? MirrorBone(i) : -1;
 			if (m >= 0) {
 				armature.SetRoll((uint32)m, -r);
 			}
-			Touch(NK_RIG_ARMATURE);
+			Touch(NK_RigPart_Armature);
 		}
 
 		bool NkRigDocument::SetParent(uint32 i, int32 parent, bool connected) {
 			if (i >= armature.Count()) {
 				return false;
 			}
-			Begin("Changer de parent", NK_RIG_ARMATURE);
+			Begin("Changer de parent", NK_RigPart_Armature);
 			if (!armature.SetParent(i, parent, connected)) {
 				Cancel();
 				return false;
@@ -315,7 +315,7 @@ namespace nkentseu {
 				}
 				(void)armature.SetParent((uint32)m, pm, connected);
 			}
-			Touch(NK_RIG_ARMATURE);
+			Touch(NK_RigPart_Armature);
 			return true;
 		}
 
@@ -323,9 +323,9 @@ namespace nkentseu {
 			if (i >= armature.Count() || name == nullptr || name[0] == '\0') {
 				return NkString();
 			}
-			Begin("Renommer un os", NK_RIG_ARMATURE);
+			Begin("Renommer un os", NK_RigPart_Armature);
 			const NkString r = armature.Rename(i, name);
-			Touch(NK_RIG_ARMATURE);
+			Touch(NK_RigPart_Armature);
 			return r;
 		}
 
@@ -333,21 +333,21 @@ namespace nkentseu {
 			if (i >= armature.Count() || armature.bones[i].deform == deform) {
 				return;
 			}
-			Begin(deform ? "Os deformant" : "Os de controle", NK_RIG_ARMATURE);
+			Begin(deform ? "Os deformant" : "Os de controle", NK_RigPart_Armature);
 			armature.bones[i].deform = deform;
-			Touch(NK_RIG_ARMATURE);
+			Touch(NK_RigPart_Armature);
 		}
 
 		int32 NkRigDocument::SymmetrizeBone(uint32 i) {
 			if (i >= armature.Count()) {
 				return -1;
 			}
-			Begin("Symetriser un os", NK_RIG_ARMATURE);
+			Begin("Symetriser un os", NK_RigPart_Armature);
 			const uint32 n = armature.Count();
 			const int32 m = armature.Symmetrize(i);
 			// Ses descendants de cote suivent (un bras entier, pas seulement l'epaule).
 			for (uint32 k = 0; k < n; ++k) {
-				if (k != i && armature.IsAncestor(i, k) && armature.Side(k) != NkBoneSide::NK_CENTRE) {
+				if (k != i && armature.IsAncestor(i, k) && armature.Side(k) != NkBoneSide::NK_BoneSide_Centre) {
 					(void)armature.Symmetrize(k);
 				}
 			}
@@ -355,12 +355,12 @@ namespace nkentseu {
 				Cancel();
 				return -1;
 			}
-			Touch(NK_RIG_ARMATURE);
+			Touch(NK_RigPart_Armature);
 			return m;
 		}
 
 		uint32 NkRigDocument::SymmetrizeAll() {
-			Begin("Symetriser l'armature", NK_RIG_ARMATURE);
+			Begin("Symetriser l'armature", NK_RigPart_Armature);
 			const uint32 n = armature.Count();
 			uint32 faits = 0;
 			// Dans l'ordre des parents : le miroir d'un enfant trouve celui de son parent.
@@ -368,7 +368,7 @@ namespace nkentseu {
 			armature.Topo(ordre);
 			for (uint32 o = 0; o < (uint32)ordre.Size(); ++o) {
 				const uint32 k = ordre[o];
-				if (k < n && armature.Side(k) == NkBoneSide::NK_GAUCHE && armature.Symmetrize(k) >= 0) {
+				if (k < n && armature.Side(k) == NkBoneSide::NK_BoneSide_Gauche && armature.Symmetrize(k) >= 0) {
 					++faits;
 				}
 			}
@@ -376,7 +376,7 @@ namespace nkentseu {
 				Cancel();
 				return 0;
 			}
-			Touch(NK_RIG_ARMATURE);
+			Touch(NK_RigPart_Armature);
 			return faits;
 		}
 
@@ -384,11 +384,11 @@ namespace nkentseu {
 		// LE RIG AUTOMATIQUE
 		// =====================================================================
 		bool NkRigDocument::DetectLandmarks(NkRigTemplate t, NkAutoRigReport *report) {
-			Begin("Detecter les reperes", NK_RIG_REPERES);
+			Begin("Detecter les reperes", NK_RigPart_Reperes);
 			rigTemplate = t;
 			NkAutoRigOptions opt;
 			const bool ok = NkRigDetectLandmarks(mesh, t, opt, landmarks, report);
-			Touch(NK_RIG_REPERES);
+			Touch(NK_RigPart_Reperes);
 			return ok;
 		}
 
@@ -396,14 +396,14 @@ namespace nkentseu {
 			if (NkRigFindLandmark(landmarks, id) < 0) {
 				return false;
 			}
-			Begin("Deplacer un repere", NK_RIG_REPERES, fusion);
+			Begin("Deplacer un repere", NK_RigPart_Reperes, fusion);
 			(void)NkRigMoveLandmark(landmarks, id, p, symetrie);
-			Touch(NK_RIG_REPERES);
+			Touch(NK_RigPart_Reperes);
 			return true;
 		}
 
 		bool NkRigDocument::BuildRig(NkRigTemplate t, bool poidsAuto, NkAutoWeightMethod methode, NkAutoWeightReport *report) {
-			Begin("Rig automatique", NK_RIG_ARMATURE | NK_RIG_POIDS | NK_RIG_CONTROLES | NK_RIG_REPERES);
+			Begin("Rig automatique", NK_RigPart_Armature | NK_RigPart_Poids | NK_RigPart_Controles | NK_RigPart_Reperes);
 			if (landmarks.Empty() || rigTemplate != t) {
 				rigTemplate = t;
 				NkAutoRigOptions o;
@@ -436,13 +436,13 @@ namespace nkentseu {
 				wo.method = methode;
 				(void)NkAutoWeights(mesh, armature, wo, weights, report);
 			}
-			Touch(NK_RIG_ARMATURE | NK_RIG_POIDS | NK_RIG_CONTROLES | NK_RIG_REPERES);
+			Touch(NK_RigPart_Armature | NK_RigPart_Poids | NK_RigPart_Controles | NK_RigPart_Reperes);
 			return true;
 		}
 
 		void NkRigDocument::ImportJoints(const NkMat4f *world, const int32 *parent, const NkString *names, uint32 n) {
 			armature = NkArmature::FromJoints(world, parent, names, n);
-			Touch(NK_RIG_ARMATURE);
+			Touch(NK_RigPart_Armature);
 		}
 
 		uint32 NkRigDocument::GenerateControls(NkRigTemplate t) {
@@ -451,9 +451,9 @@ namespace nkentseu {
 			if (neufs.Empty()) {
 				return 0;
 			}
-			Begin("Controles du gabarit", NK_RIG_CONTROLES);
+			Begin("Controles du gabarit", NK_RigPart_Controles);
 			controls = neufs;
-			Touch(NK_RIG_CONTROLES);
+			Touch(NK_RigPart_Controles);
 			return (uint32)controls.Size();
 		}
 
@@ -461,14 +461,14 @@ namespace nkentseu {
 		// LA PEAU
 		// =====================================================================
 		bool NkRigDocument::AutoWeights(NkAutoWeightMethod methode, NkAutoWeightReport *report) {
-			Begin("Poids automatiques", NK_RIG_POIDS);
+			Begin("Poids automatiques", NK_RigPart_Poids);
 			NkAutoWeightOptions o;
 			o.method = methode;
 			if (!NkAutoWeights(mesh, armature, o, weights, report)) {
 				Cancel();
 				return false;
 			}
-			Touch(NK_RIG_POIDS);
+			Touch(NK_RigPart_Poids);
 			return true;
 		}
 
@@ -476,7 +476,7 @@ namespace nkentseu {
 			if (mTrait) {
 				return;
 			}
-			Begin(label, NK_RIG_POIDS);
+			Begin(label, NK_RigPart_Poids);
 			mTrait = true;
 			mTraitChanges = 0;
 		}
@@ -490,7 +490,7 @@ namespace nkentseu {
 			const uint32 c = NkApplyBrush(weights, mesh, armature, bone, b, verts, factors, n);
 			mTraitChanges += c;
 			if (c > 0) {
-				Touch(NK_RIG_POIDS);
+				Touch(NK_RigPart_Poids);
 			}
 			return c;
 		}
@@ -509,49 +509,49 @@ namespace nkentseu {
 			if (v >= weights.VertexCount() || bone < 0 || (uint32)bone >= armature.Count()) {
 				return false;
 			}
-			Begin("Poids d'un sommet", NK_RIG_POIDS);
+			Begin("Poids d'un sommet", NK_RigPart_Poids);
 			NkWeightBrush b;
-			b.mode = NkBrushMode::NK_REMPLACER;
+			b.mode = NkBrushMode::NK_BrushMode_Remplacer;
 			b.value = w;
 			b.strength = 1.f;
 			b.autoNormalize = normaliser;
 			const float32 un = 1.f;
 			(void)NkApplyBrush(weights, mesh, armature, bone, b, &v, &un, 1);
-			Touch(NK_RIG_POIDS);
+			Touch(NK_RigPart_Poids);
 			return true;
 		}
 
 		void NkRigDocument::NormalizeWeights() {
-			Begin("Normaliser les poids", NK_RIG_POIDS);
+			Begin("Normaliser les poids", NK_RigPart_Poids);
 			weights.NormalizeAll();
-			Touch(NK_RIG_POIDS);
+			Touch(NK_RigPart_Poids);
 		}
 
 		void NkRigDocument::LimitWeights(uint32 n) {
-			Begin("Limiter les influences", NK_RIG_POIDS);
+			Begin("Limiter les influences", NK_RigPart_Poids);
 			weights.LimitAll(n);
-			Touch(NK_RIG_POIDS);
+			Touch(NK_RigPart_Poids);
 		}
 
 		uint32 NkRigDocument::PruneWeights(float32 seuil) {
-			Begin("Nettoyer les poids", NK_RIG_POIDS);
+			Begin("Nettoyer les poids", NK_RigPart_Poids);
 			const uint32 r = weights.Prune(seuil);
 			if (r == 0) {
 				Cancel();
 				return 0;
 			}
-			Touch(NK_RIG_POIDS);
+			Touch(NK_RigPart_Poids);
 			return r;
 		}
 
 		uint32 NkRigDocument::MirrorWeights(bool depuisGauche) {
-			Begin("Poids en miroir", NK_RIG_POIDS);
+			Begin("Poids en miroir", NK_RigPart_Poids);
 			const uint32 r = weights.MirrorX(mesh, armature, depuisGauche);
 			if (r == 0) {
 				Cancel();
 				return 0;
 			}
-			Touch(NK_RIG_POIDS);
+			Touch(NK_RigPart_Poids);
 			return r;
 		}
 
@@ -559,35 +559,35 @@ namespace nkentseu {
 		// LES FORMES
 		// =====================================================================
 		int32 NkRigDocument::AddShape(const char *name) {
-			Begin("Nouvelle forme", NK_RIG_FORMES);
+			Begin("Nouvelle forme", NK_RigPart_Formes);
 			const int32 k = shapes.AddFromBasis(name);
 			if (k < 0) {
 				Cancel();
 				return -1;
 			}
-			Touch(NK_RIG_FORMES);
+			Touch(NK_RigPart_Formes);
 			return k;
 		}
 
 		int32 NkRigDocument::AddShapeFromPositions(const char *name, const NkVec3f *pos, uint32 n) {
-			Begin("Forme depuis la pose", NK_RIG_FORMES);
+			Begin("Forme depuis la pose", NK_RigPart_Formes);
 			const int32 k = shapes.AddFromPositions(name, pos, n);
 			if (k < 0) {
 				Cancel();
 				return -1;
 			}
-			Touch(NK_RIG_FORMES);
+			Touch(NK_RigPart_Formes);
 			return k;
 		}
 
 		int32 NkRigDocument::AddShapeFromMix(const char *name) {
-			Begin("Forme depuis le melange", NK_RIG_FORMES);
+			Begin("Forme depuis le melange", NK_RigPart_Formes);
 			const int32 k = shapes.AddFromMix(name);
 			if (k < 0) {
 				Cancel();
 				return -1;
 			}
-			Touch(NK_RIG_FORMES);
+			Touch(NK_RigPart_Formes);
 			return k;
 		}
 
@@ -595,9 +595,9 @@ namespace nkentseu {
 			if (k == 0 || k >= shapes.Count()) {
 				return false;
 			}
-			Begin("Supprimer une forme", NK_RIG_FORMES);
+			Begin("Supprimer une forme", NK_RigPart_Formes);
 			shapes.Remove(k);
-			Touch(NK_RIG_FORMES);
+			Touch(NK_RigPart_Formes);
 			return true;
 		}
 
@@ -605,9 +605,9 @@ namespace nkentseu {
 			if (k >= shapes.Count() || name == nullptr || name[0] == '\0') {
 				return NkString();
 			}
-			Begin("Renommer une forme", NK_RIG_FORMES);
+			Begin("Renommer une forme", NK_RigPart_Formes);
 			const NkString r = shapes.Rename(k, name);
-			Touch(NK_RIG_FORMES);
+			Touch(NK_RigPart_Formes);
 			return r;
 		}
 
@@ -615,18 +615,18 @@ namespace nkentseu {
 			if (k == 0 || k >= shapes.Count()) {
 				return;
 			}
-			Begin("Valeur d'une forme", NK_RIG_FORMES, 0x10000u + k);
+			Begin("Valeur d'une forme", NK_RigPart_Formes, 0x10000u + k);
 			shapes.SetValue(k, v);
-			Touch(NK_RIG_FORMES);
+			Touch(NK_RigPart_Formes);
 		}
 
 		bool NkRigDocument::SetShapeRelative(uint32 k, int32 r) {
 			if (k == 0 || k >= shapes.Count() || r < 0 || (uint32)r >= shapes.Count() || r == (int32)k) {
 				return false;
 			}
-			Begin("Forme relative", NK_RIG_FORMES);
+			Begin("Forme relative", NK_RigPart_Formes);
 			shapes.keys[k].relativeTo = r;
-			Touch(NK_RIG_FORMES);
+			Touch(NK_RigPart_Formes);
 			return true;
 		}
 
@@ -634,9 +634,9 @@ namespace nkentseu {
 			if (k == 0 || k >= shapes.Count()) {
 				return false;
 			}
-			Begin("Pilote d'une forme", NK_RIG_FORMES);
+			Begin("Pilote d'une forme", NK_RigPart_Formes);
 			shapes.keys[k].driver = d;
-			Touch(NK_RIG_FORMES);
+			Touch(NK_RigPart_Formes);
 			return true;
 		}
 
@@ -644,22 +644,22 @@ namespace nkentseu {
 			if (k >= shapes.Count() || n == 0) {
 				return;
 			}
-			Begin("Sculpter une forme", NK_RIG_FORMES, fusion);
+			Begin("Sculpter une forme", NK_RigPart_Formes, fusion);
 			shapes.MoveVertices(k, verts, factors, n, delta, symetrie, &mesh.mirror);
-			Touch(NK_RIG_FORMES);
+			Touch(NK_RigPart_Formes);
 		}
 
 		int32 NkRigDocument::MirrorShape(uint32 k) {
 			if (k == 0 || k >= shapes.Count()) {
 				return -1;
 			}
-			Begin("Forme en miroir", NK_RIG_FORMES);
+			Begin("Forme en miroir", NK_RigPart_Formes);
 			const int32 j = shapes.Mirror(k, mesh.mirror);
 			if (j < 0) {
 				Cancel();
 				return -1;
 			}
-			Touch(NK_RIG_FORMES);
+			Touch(NK_RigPart_Formes);
 			return j;
 		}
 
@@ -722,7 +722,7 @@ namespace nkentseu {
 				}
 				return 0;
 			}
-			Begin("Formes de visage", NK_RIG_FORMES);
+			Begin("Formes de visage", NK_RigPart_Formes);
 			uint32 creees = 0;
 			for (uint32 n = 0; n < (uint32)noms.Size(); ++n) {
 				const NkString &nom = noms[n];
@@ -777,7 +777,7 @@ namespace nkentseu {
 				}
 				return 0;
 			}
-			Touch(NK_RIG_FORMES);
+			Touch(NK_RigPart_Formes);
 			return creees;
 		}
 

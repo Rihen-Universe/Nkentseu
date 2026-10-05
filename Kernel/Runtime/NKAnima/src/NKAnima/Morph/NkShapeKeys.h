@@ -36,12 +36,12 @@ namespace nkentseu {
 
 		/// Ce qui pilote une forme (en plus de son curseur).
 		enum class NkShapeDriverKind : uint8 {
-			NK_AUCUN = 0,
-			NK_ROTATION_OS, ///< l'angle d'un os par rapport a son repos
+			NK_ShapeDriverKind_Aucun = 0,
+			NK_ShapeDriverKind_Rotation_Os, ///< l'angle d'un os par rapport a son repos
 		};
 
 		struct NkShapeDriver {
-				NkShapeDriverKind kind = NkShapeDriverKind::NK_AUCUN;
+				NkShapeDriverKind kind = NkShapeDriverKind::NK_ShapeDriverKind_Aucun;
 				NkString bone;		   ///< le nom de l'os qui pilote
 				uint8 axis = 3;		   ///< 0 X, 1 Y, 2 Z (angle autour de l'axe local), 3 angle total
 				float32 angleMin = 0.f;	 ///< degres : la forme vaut 0 ici...

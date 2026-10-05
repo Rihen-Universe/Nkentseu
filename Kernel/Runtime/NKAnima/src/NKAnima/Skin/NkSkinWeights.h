@@ -88,11 +88,11 @@ namespace nkentseu {
 		// =====================================================================
 		// LES POIDS AUTOMATIQUES
 		// =====================================================================
-		enum class NkAutoWeightMethod : uint8 { NK_CHALEUR = 0, NK_VOXELS_GEODESIQUES, NK_PROXIMITE, NK_COUNT };
+		enum class NkAutoWeightMethod : uint8 { NK_AutoWeightMethod_Chaleur = 0, NK_AutoWeightMethod_Voxels_Geodesiques, NK_AutoWeightMethod_Proximite, NK_AutoWeightMethod_Count };
 		const char *NkAutoWeightMethodName(NkAutoWeightMethod m);
 
 		struct NkAutoWeightOptions {
-				NkAutoWeightMethod method = NkAutoWeightMethod::NK_CHALEUR;
+				NkAutoWeightMethod method = NkAutoWeightMethod::NK_AutoWeightMethod_Chaleur;
 				uint32 maxInfluences = 4;	 ///< limite finale (le GPU en lit 4)
 				float32 pruneBelow = 0.01f;	 ///< poids retires sous ce seuil
 				uint32 voxelResolution = 72; ///< voxels sur la plus grande dimension
@@ -115,11 +115,11 @@ namespace nkentseu {
 		// =====================================================================
 		// LA PEINTURE
 		// =====================================================================
-		enum class NkBrushMode : uint8 { NK_AJOUTER = 0, NK_SOUSTRAIRE, NK_LISSER, NK_REMPLACER, NK_COUNT };
+		enum class NkBrushMode : uint8 { NK_BrushMode_Ajouter = 0, NK_BrushMode_Soustraire, NK_BrushMode_Lisser, NK_BrushMode_Remplacer, NK_BrushMode_Count };
 		const char *NkBrushModeName(NkBrushMode m);
 
 		struct NkWeightBrush {
-				NkBrushMode mode = NkBrushMode::NK_AJOUTER;
+				NkBrushMode mode = NkBrushMode::NK_BrushMode_Ajouter;
 				float32 strength = 0.5f; ///< 0..1 par touche
 				float32 value = 1.f;	 ///< la valeur visee (REMPLACER)
 				bool autoNormalize = true;

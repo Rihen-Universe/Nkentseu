@@ -257,7 +257,7 @@ namespace nkentseu {
 			uint32 changes = 0;
 			for (uint32 k = 1; k < Count(); ++k) {
 				NkShapeKey &s = keys[k];
-				if (s.driver.kind != NkShapeDriverKind::NK_ROTATION_OS) {
+				if (s.driver.kind != NkShapeDriverKind::NK_ShapeDriverKind_Rotation_Os) {
 					continue;
 				}
 				int32 b = -1;

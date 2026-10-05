@@ -21,10 +21,10 @@ namespace nkentseu {
 	namespace anim {
 
 		enum class NkMannequinKind : uint8 {
-			NK_HUMANOIDE_T = 0, ///< debout, bras a l'horizontale (pose en T), 1,75 de haut
-			NK_HUMANOIDE_A,		///< debout, bras a 40 deg sous l'horizontale (pose en A)
-			NK_QUADRUPEDE,		///< un quadrupede (chien d'atelier), tete vers +Z
-			NK_COUNT
+			NK_MannequinKind_Humanoide_T = 0, ///< debout, bras a l'horizontale (pose en T), 1,75 de haut
+			NK_MannequinKind_Humanoide_A,		///< debout, bras a 40 deg sous l'horizontale (pose en A)
+			NK_MannequinKind_Quadrupede,		///< un quadrupede (chien d'atelier), tete vers +Z
+			NK_MannequinKind_Count
 		};
 
 		/// Fabrique le mannequin : positions, triangles, normales, topologie.

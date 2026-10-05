@@ -294,7 +294,7 @@ namespace nkentseu {
 				const NkVector<NkRigLandmark> &l = d.landmarks;
 				// LA SYMETRIE des paires .L / .R.
 				for (uint32 i = 0; i < (uint32)l.Size(); ++i) {
-					if (NkArmature::SideOfName(l[i].id.CStr()) != NkBoneSide::NK_GAUCHE) {
+					if (NkArmature::SideOfName(l[i].id.CStr()) != NkBoneSide::NK_BoneSide_Gauche) {
 						continue;
 					}
 					const int32 j = NkRigFindLandmark(l, NkArmature::MirrorName(l[i].id.CStr()).CStr());
@@ -426,7 +426,7 @@ namespace nkentseu {
 					s.confidence = 0.75f;
 					s.action.kind = NkRigActionKind::NK_RigActionKind_Rename_Bones;
 					for (uint32 i = 0; i < a.Count(); ++i) {
-						if (couvert[i] != 0 || NkArmature::SideOfName(a.bones[i].name.CStr()) != NkBoneSide::NK_CENTRE) {
+						if (couvert[i] != 0 || NkArmature::SideOfName(a.bones[i].name.CStr()) != NkBoneSide::NK_BoneSide_Centre) {
 							continue;
 						}
 						const NkVec3f mil = Point(o.objet, Lerp(a.bones[i].head, a.bones[i].tail, 0.5f));
@@ -512,7 +512,7 @@ namespace nkentseu {
 					s.detail = NkString("La diffusion de chaleur donne à chaque sommet les os qui l'entourent (Blender : Automatic Weights).");
 					s.confidence = 0.9f;
 					s.action.kind = NkRigActionKind::NK_RigActionKind_Auto_Weights;
-					s.action.method = NkAutoWeightMethod::NK_CHALEUR;
+					s.action.method = NkAutoWeightMethod::NK_AutoWeightMethod_Chaleur;
 					out.PushBack(s);
 					return;
 				}
@@ -555,7 +555,7 @@ namespace nkentseu {
 					const bool quadrupede = (mx.z - mn.z) > 1.2f * (mx.y - mn.y);
 					s.key = NkString("etape:detecter");
 					s.action.kind = NkRigActionKind::NK_RigActionKind_Detect_Landmarks;
-					s.action.rigTemplate = quadrupede ? NkRigTemplate::NK_QUADRUPEDE : NkRigTemplate::NK_HUMANOIDE;
+					s.action.rigTemplate = quadrupede ? NkRigTemplate::NK_RigTemplate_Quadrupede : NkRigTemplate::NK_RigTemplate_Humanoide;
 					s.title = NkString::Format("Détecter les repères du rig automatique (%s)", NkRigTemplateName(s.action.rigTemplate));
 					s.detail = NkString("Le maillage n'a pas de squelette : les repères se placent par la géométrie, puis se corrigent à la main.");
 					out.PushBack(s);
@@ -573,15 +573,15 @@ namespace nkentseu {
 				}
 				if (d.controls.Empty()) {
 					NkVector<NkRigControl> essai;
-					NkRigGenerateControls(NkRigTemplate::NK_HUMANOIDE, d.armature, essai);
+					NkRigGenerateControls(NkRigTemplate::NK_RigTemplate_Humanoide, d.armature, essai);
 					uint32 ik = 0;
 					for (uint32 c = 0; c < (uint32)essai.Size(); ++c) {
-						ik += essai[c].kind == NkRigControlKind::NK_IK_DEUX_OS ? 1u : 0u;
+						ik += essai[c].kind == NkRigControlKind::NK_RigControlKind_IK_Deux_Os ? 1u : 0u;
 					}
 					if (ik > 0) {
 						s.key = NkString("etape:controles");
 						s.action.kind = NkRigActionKind::NK_RigActionKind_Generate_Controls;
-						s.action.rigTemplate = NkRigTemplate::NK_HUMANOIDE;
+						s.action.rigTemplate = NkRigTemplate::NK_RigTemplate_Humanoide;
 						s.title = NkString::Format("Créer les contrôles du gabarit (%u IK)", ik);
 						s.detail = NkString("Les os portent les noms du gabarit humanoïde : bras et jambes reçoivent leur IK à deux os, "
 											"la colonne, la racine et le regard leurs poignées.");
@@ -609,7 +609,7 @@ namespace nkentseu {
 			bool ok = false;
 			switch (a.kind) {
 				case NkRigActionKind::NK_RigActionKind_Move_Landmarks: {
-					d.Begin("Conseil : repères", NK_RIG_REPERES);
+					d.Begin("Conseil : repères", NK_RigPart_Reperes);
 					uint32 n = 0;
 					for (uint32 i = 0; i < (uint32)a.ids.Size() && i < (uint32)a.positions.Size(); ++i) {
 						const int32 k = NkRigFindLandmark(d.landmarks, a.ids[i].CStr());
@@ -624,7 +624,7 @@ namespace nkentseu {
 						d.Cancel();
 						break;
 					}
-					d.Touch(NK_RIG_REPERES);
+					d.Touch(NK_RigPart_Reperes);
 					dit = NkString::Format("%u repère(s) déplacé(s)", n);
 					ok = true;
 					break;
@@ -638,7 +638,7 @@ namespace nkentseu {
 					if (!valide) {
 						break;
 					}
-					d.Begin("Conseil : noms des os", NK_RIG_ARMATURE);
+					d.Begin("Conseil : noms des os", NK_RigPart_Armature);
 					// DEUX TEMPS : des noms provisoires d'abord, sinon « hand.L » donne a un
 					// os pendant qu'un AUTRE le porte encore deviendrait « hand.L.001 ».
 					for (uint32 i = 0; i < n; ++i) {
@@ -647,7 +647,7 @@ namespace nkentseu {
 					for (uint32 i = 0; i < n; ++i) {
 						(void)d.armature.Rename((uint32)a.bones[i], a.names[i].CStr());
 					}
-					d.Touch(NK_RIG_ARMATURE);
+					d.Touch(NK_RigPart_Armature);
 					dit = NkString::Format("%u os renommé(s)", n);
 					ok = true;
 					break;
@@ -667,7 +667,7 @@ namespace nkentseu {
 					break;
 				}
 				case NkRigActionKind::NK_RigActionKind_Build_Rig: {
-					ok = d.BuildRig(a.rigTemplate, true, NkAutoWeightMethod::NK_CHALEUR, nullptr);
+					ok = d.BuildRig(a.rigTemplate, true, NkAutoWeightMethod::NK_AutoWeightMethod_Chaleur, nullptr);
 					dit = NkString::Format("rig construit : %u os, %u contrôles", d.armature.Count(), (uint32)d.controls.Size());
 					break;
 				}

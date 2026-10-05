@@ -167,20 +167,20 @@ namespace nkentseu {
 		NkBoneSide NkArmature::SideOfName(const char *name) {
 			int32 cote = 0;
 			(void)Miroir(name, cote);
-			return cote == 1 ? NkBoneSide::NK_GAUCHE : (cote == 2 ? NkBoneSide::NK_DROITE : NkBoneSide::NK_CENTRE);
+			return cote == 1 ? NkBoneSide::NK_BoneSide_Gauche : (cote == 2 ? NkBoneSide::NK_BoneSide_Droite : NkBoneSide::NK_BoneSide_Centre);
 		}
 
 		NkBoneSide NkArmature::Side(uint32 i) const {
 			if (i >= Count()) {
-				return NkBoneSide::NK_CENTRE;
+				return NkBoneSide::NK_BoneSide_Centre;
 			}
 			const NkBoneSide parNom = SideOfName(bones[i].name.CStr());
-			if (parNom != NkBoneSide::NK_CENTRE) {
+			if (parNom != NkBoneSide::NK_BoneSide_Centre) {
 				return parNom;
 			}
 			const float32 x = (bones[i].head.x + bones[i].tail.x) * 0.5f;
 			const float32 tol = 1e-3f + Length(i) * 0.05f;
-			return x > tol ? NkBoneSide::NK_GAUCHE : (x < -tol ? NkBoneSide::NK_DROITE : NkBoneSide::NK_CENTRE);
+			return x > tol ? NkBoneSide::NK_BoneSide_Gauche : (x < -tol ? NkBoneSide::NK_BoneSide_Droite : NkBoneSide::NK_BoneSide_Centre);
 		}
 
 		NkString NkArmature::MirrorName(const char *name) {
@@ -458,14 +458,14 @@ namespace nkentseu {
 				return -1;
 			}
 			const NkBoneSide cote = Side(i);
-			if (cote == NkBoneSide::NK_CENTRE) {
+			if (cote == NkBoneSide::NK_BoneSide_Centre) {
 				return -1;
 			}
 			NkString nomMiroir = MirrorName(bones[i].name.CStr());
 			if (nomMiroir.Empty()) {
 				// Un os de cote sans suffixe : il recoit le sien, son miroir l'autre.
 				NkString n = bones[i].name;
-				n.Append(cote == NkBoneSide::NK_GAUCHE ? ".L" : ".R");
+				n.Append(cote == NkBoneSide::NK_BoneSide_Gauche ? ".L" : ".R");
 				Rename(i, n.CStr());
 				nomMiroir = MirrorName(bones[i].name.CStr());
 			}

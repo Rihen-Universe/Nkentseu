@@ -186,19 +186,19 @@ TEST_CASE(NKAnima, RIG3D_r1_Armature) {
 	// Blender double « hand.L.001 ». Sans les infixes, ces os n'avaient AUCUN cote :
 	// pas de miroir, pas de couleur .L / .R, la symetrie des poids les ignorait.
 	ASSERT_TRUE(anim::NkArmature::MirrorName("Skeleton_arm_joint_L__2_") == NkString("Skeleton_arm_joint_R__2_"));
-	ASSERT_TRUE(anim::NkArmature::SideOfName("Skeleton_arm_joint_L__2_") == anim::NkBoneSide::NK_GAUCHE);
-	ASSERT_TRUE(anim::NkArmature::SideOfName("Skeleton_leg_joint_R__3_") == anim::NkBoneSide::NK_DROITE);
+	ASSERT_TRUE(anim::NkArmature::SideOfName("Skeleton_arm_joint_L__2_") == anim::NkBoneSide::NK_BoneSide_Gauche);
+	ASSERT_TRUE(anim::NkArmature::SideOfName("Skeleton_leg_joint_R__3_") == anim::NkBoneSide::NK_BoneSide_Droite);
 	ASSERT_TRUE(anim::NkArmature::MirrorName("hand.L.001") == NkString("hand.R.001"));
 	// Contre-epreuve : un nom SANS cote reste sans cote (l'infixe ne se devine pas).
 	ASSERT_TRUE(anim::NkArmature::MirrorName("Skeleton_neck_joint_1").Empty());
-	ASSERT_TRUE(anim::NkArmature::SideOfName("Skeleton_torso_joint_2") == anim::NkBoneSide::NK_CENTRE);
+	ASSERT_TRUE(anim::NkArmature::SideOfName("Skeleton_torso_joint_2") == anim::NkBoneSide::NK_BoneSide_Centre);
 	ASSERT_TRUE(s.Symmetrize((uint32)tronc) < 0); // un os du milieu n'a pas de miroir
 }
 
 // (r2)
 TEST_CASE(NKAnima, RIG3D_r2_DocumentAnnulation) {
 	anim::NkRigDocument d;
-	const anim::NkSkinMesh &mq = Mannequin(anim::NkMannequinKind::NK_HUMANOIDE_T);
+	const anim::NkSkinMesh &mq = Mannequin(anim::NkMannequinKind::NK_MannequinKind_Humanoide_T);
 	d.SetMesh(mq.positions.Data(), mq.VertexCount(), mq.indices.Data(), (uint32)mq.indices.Size());
 	ASSERT_TRUE(d.mesh.VertexCount() > 1000 && !d.CanUndo());
 	const int32 r = d.AddBone("racine", V(0, 0.9f, 0), V(0, 1.2f, 0), -1, false);
@@ -209,7 +209,7 @@ TEST_CASE(NKAnima, RIG3D_r2_DocumentAnnulation) {
 	for (uint32 v = 0; v < d.weights.VertexCount(); ++v) {
 		d.weights.Set(v, (v % 2) ? b : r, 1.f);
 	}
-	d.Touch(anim::NK_RIG_POIDS);
+	d.Touch(anim::NK_RigPart_Poids);
 	const anim::NkSkinWeights avant = d.weights;
 	ASSERT_TRUE(d.DeleteBone((uint32)b));
 	ASSERT_TRUE(d.armature.Count() == 1); // le miroir part avec (symetrie)
@@ -237,7 +237,7 @@ TEST_CASE(NKAnima, RIG3D_r2_DocumentAnnulation) {
 
 // (r3)
 TEST_CASE(NKAnima, RIG3D_r3_RigAutomatique) {
-	const anim::NkMannequinKind kinds[2] = {anim::NkMannequinKind::NK_HUMANOIDE_T, anim::NkMannequinKind::NK_HUMANOIDE_A};
+	const anim::NkMannequinKind kinds[2] = {anim::NkMannequinKind::NK_MannequinKind_Humanoide_T, anim::NkMannequinKind::NK_MannequinKind_Humanoide_A};
 	for (uint32 q = 0; q < 2; ++q) {
 		const anim::NkSkinMesh &m = Mannequin(kinds[q]);
 		const float32 H = m.bmax.y - m.bmin.y;
@@ -245,7 +245,7 @@ TEST_CASE(NKAnima, RIG3D_r3_RigAutomatique) {
 		NkVector<anim::NkRigLandmark> l;
 		anim::NkAutoRigReport rp;
 		anim::NkAutoRigOptions opt;
-		ASSERT_TRUE(anim::NkRigDetectLandmarks(m, anim::NkRigTemplate::NK_HUMANOIDE, opt, l, &rp));
+		ASSERT_TRUE(anim::NkRigDetectLandmarks(m, anim::NkRigTemplate::NK_RigTemplate_Humanoide, opt, l, &rp));
 		std::printf("  [r3] %s : %s\n", q == 0 ? "pose en T" : "pose en A", rp.message.CStr());
 		// L'aine du mannequin est a ~0,8 / 1,77.
 		ASSERT_TRUE(rp.aineY > 0.38f * H && rp.aineY < 0.56f * H);
@@ -264,7 +264,7 @@ TEST_CASE(NKAnima, RIG3D_r3_RigAutomatique) {
 		std::printf("  [r3] ecart de symetrie des reperes : %.4f (%.2f %% de la hauteur)\n", (double)ecart, (double)(ecart / H * 100.f));
 		ASSERT_TRUE(ecart < 0.01f * H);
 		anim::NkArmature a;
-		ASSERT_TRUE(anim::NkRigBuildArmature(anim::NkRigTemplate::NK_HUMANOIDE, l, opt, a));
+		ASSERT_TRUE(anim::NkRigBuildArmature(anim::NkRigTemplate::NK_RigTemplate_Humanoide, l, opt, a));
 		ASSERT_TRUE(a.Count() == 21);
 		const uint32 dedans = OsDedans(m, a, V(0, 0, 0), true);
 		const uint32 dehors = OsDedans(m, a, V(0.f, 0.f, 0.5f));
@@ -281,22 +281,22 @@ TEST_CASE(NKAnima, RIG3D_r3_RigAutomatique) {
 			}
 		}
 		NkVector<anim::NkRigControl> ctl;
-		anim::NkRigGenerateControls(anim::NkRigTemplate::NK_HUMANOIDE, a, ctl);
+		anim::NkRigGenerateControls(anim::NkRigTemplate::NK_RigTemplate_Humanoide, a, ctl);
 		uint32 ik = 0;
 		for (uint32 c = 0; c < (uint32)ctl.Size(); ++c) {
-			ik += ctl[c].kind == anim::NkRigControlKind::NK_IK_DEUX_OS && ctl[c].chain.Size() == 3 ? 1u : 0u;
+			ik += ctl[c].kind == anim::NkRigControlKind::NK_RigControlKind_IK_Deux_Os && ctl[c].chain.Size() == 3 ? 1u : 0u;
 		}
 		ASSERT_TRUE(ik == 4u && ctl.Size() >= 7u);
 	}
 	// Le QUADRUPEDE.
 	{
-		const anim::NkSkinMesh &m = Mannequin(anim::NkMannequinKind::NK_QUADRUPEDE);
+		const anim::NkSkinMesh &m = Mannequin(anim::NkMannequinKind::NK_MannequinKind_Quadrupede);
 		NkVector<anim::NkRigLandmark> l;
 		anim::NkAutoRigReport rp;
 		anim::NkAutoRigOptions opt;
-		ASSERT_TRUE(anim::NkRigDetectLandmarks(m, anim::NkRigTemplate::NK_QUADRUPEDE, opt, l, &rp));
+		ASSERT_TRUE(anim::NkRigDetectLandmarks(m, anim::NkRigTemplate::NK_RigTemplate_Quadrupede, opt, l, &rp));
 		anim::NkArmature a;
-		ASSERT_TRUE(anim::NkRigBuildArmature(anim::NkRigTemplate::NK_QUADRUPEDE, l, opt, a));
+		ASSERT_TRUE(anim::NkRigBuildArmature(anim::NkRigTemplate::NK_RigTemplate_Quadrupede, l, opt, a));
 		const uint32 dedans = OsDedans(m, a, V(0, 0, 0), true);
 		std::printf("  [r3] quadrupede : %s ; %u / %u os dans le volume\n", rp.message.CStr(), dedans, a.Count());
 		ASSERT_TRUE(dedans * 10u >= a.Count() * 9u);
@@ -305,18 +305,18 @@ TEST_CASE(NKAnima, RIG3D_r3_RigAutomatique) {
 
 // (r4)
 TEST_CASE(NKAnima, RIG3D_r4_PoidsAutomatiques) {
-	const anim::NkSkinMesh &m = Mannequin(anim::NkMannequinKind::NK_HUMANOIDE_T);
+	const anim::NkSkinMesh &m = Mannequin(anim::NkMannequinKind::NK_MannequinKind_Humanoide_T);
 	NkVector<anim::NkRigLandmark> l;
 	anim::NkAutoRigOptions opt;
-	ASSERT_TRUE(anim::NkRigDetectLandmarks(m, anim::NkRigTemplate::NK_HUMANOIDE, opt, l, nullptr));
+	ASSERT_TRUE(anim::NkRigDetectLandmarks(m, anim::NkRigTemplate::NK_RigTemplate_Humanoide, opt, l, nullptr));
 	anim::NkArmature a;
-	ASSERT_TRUE(anim::NkRigBuildArmature(anim::NkRigTemplate::NK_HUMANOIDE, l, opt, a));
+	ASSERT_TRUE(anim::NkRigBuildArmature(anim::NkRigTemplate::NK_RigTemplate_Humanoide, l, opt, a));
 	// Le sommet le plus a gauche (+X) : le bout de la main gauche.
 	uint32 bout = 0;
 	for (uint32 v = 1; v < m.VertexCount(); ++v) {
 		bout = m.positions[v].x > m.positions[bout].x ? v : bout;
 	}
-	const anim::NkAutoWeightMethod methodes[2] = {anim::NkAutoWeightMethod::NK_CHALEUR, anim::NkAutoWeightMethod::NK_VOXELS_GEODESIQUES};
+	const anim::NkAutoWeightMethod methodes[2] = {anim::NkAutoWeightMethod::NK_AutoWeightMethod_Chaleur, anim::NkAutoWeightMethod::NK_AutoWeightMethod_Voxels_Geodesiques};
 	for (uint32 q = 0; q < 2; ++q) {
 		anim::NkAutoWeightOptions o;
 		o.method = methodes[q];
@@ -357,10 +357,10 @@ TEST_CASE(NKAnima, RIG3D_r4_PoidsAutomatiques) {
 // (r5)
 TEST_CASE(NKAnima, RIG3D_r5_PeintureEtAnnulation) {
 	anim::NkRigDocument d;
-	const anim::NkSkinMesh &mq = Mannequin(anim::NkMannequinKind::NK_HUMANOIDE_T);
+	const anim::NkSkinMesh &mq = Mannequin(anim::NkMannequinKind::NK_MannequinKind_Humanoide_T);
 	d.SetMesh(mq.positions.Data(), mq.VertexCount(), mq.indices.Data(), (uint32)mq.indices.Size());
-	ASSERT_TRUE(d.DetectLandmarks(anim::NkRigTemplate::NK_HUMANOIDE));
-	ASSERT_TRUE(d.BuildRig(anim::NkRigTemplate::NK_HUMANOIDE, true, anim::NkAutoWeightMethod::NK_CHALEUR));
+	ASSERT_TRUE(d.DetectLandmarks(anim::NkRigTemplate::NK_RigTemplate_Humanoide));
+	ASSERT_TRUE(d.BuildRig(anim::NkRigTemplate::NK_RigTemplate_Humanoide, true, anim::NkAutoWeightMethod::NK_AutoWeightMethod_Chaleur));
 	const anim::NkSkinWeights avant = d.weights;
 	const int32 os = d.armature.Find("forearm.L");
 	const int32 osM = d.armature.Find("forearm.R");
@@ -377,7 +377,7 @@ TEST_CASE(NKAnima, RIG3D_r5_PeintureEtAnnulation) {
 	}
 	ASSERT_TRUE(vs.Size() > 10u);
 	anim::NkWeightBrush br;
-	br.mode = anim::NkBrushMode::NK_AJOUTER;
+	br.mode = anim::NkBrushMode::NK_BrushMode_Ajouter;
 	br.strength = 0.3f;
 	br.symmetryX = true;
 	d.BeginStroke();
@@ -452,7 +452,7 @@ TEST_CASE(NKAnima, RIG3D_r6_Formes) {
 	ASSERT_FALSE(PresV(r[0], V(0, 0, 1)));
 	// Le PILOTE : coude a 45 deg sur [0, 90] -> 0,5.
 	anim::NkShapeDriver dr;
-	dr.kind = anim::NkShapeDriverKind::NK_ROTATION_OS;
+	dr.kind = anim::NkShapeDriverKind::NK_ShapeDriverKind_Rotation_Os;
 	dr.bone = NkString("forearm.L");
 	dr.axis = 3;
 	dr.angleMin = 0.f;
@@ -467,7 +467,7 @@ TEST_CASE(NKAnima, RIG3D_r6_Formes) {
 	ASSERT_TRUE(Pres(s.keys[(uint32)k].value, 0.5f, 1e-3f));
 	// Le MIROIR d'une forme sur le mannequin : « clin.L » -> « clin.R ».
 	anim::NkShapeKeySet f;
-	const anim::NkSkinMesh &m = Mannequin(anim::NkMannequinKind::NK_HUMANOIDE_T);
+	const anim::NkSkinMesh &m = Mannequin(anim::NkMannequinKind::NK_MannequinKind_Humanoide_T);
 	f.SetBasis(m.positions.Data(), m.VertexCount());
 	const int32 g = f.AddFromBasis("clin.L");
 	uint32 v0 = 0;
@@ -549,9 +549,9 @@ TEST_CASE(NKAnima, RIG3D_r8_IKDeuxOs) {
 // (r9)
 TEST_CASE(NKAnima, RIG3D_r9_FormesDeVisage) {
 	anim::NkRigDocument d;
-	const anim::NkSkinMesh &mq = Mannequin(anim::NkMannequinKind::NK_HUMANOIDE_T);
+	const anim::NkSkinMesh &mq = Mannequin(anim::NkMannequinKind::NK_MannequinKind_Humanoide_T);
 	d.SetMesh(mq.positions.Data(), mq.VertexCount(), mq.indices.Data(), (uint32)mq.indices.Size());
-	ASSERT_TRUE(d.BuildRig(anim::NkRigTemplate::NK_HUMANOIDE, false, anim::NkAutoWeightMethod::NK_CHALEUR));
+	ASSERT_TRUE(d.BuildRig(anim::NkRigTemplate::NK_RigTemplate_Humanoide, false, anim::NkAutoWeightMethod::NK_AutoWeightMethod_Chaleur));
 	uint32 nb = 0;
 	const char *const *noms = anim::NkRigDocument::FaceShapeNames(nb);
 	NkVector<NkString> tous;
@@ -613,13 +613,13 @@ namespace {
 
 TEST_CASE(NKAnima, RIG3D_r10_ConseilsDuRig) {
 	anim::NkRigDocument d;
-	const anim::NkSkinMesh &mq = Mannequin(anim::NkMannequinKind::NK_HUMANOIDE_T);
+	const anim::NkSkinMesh &mq = Mannequin(anim::NkMannequinKind::NK_MannequinKind_Humanoide_T);
 	d.SetMesh(mq.positions.Data(), mq.VertexCount(), mq.indices.Data(), (uint32)mq.indices.Size());
 	anim::NkRigSuggestOptions o;
 	NkVector<anim::NkRigSuggestion> l;
 	anim::NkRigSuggest(d, o, l);
 	ASSERT_TRUE(Conseil(l, "etape:detecter") == 0); // un maillage nu : detecter d'abord
-	ASSERT_TRUE(d.DetectLandmarks(anim::NkRigTemplate::NK_HUMANOIDE));
+	ASSERT_TRUE(d.DetectLandmarks(anim::NkRigTemplate::NK_RigTemplate_Humanoide));
 	anim::NkRigSuggest(d, o, l);
 	const uint32 placementPropre = ConseilsDe(l, anim::NkRigSuggestionKind::NK_RigSuggestionKind_Placement);
 	ASSERT_TRUE(placementPropre == 0u && Conseil(l, "etape:construire") >= 0);
@@ -650,9 +650,9 @@ TEST_CASE(NKAnima, RIG3D_r10_ConseilsDuRig) {
 	ASSERT_TRUE(d.mesh.Contains(d.landmarks[(uint32)gg].position));
 	(void)d.Undo();
 	(void)d.Undo();
-	ASSERT_TRUE(d.DetectLandmarks(anim::NkRigTemplate::NK_HUMANOIDE));
+	ASSERT_TRUE(d.DetectLandmarks(anim::NkRigTemplate::NK_RigTemplate_Humanoide));
 	// (c) L'armature du gabarit, bien nommee.
-	ASSERT_TRUE(d.BuildRig(anim::NkRigTemplate::NK_HUMANOIDE, true, anim::NkAutoWeightMethod::NK_CHALEUR));
+	ASSERT_TRUE(d.BuildRig(anim::NkRigTemplate::NK_RigTemplate_Humanoide, true, anim::NkAutoWeightMethod::NK_AutoWeightMethod_Chaleur));
 	anim::NkRigSuggest(d, o, l);
 	const uint32 nommagePropre = ConseilsDe(l, anim::NkRigSuggestionKind::NK_RigSuggestionKind_Naming);
 	NkVector<NkString> attendus;
