@@ -3167,6 +3167,29 @@ namespace nkentseu {
 				return ni;
 			}
 
+			// (05/10) Contre-epreuves du banc des ilots de NKCode (NK_DOCK_MUTATION) :
+			// « orphelins » = l'ancien repli (les noeuds sortis de l'arbre gardent genre,
+			// fenetres et rectangle) ; « retard » = l'arbre ne se recalcule qu'a la
+			// prochaine image (la suite de l'image voit l'ancienne disposition).
+			int32 DockMutation() noexcept {
+				static int32 sMut = -1;
+				if (sMut < 0) {
+					const char *v = getenv("NK_DOCK_MUTATION");
+					sMut = !v ? 0 : (v[0] == 'o' ? 1 : (v[0] == 'r' ? 2 : 0));
+				}
+				return sMut;
+			}
+			// L'arbre principal se recalcule DANS LA MEME IMAGE qu'un changement de
+			// disposition (repli, ancrage) : le reste de l'image -- fenetres, ilots,
+			// rectangles de decoupe -- voit deja la nouvelle disposition.
+			void DockRelayout(NkGuiContext &ctx) noexcept {
+				if (DockMutation() != 0)
+					return;
+				if (ctx.dockSpaceRect.w > 0.f && ctx.dockRoot >= 0 &&
+					ctx.dockRoot < static_cast<int32>(ctx.dockNodes.Size()))
+					DockComputeRects(ctx, ctx.dockRoot, ctx.dockSpaceRect);
+			}
+
 			void DockCollapseLeaf(NkGuiContext &ctx, int32 leaf) noexcept {
 				const int32 p = ctx.dockNodes[leaf].parent;
 				if (p < 0)
@@ -3186,6 +3209,17 @@ namespace nkentseu {
 							wm->dockNode = p;
 					}
 				}
+				// (05/10) LES ORPHELINS SE VIDENT : `sib` (copie dans p) et `leaf` ne sont
+				// plus dans l'arbre, mais gardaient leur genre, leurs fenetres et leur
+				// ANCIEN rectangle -- qui parcourait le tableau des noeuds (ilots de la
+				// Synthese, pistes de defilement collees au bord) dessinait un ilot
+				// perime. Et l'arbre se recalcule DANS LA MEME IMAGE que le repli :
+				// la suite de l'image voit deja la nouvelle disposition.
+				if (DockMutation() != 1) {
+					ctx.dockNodes[sib] = NkGuiDockNode{};
+					ctx.dockNodes[leaf] = NkGuiDockNode{};
+				}
+				DockRelayout(ctx);
 			}
 
 			// Détache `winId` de SA feuille actuelle (sans effet de bord de drag) : retire des
@@ -3340,6 +3374,7 @@ namespace nkentseu {
 				S.child0 = firstIsNew ? fresh : keep;
 				S.child1 = firstIsNew ? keep : fresh;
 				S.ratio = 0.5f;
+				DockRelayout(ctx); // (05/10) la nouvelle feuille a son rectangle des cette image
 			}
 
 			// #3 : ancre `winId` dans la fenêtre flottante `hostId` → `hostId` devient un
@@ -3866,6 +3901,7 @@ namespace nkentseu {
 				wm->dockNode = panel;
 				wm->dockActiveTab = true;
 			}
+			DockRelayout(ctx); // (05/10) le panneau de bord a son rectangle des cette image
 		}
 
 		// Ancre `windowTitle` en ONGLET dans le nœud qui contient `targetTitle`
