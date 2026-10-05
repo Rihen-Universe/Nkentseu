@@ -189,6 +189,19 @@ namespace nkentseu {
 			R,
 			S,
 			U,
+			// (05/10) Le PAVE NUMERIQUE, distinct des chiffres du haut : les vues 3D
+			// de la famille (NKCraft : 1 face, 3 droite, 7 dessus, 5 ortho, . cadrer).
+			Kp0,
+			Kp1,
+			Kp2,
+			Kp3,
+			Kp4,
+			Kp5,
+			Kp6,
+			Kp7,
+			Kp8,
+			Kp9,
+			KpPoint,
 			Count
 		};
 
