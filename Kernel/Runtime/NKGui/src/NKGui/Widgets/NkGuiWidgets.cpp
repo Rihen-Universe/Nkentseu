@@ -5443,12 +5443,27 @@ namespace nkentseu {
 				ctx.menuStyle.colonneEnCours = false;
 				ctx.DL().AddRectFilled(rect, ctx.theme.panel, 0.f);
 				ctx.DL().AddRectFilled({rect.x, rect.y, 1.f, rect.h}, ctx.menuStyle.trait);
+			} else if (ctx.menuStyle.actif && level >= ctx.menuStyle.niveau && ctx.menuStyle.rayonCadre > 0.f) {
+				// (05/10) LE CADRE DU STYLE de l'hote (NkGuiMenuStyle::rayonCadre) : une
+				// ombre portee douce, le fond et le contour arrondis -- le cadre des ilots.
+				const NkGuiMenuStyle &ms = ctx.menuStyle;
+				const float32 R = ms.rayonCadre;
+				if (ms.ombre.a)
+					ctx.DL().AddRectFilled({rect.x - 1.f, rect.y + 4.f, rect.w + 2.f, rect.h + 3.f}, ms.ombre, R + 2.f);
+				ctx.DL().AddRectFilled(rect, ms.fond.a ? ms.fond : ctx.theme.panel, R);
+				ctx.DL().AddRect(rect, ms.contour.a ? ms.contour : ctx.theme.border, 1.f, R);
 			} else {
 				ctx.DL().AddRectFilled(rect, ctx.theme.panel, ctx.theme.rounding);
 				ctx.DL().AddRect(rect, ctx.theme.border, 1.f, ctx.theme.rounding);
 			}
 			ctx.DL().PopClipRect();
 			ctx.DL().PushClipRect(rect, false); // contenu
+			// (05/10) Le style de l'hote : les entrees bord a bord (leur hauteur est la
+			// leur), 6 px de marge -- la mise en page d'avant est rendue a EndPopup.
+			if (ctx.menuStyle.actif && level >= ctx.menuStyle.niveau && ctx.menuStyle.rayonCadre > 0.f) {
+				ctx.layout.padding = 6.f;
+				ctx.layout.itemSpacingY = 0.f;
+			}
 			ctx.BeginLayout(rect);
 			// LA MOLETTE APPARTIENT AU POPUP OUVERT (2026-09-05) : il la reserve pour la
 			// prochaine image, et lit celle mise de cote pour lui -- son contenu (une

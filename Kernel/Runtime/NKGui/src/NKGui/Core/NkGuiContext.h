@@ -246,6 +246,13 @@ namespace nkentseu {
 				/// Pose par BeginMenu juste avant d'ouvrir le popup de la colonne, lu (et
 				/// remis a faux) par le popup : fond sans cadre, trait a gauche.
 				bool colonneEnCours = false;
+				/// (05/10) LE CADRE des popups du style (menus deroulants, sous-menus qui
+				/// surgissent, combos) : rayon > 0 = l'ombre, le fond et le contour
+				/// ci-dessous, arrondis ; 0 = le cadre d'avant (theme.panel, theme.border).
+				float32 rayonCadre = 0.f;
+				NkColor fond{0, 0, 0, 0};	 ///< alpha 0 = theme.panel
+				NkColor contour{0, 0, 0, 0}; ///< alpha 0 = theme.border
+				NkColor ombre{0, 0, 0, 0};	 ///< alpha 0 = pas d'ombre
 		};
 
 		// Contexte principal. Explicite (multi-instance) ; un « contexte courant »
