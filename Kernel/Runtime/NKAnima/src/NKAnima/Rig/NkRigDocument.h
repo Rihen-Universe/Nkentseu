@@ -122,6 +122,10 @@ namespace nkentseu {
 				bool BuildRig(NkRigTemplate t, bool poidsAuto, NkAutoWeightMethod methode, NkAutoWeightReport *report = nullptr);
 				/// Depuis des JOINTS existants (un glTF deja rigge) : l'armature, sans annulation.
 				void ImportJoints(const math::NkMat4f *world, const int32 *parent, const NkString *names, uint32 n);
+				/// (05/10) Les CONTROLES du gabarit sur l'armature telle qu'elle est (par
+				/// les NOMS du gabarit : un rig importe puis renomme recoit ses IK).
+				/// Annulable ; rend le nombre de controles (0 : aucun nom reconnu, rien n'est fait).
+				uint32 GenerateControls(NkRigTemplate t);
 
 				// ── La peau ──────────────────────────────────────────────────────
 				bool AutoWeights(NkAutoWeightMethod methode, NkAutoWeightReport *report = nullptr);

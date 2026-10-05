@@ -580,3 +580,142 @@ TEST_CASE(NKAnima, RIG3D_r9_FormesDeVisage) {
 	ASSERT_TRUE(dyMin < -0.005f && horsTete == 0.f && clinDroite == 0.f);
 	ASSERT_TRUE(d.Undo() && d.shapes.Count() == 1u);
 }
+
+// (r10) (05/10) LES CONSEILS DU RIG (NkRigSuggestions) -- ATTENDUS ECRITS AVANT :
+//   a) des reperes DETECTES ne declenchent aucun conseil de placement ;
+//      CONTRE-EPREUVE : le coude droit pousse de 6 cm -> « symetrie:coude », et
+//      l'appliquer (le coude gauche, deplace a la main, fait reference) rend la
+//      paire symetrique au 1e-4 ; UN Ctrl+Z rend le coude pousse ;
+//   b) un genou sorti du volume (z + 0,3) -> « volume:genou.L », applique : dedans ;
+//   c) l'armature du gabarit, bien nommee : aucun conseil de nommage ;
+//      CONTRE-EPREUVE : les memes os renommes « j0 »... -> « nommage:gabarit »,
+//      qui rend TOUS les noms du gabarit, en UNE operation ;
+//   d) sans controles, les noms du gabarit -> « etape:controles », 7 controles ;
+//   e) des sommes faussees -> « poids:normaliser », applique : poids sains ;
+//   f) un os de cote dont le pendant existe sous un AUTRE nom -> le renommer.
+namespace {
+	int32 Conseil(const NkVector<anim::NkRigSuggestion> &l, const char *cle) {
+		for (uint32 i = 0; i < (uint32)l.Size(); ++i) {
+			if (l[i].key == NkString(cle)) {
+				return (int32)i;
+			}
+		}
+		return -1;
+	}
+	uint32 ConseilsDe(const NkVector<anim::NkRigSuggestion> &l, anim::NkRigSuggestionKind k) {
+		uint32 n = 0;
+		for (uint32 i = 0; i < (uint32)l.Size(); ++i) {
+			n += l[i].kind == k ? 1u : 0u;
+		}
+		return n;
+	}
+} // namespace
+
+TEST_CASE(NKAnima, RIG3D_r10_ConseilsDuRig) {
+	anim::NkRigDocument d;
+	const anim::NkSkinMesh &mq = Mannequin(anim::NkMannequinKind::NK_HUMANOIDE_T);
+	d.SetMesh(mq.positions.Data(), mq.VertexCount(), mq.indices.Data(), (uint32)mq.indices.Size());
+	anim::NkRigSuggestOptions o;
+	NkVector<anim::NkRigSuggestion> l;
+	anim::NkRigSuggest(d, o, l);
+	ASSERT_TRUE(Conseil(l, "etape:detecter") == 0); // un maillage nu : detecter d'abord
+	ASSERT_TRUE(d.DetectLandmarks(anim::NkRigTemplate::NK_HUMANOIDE));
+	anim::NkRigSuggest(d, o, l);
+	const uint32 placementPropre = ConseilsDe(l, anim::NkRigSuggestionKind::NK_RigSuggestionKind_Placement);
+	ASSERT_TRUE(placementPropre == 0u && Conseil(l, "etape:construire") >= 0);
+	// (a) Le coude droit pousse ; le gauche « deplace a la main ».
+	const int32 cg = anim::NkRigFindLandmark(d.landmarks, "coude.L");
+	const int32 cd = anim::NkRigFindLandmark(d.landmarks, "coude.R");
+	ASSERT_TRUE(cg >= 0 && cd >= 0);
+	d.landmarks[(uint32)cg].manuel = true;
+	d.landmarks[(uint32)cd].position = Add(d.landmarks[(uint32)cd].position, V(0.f, 0.06f, 0.f));
+	const NkVec3f pousse = d.landmarks[(uint32)cd].position;
+	anim::NkRigSuggest(d, o, l);
+	const int32 sy = Conseil(l, "placement:symetrie:coude");
+	std::printf("  [r10a] reperes detectes : %u conseil(s) de placement ; coude pousse : conseil %s\n", placementPropre, sy >= 0 ? "VU" : "absent");
+	ASSERT_TRUE(sy >= 0);
+	const uint32 profondeur = d.UndoDepth();
+	ASSERT_TRUE(sy >= 0 && anim::NkRigApplySuggestion(d, l[(uint32)sy]));
+	ASSERT_TRUE(PresV(d.landmarks[(uint32)cd].position, MiroirX(d.landmarks[(uint32)cg].position), 1e-4f));
+	ASSERT_TRUE(d.UndoDepth() == profondeur + 1u && d.Undo() && PresV(d.landmarks[(uint32)cd].position, pousse, 1e-6f));
+	ASSERT_TRUE(d.Redo());
+	// (b) Le genou gauche sorti du volume.
+	const int32 gg = anim::NkRigFindLandmark(d.landmarks, "genou.L");
+	ASSERT_TRUE(gg >= 0);
+	d.landmarks[(uint32)gg].position = Add(d.landmarks[(uint32)gg].position, V(0.f, 0.f, 0.3f));
+	ASSERT_FALSE(d.mesh.Contains(d.landmarks[(uint32)gg].position));
+	anim::NkRigSuggest(d, o, l);
+	const int32 vol = Conseil(l, "placement:volume:genou.L");
+	ASSERT_TRUE(vol >= 0 && anim::NkRigApplySuggestion(d, l[(uint32)vol]));
+	ASSERT_TRUE(d.mesh.Contains(d.landmarks[(uint32)gg].position));
+	(void)d.Undo();
+	(void)d.Undo();
+	ASSERT_TRUE(d.DetectLandmarks(anim::NkRigTemplate::NK_HUMANOIDE));
+	// (c) L'armature du gabarit, bien nommee.
+	ASSERT_TRUE(d.BuildRig(anim::NkRigTemplate::NK_HUMANOIDE, true, anim::NkAutoWeightMethod::NK_CHALEUR));
+	anim::NkRigSuggest(d, o, l);
+	const uint32 nommagePropre = ConseilsDe(l, anim::NkRigSuggestionKind::NK_RigSuggestionKind_Naming);
+	NkVector<NkString> attendus;
+	for (uint32 b = 0; b < d.armature.Count(); ++b) {
+		attendus.PushBack(d.armature.bones[b].name);
+	}
+	NkVector<NkString> devines;
+	const uint32 nommes = anim::NkRigGuessHumanoidNames(d.armature, o.objet, devines);
+	uint32 justes = 0;
+	for (uint32 b = 0; b < d.armature.Count(); ++b) {
+		justes += devines[b] == attendus[b] ? 1u : 0u;
+		if (devines[b] != attendus[b]) {
+			std::printf("        devine %s pour %s\n", devines[b].CStr(), attendus[b].CStr());
+		}
+	}
+	std::printf("  [r10c] gabarit bien nomme : %u conseil(s) de nommage ; la structure devine %u / %u noms justes\n", nommagePropre, justes,
+				d.armature.Count());
+	ASSERT_TRUE(nommagePropre == 0u && nommes == d.armature.Count() && justes == d.armature.Count());
+	// CONTRE-EPREUVE : des noms generiques.
+	for (uint32 b = 0; b < d.armature.Count(); ++b) {
+		(void)d.armature.Rename(b, NkString::Format("j%u", b).CStr());
+	}
+	d.controls.Clear();
+	anim::NkRigSuggest(d, o, l);
+	const int32 gab = Conseil(l, "nommage:gabarit");
+	ASSERT_TRUE(gab >= 0 && Conseil(l, "etape:controles") < 0);
+	const uint32 avant = d.UndoDepth();
+	ASSERT_TRUE(gab >= 0 && anim::NkRigApplySuggestion(d, l[(uint32)gab]));
+	bool tous = d.UndoDepth() == avant + 1u;
+	for (uint32 b = 0; b < d.armature.Count(); ++b) {
+		tous = tous && d.armature.bones[b].name == attendus[b];
+	}
+	ASSERT_TRUE(tous);
+	// (d) Les controles du gabarit sur l'armature renommee.
+	anim::NkRigSuggest(d, o, l);
+	const int32 ctl = Conseil(l, "etape:controles");
+	ASSERT_TRUE(ctl >= 0 && anim::NkRigApplySuggestion(d, l[(uint32)ctl]) && d.controls.Size() == 7u);
+	// (e) Des sommes faussees.
+	anim::NkRigSuggest(d, o, l);
+	ASSERT_TRUE(Conseil(l, "poids:normaliser") < 0);
+	for (uint32 v = 0; v < d.weights.VertexCount(); v += 7) {
+		anim::NkSkinInfluence *s = d.weights.Of(v);
+		s[0].weight *= 1.5f;
+	}
+	anim::NkRigSuggest(d, o, l);
+	const int32 nrm = Conseil(l, "poids:normaliser");
+	ASSERT_TRUE(nrm >= 0 && anim::NkRigApplySuggestion(d, l[(uint32)nrm]) && d.CheckWeights().sommesFausses == 0u);
+	// (f) LE PENDANT SOUS UN AUTRE NOM (une structure qui n'est pas humanoide) :
+	//     « aile.L » et son miroir « aile_x » -> renommer « aile_x » en « aile.R »,
+	//     pas creer un troisieme os. CONTRE-EPREUVE : le pendant decale de 20 cm
+	//     n'en est plus un -> « nommage:miroir », le conseil de creation.
+	anim::NkRigDocument o2;
+	o2.symetrie = false; // sinon « aile.L » cree son « aile.R » tout seul
+	const int32 tronc = o2.AddBone("tronc", V(0.f, 1.f, 0.f), V(0.f, 1.4f, 0.f), -1, false);
+	(void)o2.AddBone("aile.L", V(0.05f, 1.3f, 0.f), V(0.6f, 1.35f, 0.f), tronc, false);
+	const int32 ax = o2.AddBone("aile_x", V(-0.05f, 1.3f, 0.f), V(-0.6f, 1.35f, 0.f), tronc, false);
+	anim::NkRigSuggest(o2, o, l);
+	const int32 pd = Conseil(l, "nommage:pendant:aile.L");
+	ASSERT_TRUE(pd >= 0 && Conseil(l, "nommage:miroir:aile.L") < 0);
+	ASSERT_TRUE(pd >= 0 && anim::NkRigApplySuggestion(o2, l[(uint32)pd]) && o2.armature.bones[(uint32)ax].name == NkString("aile.R") && o2.armature.Count() == 3u);
+	(void)o2.Undo();
+	o2.armature.bones[(uint32)ax].head = Add(o2.armature.bones[(uint32)ax].head, V(0.f, 0.2f, 0.f));
+	o2.armature.bones[(uint32)ax].tail = Add(o2.armature.bones[(uint32)ax].tail, V(0.f, 0.2f, 0.f));
+	anim::NkRigSuggest(o2, o, l);
+	ASSERT_TRUE(Conseil(l, "nommage:pendant:aile.L") < 0 && Conseil(l, "nommage:miroir:aile.L") >= 0);
+}

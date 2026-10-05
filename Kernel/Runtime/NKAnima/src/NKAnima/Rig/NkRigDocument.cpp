@@ -445,6 +445,18 @@ namespace nkentseu {
 			Touch(NK_RIG_ARMATURE);
 		}
 
+		uint32 NkRigDocument::GenerateControls(NkRigTemplate t) {
+			NkVector<NkRigControl> neufs;
+			NkRigGenerateControls(t, armature, neufs);
+			if (neufs.Empty()) {
+				return 0;
+			}
+			Begin("Controles du gabarit", NK_RIG_CONTROLES);
+			controls = neufs;
+			Touch(NK_RIG_CONTROLES);
+			return (uint32)controls.Size();
+		}
+
 		// =====================================================================
 		// LA PEAU
 		// =====================================================================

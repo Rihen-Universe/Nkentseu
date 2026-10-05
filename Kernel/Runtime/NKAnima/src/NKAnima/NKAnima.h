@@ -50,6 +50,7 @@
 #include "NKAnima/Rig/NkAutoRig.h"
 #include "NKAnima/Rig/NkRigMannequin.h"
 #include "NKAnima/Rig/NkRigDocument.h"
+#include "NKAnima/Rig/NkRigSuggestions.h" // (05/10) les conseils du rig (l'assistant de l'éditeur)
 #include "NKAnima/Skin/NkSkinMesh.h"
 #include "NKAnima/Skin/NkSkinWeights.h"
 #include "NKAnima/Morph/NkShapeKeys.h"
