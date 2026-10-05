@@ -160,8 +160,8 @@ namespace nkentseu {
 			return j == (int32)i ? -1 : j;
 		}
 
-		int32 NkRigDocument::AddBone(const char *name, const NkVec3f &head, const NkVec3f &tail, int32 parent, bool connected) {
-			Begin("Ajouter un os", NK_RigPart_Armature);
+		int32 NkRigDocument::AddBone(const char *name, const NkVec3f &head, const NkVec3f &tail, int32 parent, bool connected, uint32 fusion) {
+			Begin("Ajouter un os", NK_RigPart_Armature, fusion);
 			const int32 i = armature.Add(name, head, tail, parent, connected);
 			if (i >= 0 && symetrie && armature.Side((uint32)i) != NkBoneSide::NK_BoneSide_Centre) {
 				(void)armature.Symmetrize((uint32)i);
@@ -170,11 +170,11 @@ namespace nkentseu {
 			return i;
 		}
 
-		int32 NkRigDocument::ExtrudeBone(uint32 i, const NkVec3f &tail) {
+		int32 NkRigDocument::ExtrudeBone(uint32 i, const NkVec3f &tail, uint32 fusion) {
 			if (i >= armature.Count()) {
 				return -1;
 			}
-			Begin("Extruder un os", NK_RigPart_Armature);
+			Begin("Extruder un os", NK_RigPart_Armature, fusion);
 			const int32 k = armature.Extrude(i, tail);
 			if (k >= 0 && symetrie && armature.Side((uint32)k) != NkBoneSide::NK_BoneSide_Centre) {
 				(void)armature.Symmetrize((uint32)k);

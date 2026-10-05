@@ -53,7 +53,7 @@ namespace nkentseu {
 			}
 
 			/// Intersection rayon / triangle (Moller-Trumbore), t > 0 seulement.
-			bool Rayon(const NkVec3f &o, const NkVec3f &d, const NkVec3f &a, const NkVec3f &b, const NkVec3f &c) {
+			bool Rayon(const NkVec3f &o, const NkVec3f &d, const NkVec3f &a, const NkVec3f &b, const NkVec3f &c, float32 *tOut = nullptr) {
 				const NkVec3f e1 = Sub(b, a), e2 = Sub(c, a);
 				const NkVec3f p = Cross(d, e2);
 				const float32 det = Dot(e1, p);
@@ -71,7 +71,11 @@ namespace nkentseu {
 				if (v < 0.f || u + v > 1.f) {
 					return false;
 				}
-				return Dot(e2, q) * inv > 1e-7f;
+				const float32 t = Dot(e2, q) * inv;
+				if (tOut != nullptr) {
+					*tOut = t;
+				}
+				return t > 1e-7f;
 			}
 		} // namespace
 
@@ -260,6 +264,43 @@ namespace nkentseu {
 				dedans += (traverses & 1u) ? 1 : 0;
 			}
 			return dedans >= 2;
+		}
+
+		bool NkSkinMesh::RayVolumeMiddle(const NkVec3f &o, const NkVec3f &d, NkVec3f &out, float32 *epaisseur) const {
+			const float32 ld = Len(d);
+			if (ld < 1e-12f) {
+				return false;
+			}
+			const NkVec3f dir = Mul(d, 1.f / ld);
+			// Les DEUX premiers impacts distincts (deux triangles qui partagent
+			// l'arete traversee rendent le meme t : on ne le compte qu'une fois).
+			const float32 eps = 1e-5f * (Diagonal() > 0.f ? Diagonal() : 1.f);
+			float32 t0 = 1e30f, t1 = 1e30f;
+			const uint32 nt = TriangleCount();
+			for (uint32 k = 0; k < nt; ++k) {
+				float32 t = 0.f;
+				if (!Rayon(o, dir, positions[indices[k * 3]], positions[indices[k * 3 + 1]], positions[indices[k * 3 + 2]], &t) || t <= 0.f) {
+					continue;
+				}
+				if (std::fabs(t - t0) <= eps || std::fabs(t - t1) <= eps) {
+					continue;
+				}
+				if (t < t0) {
+					t1 = t0;
+					t0 = t;
+				} else if (t < t1) {
+					t1 = t;
+				}
+			}
+			if (t0 >= 1e29f) {
+				return false;
+			}
+			const bool sortie = t1 < 1e29f;
+			out = Add(o, Mul(dir, sortie ? (t0 + t1) * 0.5f : t0));
+			if (epaisseur != nullptr) {
+				*epaisseur = sortie ? t1 - t0 : 0.f;
+			}
+			return true;
 		}
 
 	} // namespace anim

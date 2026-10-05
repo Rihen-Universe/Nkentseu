@@ -94,8 +94,11 @@ namespace nkentseu {
 				}
 
 				// ── Le mode Edition (os) ────────────────────────────────────────
-				int32 AddBone(const char *name, const math::NkVec3f &head, const math::NkVec3f &tail, int32 parent, bool connected);
-				int32 ExtrudeBone(uint32 i, const math::NkVec3f &tail);
+				/// `fusion` != 0 (05/10) : le geste qui suit (la queue qui suit la souris,
+				/// meme cle) reste dans la MEME entree d'annulation.
+				int32 AddBone(const char *name, const math::NkVec3f &head, const math::NkVec3f &tail, int32 parent, bool connected,
+							  uint32 fusion = 0);
+				int32 ExtrudeBone(uint32 i, const math::NkVec3f &tail, uint32 fusion = 0);
 				bool SubdivideBone(uint32 i, uint32 cuts);
 				/// Supprime l'os : ses poids passent a son parent.
 				bool DeleteBone(uint32 i);

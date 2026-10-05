@@ -719,3 +719,66 @@ TEST_CASE(NKAnima, RIG3D_r10_ConseilsDuRig) {
 	anim::NkRigSuggest(o2, o, l);
 	ASSERT_TRUE(Conseil(l, "nommage:pendant:aile.L") < 0 && Conseil(l, "nommage:miroir:aile.L") >= 0);
 }
+
+// (r11) (05/10) LE MILIEU DU VOLUME sous un rayon (le rigging a la main).
+//   ATTENDU : une boite [-1,1]^3, le rayon (0,25 ; 0,25 ; 5) vers -Z passe
+//   EXACTEMENT sur la diagonale de la face avant (deux triangles la partagent) :
+//   le milieu est (0,25 ; 0,25 ; 0), l'epaisseur 2 (l'impact double ne compte
+//   qu'une fois). Un rayon de biais : le milieu de sa corde. Un rayon a cote :
+//   faux. Sur le mannequin, le milieu sous l'avant-bras gauche est DANS le
+//   volume. CONTRE-EPREUVE : la boite sans sa face arriere (un seul impact)
+//   rend le point d'entree, z = 1 -- le critere du milieu le refuse.
+namespace {
+	void Boite(anim::NkSkinMesh &m, bool arriere) {
+		const NkVec3f p[8] = {V(-1, -1, 1), V(1, -1, 1), V(1, 1, 1), V(-1, 1, 1), V(-1, -1, -1), V(1, -1, -1), V(1, 1, -1), V(-1, 1, -1)};
+		const uint32 f[6][4] = {{0, 1, 2, 3}, {5, 4, 7, 6}, {4, 0, 3, 7}, {1, 5, 6, 2}, {3, 2, 6, 7}, {4, 5, 1, 0}};
+		m = anim::NkSkinMesh{};
+		for (uint32 i = 0; i < 8; ++i) {
+			m.positions.PushBack(p[i]);
+		}
+		for (uint32 k = 0; k < 6; ++k) {
+			if (!arriere && k == 1) {
+				continue;
+			}
+			const uint32 t[6] = {f[k][0], f[k][1], f[k][2], f[k][0], f[k][2], f[k][3]};
+			for (uint32 j = 0; j < 6; ++j) {
+				m.indices.PushBack(t[j]);
+			}
+		}
+		m.BuildTopology();
+	}
+} // namespace
+
+TEST_CASE(NKAnima, RIG3D_r11_MilieuDuVolume) {
+	anim::NkSkinMesh b;
+	Boite(b, true);
+	NkVec3f mil;
+	float32 ep = 0.f;
+	ASSERT_TRUE(b.RayVolumeMiddle(V(0.25f, 0.25f, 5.f), V(0, 0, -1), mil, &ep));
+	std::printf("  [r11] diagonale : milieu %.4f %.4f %.4f, epaisseur %.4f\n", (double)mil.x, (double)mil.y, (double)mil.z, (double)ep);
+	ASSERT_TRUE(PresV(mil, V(0.25f, 0.25f, 0.f)) && Pres(ep, 2.f));
+	// De biais : entre par la face avant, sort par la face droite (x = 1).
+	const NkVec3f o = V(-0.5f, 0.3f, 3.f), d = Norm(V(0.5f, 0.f, -1.f));
+	ASSERT_TRUE(b.RayVolumeMiddle(o, d, mil, &ep));
+	const NkVec3f entree = Add(o, Mul(d, 2.f / -d.z)), sortie = Add(o, Mul(d, 1.5f / d.x));
+	ASSERT_TRUE(PresV(mil, Lerp(entree, sortie, 0.5f)) && Pres(ep, Dist(entree, sortie)));
+	ASSERT_FALSE(b.RayVolumeMiddle(V(3.f, 0.f, 5.f), V(0, 0, -1), mil));
+	// Le mannequin : sous l'avant-bras gauche, le milieu est dans le volume.
+	const anim::NkSkinMesh &m = Mannequin(anim::NkMannequinKind::NK_MannequinKind_Humanoide_T);
+	NkVector<anim::NkRigLandmark> l;
+	anim::NkAutoRigOptions opt;
+	ASSERT_TRUE(anim::NkRigDetectLandmarks(m, anim::NkRigTemplate::NK_RigTemplate_Humanoide, opt, l, nullptr));
+	const int32 coude = anim::NkRigFindLandmark(l, "coude.L"), poignet = anim::NkRigFindLandmark(l, "poignet.L");
+	ASSERT_TRUE(coude >= 0 && poignet >= 0);
+	const NkVec3f av = Lerp(l[(uint32)coude].position, l[(uint32)poignet].position, 0.5f);
+	ASSERT_TRUE(m.RayVolumeMiddle(Add(av, V(0.f, 0.f, 4.f)), V(0, 0, -1), mil, &ep));
+	std::printf("  [r11] avant-bras : milieu %.4f %.4f %.4f (epaisseur %.4f), dans le volume : %d\n", (double)mil.x, (double)mil.y, (double)mil.z,
+				(double)ep, m.Contains(mil) ? 1 : 0);
+	ASSERT_TRUE(m.Contains(mil) && ep > 0.f);
+	// CONTRE-EPREUVE : sans la face arriere, un seul impact -> le point d'entree.
+	anim::NkSkinMesh ouverte;
+	Boite(ouverte, false);
+	ASSERT_TRUE(ouverte.RayVolumeMiddle(V(0.25f, 0.25f, 5.f), V(0, 0, -1), mil, &ep));
+	std::printf("  [r11] contre-epreuve (boite ouverte) : z = %.4f, epaisseur %.4f\n", (double)mil.z, (double)ep);
+	ASSERT_FALSE(PresV(mil, V(0.25f, 0.25f, 0.f)));
+}

@@ -55,6 +55,12 @@ namespace nkentseu {
 				/// Le point est-il DANS le volume ferme ? Parite de rayons sur trois axes
 				/// (vote a la majorite : un rayon qui frole une arete ne decide pas seul).
 				bool Contains(const math::NkVec3f &p) const;
+				/// (05/10) LE MILIEU DU VOLUME sous un rayon `o + t d` (le rigging a la
+				/// main : un os se pose AU CENTRE du bras, pas sur sa peau). Le rayon entre
+				/// au premier impact et sort au suivant ; `out` = le milieu des deux. Un
+				/// seul impact (maillage ouvert) : ce point. Faux si le rayon manque tout.
+				/// `epaisseur` (optionnel) : la distance entre l'entree et la sortie.
+				bool RayVolumeMiddle(const math::NkVec3f &o, const math::NkVec3f &d, math::NkVec3f &out, float32 *epaisseur = nullptr) const;
 		};
 
 	} // namespace anim
