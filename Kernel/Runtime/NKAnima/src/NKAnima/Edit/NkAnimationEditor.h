@@ -25,6 +25,12 @@ namespace nkentseu {
 			public:
 				// Attache un clip (non possédé). Réinitialise undo/sélection.
 				void SetClip(NkAnimationClip *clip);
+				/// (05/10) Le MEME clip, deplace en memoire (la scene de NkAnimaEditor
+				/// echange ses acteurs) : le pointeur suit ; curseur, selection et
+				/// historique restent.
+				void RebindClip(NkAnimationClip *clip) {
+					mClip = clip;
+				}
 
 				NkAnimationClip *GetClip() const {
 					return mClip;

@@ -525,6 +525,10 @@ namespace nkentseu {
 				NkString name;
 
 				void SetClip(const NkAnimationClip *clip, bool autoResize = true);
+				/// (05/10) Le MEME clip, deplace en memoire : le pointeur suit, le temps reste.
+				void RebindClip(const NkAnimationClip *clip) {
+					mClip = clip;
+				}
 
 				const NkAnimationClip *GetClip() const {
 					return mClip;

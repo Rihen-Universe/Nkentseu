@@ -738,6 +738,14 @@ namespace nkentseu {
 				// remontait pas au shader sur DX11/DX12 (skin invisible) et
 				// creait une course sur Vulkan. 64 bones max (=4096 octets).
 				NkVector<NkBufferHandle> mUBOBonesRing;	   // [frame]
+				// (05/10) LES OS DE CHAQUE DRAW SKINNE : le ring ne porte qu'UN jeu
+				// d'os par image ; avec deux personnages, le dernier WriteBuffer
+				// gagnait et TOUS les draws skinnes lisaient ses os (le premier
+				// personnage s'affichait avec les os du second : couche, ecrase).
+				// Le draw skinne k >= 1 d'une image lit mUBOBonesPool[frame][k - 1],
+				// branche au binding 4 de SES sets objet.
+				NkVector<NkVector<NkBufferHandle>> mUBOBonesPool; // [frame][draw skinne - 1]
+				NkBufferHandle BonesDuDraw(uint32 k);
 				NkVector<NkBufferHandle> mUBOInstanceRing; // [frame] models[128]+tints[128] (instancing GPU)
 				NkTextureHandle mDefaultCubeWhite;		   // E.6b : fallback cube cookie
 				NkTextureHandle mMatcapTex;				   // boule matcap (mode solid, binding 28)

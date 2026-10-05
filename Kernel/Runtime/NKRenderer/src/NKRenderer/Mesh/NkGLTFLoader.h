@@ -213,6 +213,9 @@ namespace nkentseu {
 				NkGLTFMeshData() = default;
 				NkGLTFMeshData(const NkGLTFMeshData &) = delete;
 				NkGLTFMeshData &operator=(const NkGLTFMeshData &) = delete;
+				// (05/10) Deplacable : la scene de NkAnimaEditor echange ses personnages.
+				NkGLTFMeshData(NkGLTFMeshData &&) = default;
+				NkGLTFMeshData &operator=(NkGLTFMeshData &&) = default;
 
 				bool IsValid() const {
 					return !vertices.Empty();

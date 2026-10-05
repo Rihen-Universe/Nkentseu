@@ -1527,6 +1527,11 @@ namespace nkentseu {
 				if (b.IsValid())
 					mDevice->DestroyBuffer(b);
 			mUBOBonesRing.Clear();
+			for (auto &perFrame : mUBOBonesPool)
+				for (auto &b : perFrame)
+					if (b.IsValid())
+						mDevice->DestroyBuffer(b);
+			mUBOBonesPool.Clear();
 			for (auto &perFrame : mUBOShadowInstPool) {
 				for (auto &b : perFrame)
 					if (b.IsValid())
@@ -4012,6 +4017,23 @@ namespace nkentseu {
 			}
 		}
 
+		NkBufferHandle NkRender3D::BonesDuDraw(uint32 k) {
+			if (k == 0 || mDevice == nullptr) {
+				return (mFrameSlot < mUBOBonesRing.Size()) ? mUBOBonesRing[mFrameSlot] : NkBufferHandle{};
+			}
+			if (mUBOBonesPool.Size() < mFramesInFlight) {
+				mUBOBonesPool.Resize(mFramesInFlight);
+			}
+			if (mFrameSlot >= mUBOBonesPool.Size()) {
+				return NkBufferHandle{};
+			}
+			NkVector<NkBufferHandle> &p = mUBOBonesPool[mFrameSlot];
+			while (p.Size() < k) {
+				p.PushBack(mDevice->CreateBuffer(NkBufferDesc::Uniform(kMaxBonesUBO * sizeof(NkMat4f))));
+			}
+			return p[k - 1];
+		}
+
 		void NkRender3D::FlushSkinned(NkICommandBuffer *cmd) {
 			const bool poolFrameValid = (mFrameSlot < mUBOObjectPool.Size()) && (mFrameSlot < mObjectSetPool.Size());
 			if (!poolFrameValid)
@@ -4105,6 +4127,7 @@ namespace nkentseu {
 			// stale d'un draw precedent qui collapseraient des vertices.
 			const uint32 kMaxBones = kMaxBonesUBO; // taille de l'UBO alloue a Init
 			NkMat4f bonesScratch[kMaxBonesUBO];
+			uint32 drawSkinne = 0; // (05/10) chaque draw skinne a SES os
 			for (auto &dc : mSkinned) {
 				if (dc.boneMatrices.Empty())
 					continue;
@@ -4117,14 +4140,16 @@ namespace nkentseu {
 				uint32 count = (uint32)dc.boneMatrices.Size();
 				if (count > kMaxBones)
 					count = kMaxBones;
-				if (bonesBuf.IsValid()) {
+				const NkBufferHandle osDuDraw = drawSkinne == 0 ? bonesBuf : BonesDuDraw(drawSkinne);
+				++drawSkinne;
+				if (osDuDraw.IsValid()) {
 					// Remplit le scratch : [0,count) = bones du draw, [count,64) =
 					// identite (pad). Upload des 64 mat4 d'un coup (taille fixe UBO).
 					for (uint32 b = 0; b < count; b++)
 						bonesScratch[b] = dc.boneMatrices[b];
 					for (uint32 b = count; b < kMaxBones; b++)
 						bonesScratch[b] = NkMat4f::Identity();
-					mDevice->WriteBuffer(bonesBuf, bonesScratch, kMaxBones * sizeof(NkMat4f));
+					mDevice->WriteBuffer(osDuDraw, bonesScratch, kMaxBones * sizeof(NkMat4f));
 				}
 
 				// ObjectUBO du draw (set=1, binding=1) : ecrit AVANT BindInstance
@@ -4143,6 +4168,8 @@ namespace nkentseu {
 				NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
 				if (ubo.IsValid())
 					mDevice->WriteBuffer(ubo, &ob, sizeof(ob));
+				if (os.IsValid() && osDuDraw.IsValid())
+					mDevice->BindUniformBuffer(os, 4, osDuDraw); // (05/10) les os de CE draw
 
 				// Materiau du draw (set=2). Custom si fourni, sinon fallback.
 				NkMaterialInstance *matInst = fallback;
@@ -4220,6 +4247,8 @@ namespace nkentseu {
 						NkDescSetHandle subOs = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
 						if (subUbo.IsValid())
 							mDevice->WriteBuffer(subUbo, &sob, sizeof(sob));
+						if (subOs.IsValid() && osDuDraw.IsValid())
+							mDevice->BindUniformBuffer(subOs, 4, osDuDraw); // (05/10) les os de CE draw
 
 						// Met a jour le descriptor du materiau du sous-mesh.
 						if (sInst && mMat)
