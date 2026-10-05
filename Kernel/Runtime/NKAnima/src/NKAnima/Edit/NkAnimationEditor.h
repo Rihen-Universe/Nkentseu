@@ -90,6 +90,14 @@ namespace nkentseu {
 
 				void Undo();
 				void Redo();
+				/// (02/10) La profondeur des piles : le journal d'annulation COMMUN de
+				/// NkAnimaEditor (poses-cles + rig 3D) y voit ce qui vient d'etre empile.
+				uint32 UndoDepth() const {
+					return (uint32)mUndo.Size();
+				}
+				uint32 RedoDepth() const {
+					return (uint32)mRedo.Size();
+				}
 
 			private:
 				// Type d'opération d'édition (valeurs en UPPER_SNAKE_CASE ; suffixe _KEY

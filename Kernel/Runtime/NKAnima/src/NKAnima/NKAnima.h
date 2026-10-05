@@ -24,6 +24,12 @@
 //   Motion/    la couche trajectoire (spline + suivi)
 //   Physics/   la physique de POSE : masse, équilibre, appuis, auto-pose (ex-NKAnimPhysics)
 //   Edit/      le MODÈLE d'édition de poses-clés — aucune interface
+//   Rig/       (02/10) le rig 3D : armature EDITABLE (tete, queue, roulis, symetrie X), rig
+//              AUTOMATIQUE (reperes, modeles humanoide / quadrupede / chaine, controles IK),
+//              mannequins de test, et le DOCUMENT du rig avec son annulation
+//   Skin/      (02/10) la peau : maillage soude, poids automatiques (chaleur, voxels
+//              geodesiques), peinture, verification
+//   Morph/     (02/10) les formes (shape keys) : base, cibles relatives, pilotes, pistes du clip
 // =============================================================================
 
 #include "NKAnima/Skeleton/NkSkeletonDef.h"
@@ -40,3 +46,11 @@
 #include "NKAnima/Physics/NkAutoPose.h"
 #include "NKAnima/Physics/NkClipBalancePass.h"
 #include "NKAnima/Edit/NkAnimationEditor.h"
+#include "NKAnima/Rig/NkArmature.h"   // (02/10) le rig 3D
+#include "NKAnima/Rig/NkAutoRig.h"
+#include "NKAnima/Rig/NkRigMannequin.h"
+#include "NKAnima/Rig/NkRigDocument.h"
+#include "NKAnima/Rig/NkRigSuggestions.h" // (05/10) les conseils du rig (l'assistant de l'éditeur)
+#include "NKAnima/Skin/NkSkinMesh.h"
+#include "NKAnima/Skin/NkSkinWeights.h"
+#include "NKAnima/Morph/NkShapeKeys.h"
