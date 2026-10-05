@@ -1,5 +1,8 @@
 # Règles de travail — Nkentseu (pour Rodolf, les collaborateurs et les agents IA)
 
+> **Reprise sur un autre PC (05/10/2026)** : avec l'accès aux dépôts privés, lire d'abord
+> `Conception/passation/00-LISEZMOI.md` (installation, règles strictes, état et ordre des chantiers).
+
 Ce fichier est lu en premier par toute personne ou tout agent qui travaille dans ce dépôt.
 Il renvoie aux conventions ; en cas de doute, ce sont elles qui font foi.
 
