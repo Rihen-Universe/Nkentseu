@@ -364,10 +364,14 @@ namespace nkentseu {
 				// Tableau des bridges (géré en interne, un par police TTF chargée)
 				// On utilise un stockage opaque pour ne pas exposer NkUIFontBridge dans ce header.
 				static constexpr int32 MAX_BRIDGES = MAX_FONTS;
+				/// Taille du stockage opaque d'un NkUIFontBridge (verifiee par static_assert
+				/// dans le .cpp). (06/10) 256 -> 384 : NkFontFaceInfo a pris les champs du
+				/// CFF complet de NKFont (NkFontCff.h), et le bridge est passe a 312 octets.
+				static constexpr usize BRIDGE_STORAGE = 384;
 
 			private:
 				// Stockage opaque — aligné sur NkUIFontBridge, taille vérifiée dans le .cpp
-				alignas(8) uint8 mBridgeStorage[MAX_BRIDGES][256] = {};
+				alignas(8) uint8 mBridgeStorage[MAX_BRIDGES][BRIDGE_STORAGE] = {};
 				bool mBridgeUsed[MAX_BRIDGES] = {};
 				int32 mNumBridges = 0;
 

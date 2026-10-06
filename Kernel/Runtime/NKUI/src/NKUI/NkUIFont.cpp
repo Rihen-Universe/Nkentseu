@@ -1347,8 +1347,8 @@ namespace nkentseu {
 		}
 
 		// Vérifie à la compilation que notre stockage opaque est assez grand
-		static_assert(sizeof(NkUIFontBridge) <= 256,
-					  "bridgeStorage_ trop petit : augmentez la taille à sizeof(NkUIFontBridge)");
+		static_assert(sizeof(NkUIFontBridge) <= NkUIFontManager::BRIDGE_STORAGE,
+					  "mBridgeStorage trop petit : augmentez NkUIFontManager::BRIDGE_STORAGE (NkUIFont.h)");
 		static_assert(alignof(NkUIFontBridge) <= 8, "Alignement NkUIFontBridge incompatible");
 
 		// ── Helpers internes ──────────────────────────────────────────────────────
