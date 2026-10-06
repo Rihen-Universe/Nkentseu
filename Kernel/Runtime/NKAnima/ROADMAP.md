@@ -25,6 +25,15 @@
 > construit depuis une **vue** du squelette + des attributs physiques (`NkBoneDef` physique supprimé) ;
 > `NkGLTFIO` calcule `topo` à l'import. Prochain : `NkRagdollBridge` (éditeur) sur `physics::NkRagdoll`.
 >
+> 🧭 **2026-10-06 — LA PHYSIQUE DANS LE TEMPS.** Nouveau dossier public `Realtime/` (le temps réel, par
+> image : ressorts du secondaire, équilibre, IK des pieds sur sol irrégulier avec le lancer de rayon de
+> l'hôte, bascule ragdoll/animation et relèvement, `NkRtCharacter`) — voir `PHYSIQUE_TEMPS_REEL.md`.
+> **M3.10 (secondaire) est livré** (en temps réel, et cuit dans le clip par l'atelier). **M3.7 (vol
+> balistique) et M3.8 (moment cinétique en vol) sont livrés dans l'atelier privé** `Kernel/AnimaAtelier`
+> (`NkAutoPhysics`, sur un modèle de masses échantillonné par segment : l'inertie que M3.9 demandait),
+> avec `NkAutoPosing` (IK de corps entier avec priors) ; NkAnimaEditor les expose (cartes, fantôme,
+> dosage, cuisson, Ctrl+Z). Bancs : `NKAnima_Tests` (RT1 à RT5) et `NKAnimaAtelierBanc`.
+>
 > 🗂️ **Arborescence du 2026-09-04** — le module n'est plus plat : `Skeleton/ Clip/ Retarget/
 > Motion/ Physics/ Edit/` + `NKAnima.h` à la racine (rien d'autre). `Physics/` est l'ex-module
 > NKAnimPhysics, entré ici le même jour (décision de Rodolf, pour casser un cycle). Les chemins

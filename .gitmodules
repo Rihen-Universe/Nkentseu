@@ -91,3 +91,7 @@
 	path = Labo
 	url = https://github.com/Rihen-Universe/Nkentseu-Labo.git
 	update = none
+[submodule "Kernel/AnimaAtelier"]
+	path = Kernel/AnimaAtelier
+	url = https://github.com/Rihen-Universe/NKAnimaAtelier.git
+	update = none

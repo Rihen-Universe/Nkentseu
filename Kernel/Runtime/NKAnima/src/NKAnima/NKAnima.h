@@ -30,6 +30,8 @@
 //   Skin/      (02/10) la peau : maillage soude, poids automatiques (chaleur, voxels
 //              geodesiques), peinture, verification
 //   Morph/     (02/10) les formes (shape keys) : base, cibles relatives, pilotes, pistes du clip
+//   Realtime/  (06/10) la physique d'animation EN TEMPS REEL, par image : ressorts (secondaire),
+//              IK des pieds sur sol irregulier, equilibre, bascule ragdoll et relevement
 // =============================================================================
 
 #include "NKAnima/Skeleton/NkSkeletonDef.h"
@@ -54,3 +56,4 @@
 #include "NKAnima/Skin/NkSkinMesh.h"
 #include "NKAnima/Skin/NkSkinWeights.h"
 #include "NKAnima/Morph/NkShapeKeys.h"
+#include "NKAnima/Realtime/NkRealtime.h" // (06/10) la physique d'animation en temps reel
