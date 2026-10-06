@@ -3,16 +3,101 @@
 //
 #include "NKMedia/Pdf/NkPdfFont.h"
 #include "NKMedia/Pdf/NkPdfGlyphList.h"
+#include "NKMedia/Pdf/NkPdfType1.h"
+#include "NKThreading/NkMutex.h"
+#include <cstdlib>
 
 namespace nkentseu {
 	namespace media {
 		namespace pdf {
 
 			// ============================================================
+			// (05/10) LES POLICES TYPE 1 (/FontFile) : DESSINEES
+			// ============================================================
+			// Leur programme est lu par NkPdfType1 (dechiffrement eexec, Subrs,
+			// CharStrings, interpreteur de charstrings). Il est RATTACHE a la police par
+			// cette table, et non par un membre : le chantier ne touche que NkPdfFont.cpp
+			// et NkPdfType1.* (NkPdfFont.h, inclus par les applications, reste tel quel).
+			// Le rendu des pages peut tourner sur plusieurs fils : la table est verrouillee.
+			// Contre-epreuves (NK_PDF_MUTATION) : type1-eexec-faux, type1-seac-ignore
+			// (NkPdfType1.cpp), type1-encodage-interne-seul, pdf-noms-tex-coupes (ici).
+			namespace {
+				struct T1Lien {
+						const NkPdfFont *police = nullptr;
+						NkPdfType1 *t1 = nullptr;
+						int32 index[256];
+				};
+				threading::NkMutex &T1Verrou() {
+					static threading::NkMutex m;
+					return m;
+				}
+				NkVector<T1Lien> &T1Liens() {
+					static NkVector<T1Lien> v;
+					return v;
+				}
+				bool T1Mutation(const char *nom) {
+					const char *v = std::getenv("NK_PDF_MUTATION");
+					if (!v || !nom)
+						return false;
+					int32 i = 0;
+					while (v[i] && nom[i] && v[i] == nom[i])
+						++i;
+					return v[i] == 0 && nom[i] == 0;
+				}
+				/// Le glyphe Type 1 du code `code` (le programme, et l'index du glyphe).
+				const NkPdfType1 *T1Glyphe(const NkPdfFont *f, uint32 code, int32 &index) {
+					index = -1;
+					T1Verrou().Lock();
+					const NkPdfType1 *r = nullptr;
+					NkVector<T1Lien> &v = T1Liens();
+					for (usize i = 0; i < v.Size(); ++i)
+						if (v[i].police == f) {
+							if (code < 256u)
+								index = v[i].index[code];
+							r = v[i].t1;
+							break;
+						}
+					T1Verrou().Unlock();
+					return r;
+				}
+				void T1Detacher(const NkPdfFont *f) {
+					T1Verrou().Lock();
+					NkVector<T1Lien> &v = T1Liens();
+					for (usize i = 0; i < v.Size(); ++i)
+						if (v[i].police == f) {
+							delete v[i].t1;
+							v[i] = v[v.Size() - 1];
+							v.PopBack();
+							break;
+						}
+					T1Verrou().Unlock();
+				}
+				/// code -> glyphe d'un programme Type 1 (defini apres les tables d'encodage).
+				void T1Indexer(const NkPdfType1 *p, const NkVector<uint32> &codes, const NkVector<NkString> &noms, usize nDiff,
+							   int32 baseEnc, int32 *index);
+				/// Le texte UTF-8 d'un point de code (BMP).
+				NkString T1Utf8(uint32 u) {
+					NkString t;
+					if (u < 0x80u)
+						t += static_cast<char>(u);
+					else if (u < 0x800u) {
+						t += static_cast<char>(0xC0u | (u >> 6));
+						t += static_cast<char>(0x80u | (u & 0x3Fu));
+					} else {
+						t += static_cast<char>(0xE0u | (u >> 12));
+						t += static_cast<char>(0x80u | ((u >> 6) & 0x3Fu));
+						t += static_cast<char>(0x80u | (u & 0x3Fu));
+					}
+					return t;
+				}
+			} // namespace
+
+			// ============================================================
 			// Chargement
 			// ============================================================
 
 			void NkPdfFont::Unload() {
+				T1Detacher(this);
 				if (mHasFace) {
 					nkfont::NkFreeFontFace(&mFace);
 					mHasFace = false;
@@ -151,6 +236,7 @@ namespace nkentseu {
 				// C'est le cas des PDF dvips/LaTeX sans /ToUnicode (arXiv, notes
 				// Eberly), refuses en bloc avant ce repli. On ne le fait que si
 				// rien d'autre ne donne deja le texte.
+				const usize nDiff = mNameCodes.Size(); // (05/10) les noms venus de /Differences
 				if (!mTwoByte && mUniCodes.Empty() && mNames.Empty()) {
 					const NkPdfVal t1 = doc.DictGet(fd, "FontFile");
 					if (t1.kind == NK_PDF_STREAM) {
@@ -182,7 +268,27 @@ namespace nkentseu {
 					!nkfont::NkInitFontFace(&mFace, mProgram.Data(), mProgram.Size(), 0)) {
 					mHasFace = false;
 					mUnitsPerEmInv = 1.0 / 1000.0; // convention PDF pour les largeurs
-					return true;				   // lisible, mais non dessinable
+					// (05/10) Le Type 1 brut : son programme lu, ses glyphes dessines.
+					const NkPdfVal t1 = doc.DictGet(fd, "FontFile");
+					if (!mTwoByte && t1.kind == NK_PDF_STREAM) {
+						NkVector<uint8> brut;
+						if (doc.DecodeStream(t1, brut) && !brut.Empty()) {
+							NkPdfType1 *p = new NkPdfType1();
+							const double l1 = doc.Num(doc.DictGet(t1, "Length1"), 0.0);
+							if (p->Load(brut.Data(), brut.Size(), l1 > 0.0 ? static_cast<usize>(l1) : 0u)) {
+								T1Lien lien;
+								lien.police = this;
+								lien.t1 = p;
+								const int32 be = mBaseEnc == NK_ENC_WINANSI ? 1 : mBaseEnc == NK_ENC_MACROMAN ? 2 : mBaseEnc == NK_ENC_STANDARD ? 3 : 0;
+								T1Indexer(p, mNameCodes, mNames, nDiff, be, lien.index);
+								T1Verrou().Lock();
+								T1Liens().PushBack(lien);
+								T1Verrou().Unlock();
+							} else
+								delete p;
+						}
+					}
+					return true; // lisible ; dessinable si le Type 1 a ete lu
 				}
 				mHasFace = true;
 
@@ -259,8 +365,35 @@ namespace nkentseu {
 
 			bool NkPdfFont::AppendGlyph(uint32 code, double tx, double ty, double scale, double shearX,
 										double vScale, NkPdfPath &out) const {
-				if (!mHasFace)
-					return false;
+				if (!mHasFace) {
+					// (05/10) Type 1 : le contour de son interpreteur, mis a l'echelle par la
+					// /FontMatrix (unites du programme -> em), puis comme les autres.
+					int32 idx = -1;
+					const NkPdfType1 *t1 = T1Glyphe(this, code, idx);
+					if (!t1 || idx < 0)
+						return false;
+					NkVector<NkPdfT1Op> ops;
+					if (!t1->Outline(idx, ops) || ops.Empty())
+						return false;
+					const double *M = t1->Matrix();
+					auto EX = [&](double x, double y) { return M[0] * x + M[2] * y + M[4]; };
+					auto EY = [&](double x, double y) { return M[1] * x + M[3] * y + M[5]; };
+					auto X = [&](double x, double y) { return tx + EX(x, y) * scale + EY(x, y) * scale * shearX; };
+					auto Y = [&](double x, double y) { return ty + EY(x, y) * scale * vScale; };
+					for (usize i = 0; i < ops.Size(); ++i) {
+						const NkPdfT1Op &o = ops[i];
+						if (o.type == 0)
+							out.MoveTo(X(o.x2, o.y2), Y(o.x2, o.y2));
+						else if (o.type == 1)
+							out.LineTo(X(o.x2, o.y2), Y(o.x2, o.y2));
+						else if (o.type == 2)
+							out.CurveTo(X(o.x0, o.y0), Y(o.x0, o.y0), X(o.x1, o.y1), Y(o.x1, o.y1), X(o.x2, o.y2), Y(o.x2, o.y2));
+						else
+							out.Close();
+					}
+					out.Close();
+					return true;
+				}
 				const NkGlyphId g = GlyphOf(code);
 				nkfont::NkFontVertexBuffer buf;
 				if (!nkfont::NkGetGlyphShape(&mFace, g, &buf) || buf.count == 0)
@@ -573,6 +706,51 @@ namespace nkentseu {
 				0xF8FF, 0x00D2, 0x00DA, 0x00DB, 0x00D9, 0x0131, 0x02C6, 0x02DC, 0x00AF, 0x02D8, 0x02D9, 0x02DA, 0x00B8, 0x02DD, 0x02DB, 0x02C7,
 			};
 
+			// (05/10) code -> glyphe d'un programme Type 1 : /Differences, puis l'encodage de
+			// BASE declare (WinAnsi / MacRoman : par le TEXTE de chaque glyphe ; Standard :
+			// par son nom), puis l'encodage interne du programme (ISO 32000-1, 9.6.6.2).
+			namespace {
+				void T1Indexer(const NkPdfType1 *p, const NkVector<uint32> &codes, const NkVector<NkString> &noms, usize nDiff,
+							   int32 baseEnc, int32 *index) {
+					const bool interneSeul = T1Mutation("type1-encodage-interne-seul");
+					NkVector<NkString> texteGlyphe;
+					if (!interneSeul && (baseEnc == 1 || baseEnc == 2))
+						for (int32 g = 0; g < p->GlyphCount(); ++g)
+							texteGlyphe.PushBack(NkPdfGlyphNameToText(p->GlyphName(g).CStr(), static_cast<int32>(p->GlyphName(g).Size())));
+					for (uint32 code = 0; code < 256u; ++code) {
+						int32 idx = -1;
+						if (!interneSeul)
+							for (usize i = 0; i < nDiff && i < codes.Size(); ++i)
+								if (codes[i] == code)
+									idx = p->GlyphIndex(noms[i].CStr(), static_cast<int32>(noms[i].Size()));
+						if (idx < 0 && !interneSeul && baseEnc == 3) {
+							const char *nm = NkPdfType1::StandardName(code);
+							int32 l = 0;
+							while (nm && nm[l])
+								++l;
+							idx = p->GlyphIndex(nm, l);
+						}
+						if (idx < 0 && !texteGlyphe.Empty()) {
+							const uint32 u = baseEnc == 1 ? kWinAnsiToUni[code] : kMacRomanToUni[code];
+							if (u) {
+								const NkString t = T1Utf8(u);
+								for (usize g = 0; g < texteGlyphe.Size() && idx < 0; ++g)
+									if (texteGlyphe[g] == t)
+										idx = static_cast<int32>(g);
+							}
+						}
+						if (idx < 0) {
+							const char *nm = p->BuiltinName(code);
+							int32 l = 0;
+							while (nm && nm[l])
+								++l;
+							idx = p->GlyphIndex(nm, l);
+						}
+						index[code] = idx;
+					}
+				}
+			} // namespace
+
 			// Table d'encodage en CLAIR d'un programme Type 1 : la partie avant
 			// « eexec » est du PostScript lisible, et l'encodage s'y ecrit
 			// « dup <code> /<nom> put », une ligne par caractere. On ne lit QUE
@@ -643,6 +821,31 @@ namespace nkentseu {
 														  static_cast<int32>(mNames[i].Size()));
 						if (t.Size() > 0)
 							return t;
+						// (05/10) Les noms de TeX hors de la liste d'Adobe : la police des grands
+						// operateurs (cmex) nomme ses glyphes par leur TAILLE (« summationdisplay »,
+						// « parenleftbig », « radicalBigg ») : le nom sans le suffixe de taille est,
+						// lui, dans la liste (« summation » -> U+2211). Contre-epreuve :
+						// NK_PDF_MUTATION=pdf-noms-tex-coupes.
+						if (!T1Mutation("pdf-noms-tex-coupes")) {
+							static const char *kSuffixes[] = {"display", "text", "Bigg", "bigg", "Big", "big", "bt", "tp", "bd"};
+							const NkString &n = mNames[i];
+							for (const char *suf : kSuffixes) {
+								int32 ls = 0;
+								while (suf[ls])
+									++ls;
+								const int32 ln = static_cast<int32>(n.Size());
+								if (ln <= ls)
+									continue;
+								bool fin = true;
+								for (int32 k = 0; k < ls && fin; ++k)
+									fin = n.CStr()[ln - ls + k] == suf[k];
+								if (!fin)
+									continue;
+								t = NkPdfGlyphNameToText(n.CStr(), ln - ls);
+								if (t.Size() > 0)
+									return t;
+							}
+						}
 						break;
 					}
 				// Repli : police simple SANS entree /ToUnicode pour ce code, mais
