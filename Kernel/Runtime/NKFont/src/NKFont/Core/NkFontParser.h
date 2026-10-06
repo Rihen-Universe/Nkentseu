@@ -105,6 +105,31 @@ namespace nkentseu {
 				// CFF base (offset dans data du début de la table CFF)
 				nkft_uint32 cffBase = 0;
 
+				// ── CFF COMPLET (06/10, NkFontCff.cpp) ─────────────────────────────
+				// Rempli par NkCffInit, pour la table « CFF » d'un OpenType (OTTO) comme
+				// pour un CFF NU (PDF /FontFile3 : Type1C, CIDFontType0C), qui n'a ni
+				// en-tete sfnt, ni cmap, ni hmtx. Offsets ABSOLUS dans `data` ; 0 = absent.
+				bool cffNu = false;			   ///< CFF sans enveloppe OpenType
+				nkft_uint32 cffLen = 0;		   ///< longueur de la table CFF
+				nkft_uint32 cffCharStrings = 0; ///< INDEX CharStrings
+				nkft_int32 cffNumGlyphs = 0;
+				nkft_uint32 cffGSubrs = 0;	   ///< INDEX des subroutines GLOBALES
+				nkft_uint32 cffStrings = 0;	   ///< INDEX des chaines (SID >= 391)
+				nkft_uint32 cffPrivate = 0, cffPrivateLen = 0; ///< DICT prive (police non CID)
+				nkft_uint32 cffCharset = 0;	   ///< valeur du DICT : 0/1/2 predefini, sinon relatif
+				nkft_uint32 cffEncoding = 0;   ///< valeur du DICT : 0/1 predefini, sinon relatif
+				bool cffCid = false;		   ///< police CID (ROS) : FDArray + FDSelect
+				nkft_uint32 cffFDArray = 0;
+				nkft_uint32 cffFDSelect = 0;
+				nkft_float32 cffMatrix[6] = {0.001f, 0.f, 0.f, 0.001f, 0.f, 0.f};
+
+				// cmaps NON Unicode, gardees pour les polices SYMBOLIQUES des PDF :
+				// (3,0) Microsoft Symbol et (1,0) Macintosh Roman (ISO 32000, 9.6.6.4).
+				nkft_uint32 cmapSymOffset = 0;
+				nkft_int32 cmapSymFormat = 0;
+				nkft_uint32 cmapMacOffset = 0;
+				nkft_int32 cmapMacFormat = 0;
+
 				// WOFF : buffer décompressé (à libérer via FreeFontFace)
 				nkft_uint8 *woffBuffer = nullptr;
 				nkft_uint32 woffBufferSize = 0;
@@ -151,7 +176,18 @@ namespace nkentseu {
 		 * WOFF est décompressé automatiquement (buffer alloué dans info->woffBuffer).
 		 * Appelez FreeFontFace() pour libérer la mémoire WOFF.
 		 */
-		bool NkInitFontFace(NkFontFaceInfo *info, const nkft_uint8 *data, nkft_size size, nkft_int32 faceIndex = 0);
+		///
+		/// `cmapUnicodeRequise` (06/10) : vrai par defaut -- une police SANS table
+		/// Unicode est refusee, comme avant (l'atlas d'interface se rabat alors sur
+		/// une autre). Faux : le lecteur PDF, qui adresse les glyphes lui-meme
+		/// (CID, nom, code) ; sont alors aussi acceptes un TrueType sans cmap
+		/// Unicode (sous-ensembles embarques) et un CFF NU (/FontFile3).
+		bool NkInitFontFace(NkFontFaceInfo *info, const nkft_uint8 *data, nkft_size size, nkft_int32 faceIndex = 0,
+							bool cmapUnicodeRequise = true);
+
+		/// (06/10) Glyphe d'une police SYMBOLIQUE (PDF, ISO 32000 9.6.6.4) : cmap
+		/// (3,0) avec le code puis 0xF000/0xF100/0xF200 + code, sinon (1,0). 0 si rien.
+		NkGlyphId NkFindGlyphIndexSymbolique(const NkFontFaceInfo *info, nkft_uint32 code);
 
 		/**
 		 * @brief Libère les ressources allouées par InitFontFace (buffer WOFF).

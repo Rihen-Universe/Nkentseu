@@ -4,6 +4,7 @@
 #include "NKMedia/Pdf/NkPdfFont.h"
 #include "NKMedia/Pdf/NkPdfGlyphList.h"
 #include "NKMedia/Pdf/NkPdfType1.h"
+#include "NKFont/Core/NkFontCff.h" // (06/10) CFF nu des PDF : CID, noms, encodage interne
 #include "NKThreading/NkMutex.h"
 #include <cstdlib>
 
@@ -75,6 +76,9 @@ namespace nkentseu {
 				/// code -> glyphe d'un programme Type 1 (defini apres les tables d'encodage).
 				void T1Indexer(const NkPdfType1 *p, const NkVector<uint32> &codes, const NkVector<NkString> &noms, usize nDiff,
 							   int32 baseEnc, int32 *index);
+				/// (06/10) Le meme, pour un programme CFF (Type1C) lu par NKFont.
+				void CffIndexer(const nkfont::NkFontFaceInfo &f, const NkVector<uint32> &codes,
+								const NkVector<NkString> &noms, usize nDiff, int32 baseEnc, int32 *index);
 				/// Le texte UTF-8 d'un point de code (BMP).
 				NkString T1Utf8(uint32 u) {
 					NkString t;
@@ -110,6 +114,8 @@ namespace nkentseu {
 				mUniText.Clear();
 				mNameCodes.Clear();
 				mNames.Clear();
+				mCidToGid.Clear();
+				mCffIndexe = false;
 			}
 
 			bool NkPdfFont::Load(const NkPdfDoc &doc, const NkPdfVal &fontDict) {
@@ -264,8 +270,13 @@ namespace nkentseu {
 				// polices Type 1 faisaient echouer leur chargement. Le rendu, lui, ne
 				// change pas : `AppendGlyph` se garde deja sur `mHasFace`, donc rien
 				// n'est dessine de ce qui ne peut pas l'etre.
+				// (06/10) `cmapUnicodeRequise = false` : un PDF adresse ses glyphes par
+				// CID, par nom ou par code. Avec `true` (le defaut, fait pour l'atlas
+				// d'interface), NKFont refusait le CFF NU (/FontFile3) et tout TrueType
+				// sans cmap Unicode -- c'est-a-dire toutes les polices des chapitres
+				// XeLaTeX de Rodolf : pages sans un seul caractere.
 				if (prog.kind != NK_PDF_STREAM || !doc.DecodeStream(prog, mProgram) || mProgram.Empty() ||
-					!nkfont::NkInitFontFace(&mFace, mProgram.Data(), mProgram.Size(), 0)) {
+					!nkfont::NkInitFontFace(&mFace, mProgram.Data(), mProgram.Size(), 0, /*cmapUnicodeRequise=*/false)) {
 					mHasFace = false;
 					mUnitsPerEmInv = 1.0 / 1000.0; // convention PDF pour les largeurs
 					// (05/10) Le Type 1 brut : son programme lu, ses glyphes dessines.
@@ -291,6 +302,20 @@ namespace nkentseu {
 					return true; // lisible ; dessinable si le Type 1 a ete lu
 				}
 				mHasFace = true;
+
+				// (06/10) Adressage des glyphes selon le programme.
+				if (mFace.isCFF && !mTwoByte) { // Type1C : par nom, comme le Type 1
+					const int32 be = mBaseEnc == NK_ENC_WINANSI ? 1 : mBaseEnc == NK_ENC_MACROMAN ? 2 : mBaseEnc == NK_ENC_STANDARD ? 3 : 0;
+					CffIndexer(mFace, mNameCodes, mNames, nDiff, be, mCffCodeGid);
+					mCffIndexe = true;
+				}
+				if (!mFace.isCFF && mTwoByte) { // CIDFontType2 : /CIDToGIDMap en flux
+					const NkPdfVal c2g = doc.DictGet(descFont, "CIDToGIDMap");
+					NkVector<uint8> brut;
+					if (c2g.kind == NK_PDF_STREAM && doc.DecodeStream(c2g, brut))
+						for (usize i = 0; i + 1 < brut.Size(); i += 2)
+							mCidToGid.PushBack(static_cast<uint16>((brut[i] << 8) | brut[i + 1]));
+				}
 
 				// Echelle du programme : nkfont::NkScaleForEmToPixels(1) donne le facteur
 				// « unites de police -> em », ce qu'il nous faut pour normaliser.
@@ -346,18 +371,25 @@ namespace nkentseu {
 				if (!mHasFace)
 					return 0;
 				if (mTwoByte) {
-					// Identity : le CID est directement l'identifiant de glyphe.
-					// (Un /CIDToGIDMap en flux n'est pas gere ; il est rare avec des
-					// polices embarquees, qui sont deja indexees par CID.)
-					if (mIdentityCid)
-						return static_cast<NkGlyphId>(code);
+					// (06/10) CFF : le charset d'une police CID associe glyphe et CID ;
+					// une police nommee dans une CIDFont prend le CID comme indice.
+					if (mFace.isCFF)
+						return nkfont::NkCffGlyphFromCID(&mFace, code);
+					// TrueType : /CIDToGIDMap en flux, sinon Identity (CID = glyphe).
+					if (!mCidToGid.Empty())
+						return code < mCidToGid.Size() ? static_cast<NkGlyphId>(mCidToGid[code]) : 0;
 					return static_cast<NkGlyphId>(code);
 				}
+				if (mFace.isCFF) // (06/10) Type1C : la table indexee au chargement
+					return (mCffIndexe && code < 256u) ? static_cast<NkGlyphId>(mCffCodeGid[code]) : 0;
 				// Police simple : on tente la table de caracteres avec le code tel
-				// quel. Si elle ne donne rien, on prend le code COMME identifiant de
-				// glyphe — c'est le comportement des polices a encodage sur mesure,
+				// quel, puis (06/10) les cmaps SYMBOLIQUES (3,0) et (1,0) d'un sous-
+				// ensemble sans Unicode. Si rien ne repond, le code COMME identifiant
+				// de glyphe — le comportement des polices a encodage sur mesure,
 				// tres frequentes dans les PDF generes.
-				const NkGlyphId g = nkfont::NkFindGlyphIndex(&mFace, static_cast<NkFontCodepoint>(code));
+				NkGlyphId g = nkfont::NkFindGlyphIndex(&mFace, static_cast<NkFontCodepoint>(code));
+				if (g == 0)
+					g = nkfont::NkFindGlyphIndexSymbolique(&mFace, code);
 				if (g != 0)
 					return g;
 				return static_cast<NkGlyphId>(code);
@@ -398,7 +430,6 @@ namespace nkentseu {
 				nkfont::NkFontVertexBuffer buf;
 				if (!nkfont::NkGetGlyphShape(&mFace, g, &buf) || buf.count == 0)
 					return false;
-
 				// Unites de police -> em -> taille demandee. L'axe Y du PDF monte,
 				// celui de l'image descend : l'appelant fournit `vScale` negatif pour
 				// exprimer ce retournement, ce qui evite de le cabler ici.
@@ -747,6 +778,47 @@ namespace nkentseu {
 							idx = p->GlyphIndex(nm, l);
 						}
 						index[code] = idx;
+					}
+				}
+
+				// (06/10) Le meme ordre que T1Indexer, pour un CFF : /Differences, encodage
+				// de BASE (Standard par nom, WinAnsi/MacRoman par le texte du glyphe), puis
+				// encodage INTERNE du programme. 0 = aucun glyphe.
+				void CffIndexer(const nkfont::NkFontFaceInfo &f, const NkVector<uint32> &codes,
+								const NkVector<NkString> &noms, usize nDiff, int32 baseEnc, int32 *index) {
+					NkVector<NkString> texteGlyphe;
+					if (baseEnc == 1 || baseEnc == 2) {
+						char nom[128];
+						const int32 ng = nkfont::NkCffGlyphCount(&f);
+						for (int32 g = 0; g < ng; ++g) {
+							const int32 l = nkfont::NkCffGlyphName(&f, static_cast<NkGlyphId>(g), nom, static_cast<int32>(sizeof(nom)));
+							texteGlyphe.PushBack(l > 0 ? NkPdfGlyphNameToText(nom, l) : NkString());
+						}
+					}
+					for (uint32 code = 0; code < 256u; ++code) {
+						NkGlyphId g = 0;
+						for (usize i = 0; i < nDiff && i < codes.Size() && !g; ++i)
+							if (codes[i] == code)
+								g = nkfont::NkCffGlyphFromName(&f, noms[i].CStr(), static_cast<int32>(noms[i].Size()));
+						if (!g && baseEnc == 3) {
+							const char *nm = NkPdfType1::StandardName(code);
+							int32 l = 0;
+							while (nm && nm[l])
+								++l;
+							g = nkfont::NkCffGlyphFromName(&f, nm, l);
+						}
+						if (!g && !texteGlyphe.Empty()) {
+							const uint32 u = baseEnc == 1 ? kWinAnsiToUni[code] : kMacRomanToUni[code];
+							if (u) {
+								const NkString t = T1Utf8(u);
+								for (usize k = 1; k < texteGlyphe.Size() && !g; ++k)
+									if (texteGlyphe[k] == t)
+										g = static_cast<NkGlyphId>(k);
+							}
+						}
+						if (!g)
+							g = nkfont::NkCffGlyphFromCode(&f, code);
+						index[code] = static_cast<int32>(g);
 					}
 				}
 			} // namespace

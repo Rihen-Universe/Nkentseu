@@ -57,7 +57,21 @@ namespace nkentseu {
 				double d2 = Abs((x2 - x3) * dy - (y2 - y3) * dx);
 				const double dd = (d1 + d2) * (d1 + d2);
 				const double tol = FlatTolerance();
-				if (dd < tol * (dx * dx + dy * dy)) {
+				const double corde2 = dx * dx + dy * dy;
+				// ⚠️ CORDE NULLE (06/10). Une courbe dont les extremites se confondent
+				//    donnait « 0 < tol x 0 », toujours faux : la subdivision allait a la
+				//    borne, 2^17 segments pour UN point. Mesure sur un chapitre XeLaTeX
+				//    de Rodolf (polices CFF, courbes de longueur nulle) : 1,6 million de
+				//    points, 11,4 s pour une page de 200 glyphes. On mesure alors
+				//    l'ecart des points de controle a l'extremite elle-meme.
+				if (corde2 <= 1e-12) {
+					const double e1 = (x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0);
+					const double e2 = (x2 - x0) * (x2 - x0) + (y2 - y0) * (y2 - y0);
+					if (e1 <= tol && e2 <= tol) {
+						LineTo(x3, y3);
+						return;
+					}
+				} else if (dd <= tol * corde2) {
 					LineTo(x3, y3);
 					return;
 				}

@@ -107,6 +107,14 @@ namespace nkentseu {
 					bool mTwoByte = false;
 					bool mIdentityCid = false; // Identity-H : le code EST le CID
 
+					// (06/10) Police SIMPLE a programme CFF (/FontFile3 Type1C) : code ->
+					// glyphe, comme pour le Type 1 -- /Differences, encodage de base,
+					// puis encodage interne du programme. 0 = aucun glyphe.
+					int32 mCffCodeGid[256] = {};
+					bool mCffIndexe = false;
+					// (06/10) /CIDToGIDMap en FLUX (CIDFontType2) : 2 octets par CID.
+					NkVector<uint16> mCidToGid;
+
 					// Encodage de BASE d'une police simple, quand le document le
 					// declare (/Encoding /WinAnsiEncoding...). C'est le repli
 					// legitime d'une police SANS table /ToUnicode : la spec PDF

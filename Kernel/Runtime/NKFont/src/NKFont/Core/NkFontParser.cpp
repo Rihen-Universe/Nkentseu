@@ -18,6 +18,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NkFontParser.h"
+#include "NkFontCff.h" // (06/10) CFF complet : OTTO et CFF nu des PDF
 #include "NKMemory/NkAllocator.h"
 #include <math.h>
 #include <string.h>
@@ -425,508 +426,35 @@ namespace nkentseu {
 
 		} // anonymous namespace
 
-		// ============================================================
-		// CFF Type 2 Charstrings — interpréteur
-		// ============================================================
-
-		namespace {
-
-			// Lit un INDEX CFF (tableau de données de longueur variable)
-			struct CFFIndex {
-					const nkft_uint8 *data = nullptr;
-					nkft_uint32 count = 0;
-					nkft_uint8 offSize = 0;
-					nkft_uint32 dataBase = 0;
-					nkft_uint32 totalSize = 0;
-
-					bool Read(const NkFontDataSpan &span, nkft_uint32 offset) {
-						data = span.data;
-						if (!span.IsValid(offset, 2))
-							return false;
-						count = NkReadU16(span.At(offset));
-						if (count == 0) {
-							totalSize = 2;
-							return true;
-						}
-						if (!span.IsValid(offset + 2, 1))
-							return false;
-						offSize = span.data[offset + 2];
-						if (offSize < 1 || offSize > 4)
-							return false;
-						dataBase = offset + 3 + (count + 1) * offSize - 1;
-						nkft_uint32 lastOffOff = offset + 3 + count * offSize;
-						if (!span.IsValid(lastOffOff, offSize))
-							return false;
-						nkft_uint32 lastOff = 0;
-						for (nkft_uint8 i = 0; i < offSize; ++i) {
-							lastOff = (lastOff << 8) | span.data[lastOffOff + i];
-						}
-						totalSize = 3 + (count + 1) * offSize + lastOff - 1;
-						return true;
-					}
-
-					nkft_uint32 GetOffset(nkft_uint32 idx) const {
-						if (!data || idx > count)
-							return 0;
-						const nkft_uint8 *p = data + (nkft_uint32)(3 + idx * offSize);
-						nkft_uint32 off = 0;
-						for (nkft_uint8 i = 0; i < offSize; ++i) {
-							off = (off << 8) | p[i];
-						}
-						return dataBase + off;
-					}
-
-					nkft_uint32 GetSize(nkft_uint32 idx) const {
-						if (idx >= count)
-							return 0;
-						return GetOffset(idx + 1) - GetOffset(idx);
-					}
-			};
-
-			// Contexte CFF pour un glyphe
-			struct CFFContext {
-					nkft_float32 stack[48];
-					nkft_int32 stackTop = 0;
-					nkft_float32 x = 0, y = 0;
-					nkft_float32 width = 0;
-					bool hasWidth = false;
-					nkft_int32 nominalWidthX = 0;
-					nkft_int32 defaultWidthX = 0;
-
-					void Push(nkft_float32 v) {
-						if (stackTop < 48)
-							stack[stackTop++] = v;
-					}
-
-					nkft_float32 Pop() {
-						return stackTop > 0 ? stack[--stackTop] : 0.f;
-					}
-
-					void Clear() {
-						stackTop = 0;
-					}
-			};
-
-			// Lit un entier/réel depuis un charstring Type 2
-			// Retourne false si c'est un opérateur (byte < 28)
-			static bool NkReadCFFNumber(const nkft_uint8 *&p, const nkft_uint8 *end, nkft_float32 &outVal) {
-				if (p >= end)
-					return false;
-				nkft_uint8 b0 = *p++;
-
-				if (b0 == 28) {
-					if (p + 1 >= end)
-						return false;
-					outVal = (nkft_float32)(nkft_int16)((p[0] << 8) | p[1]);
-					p += 2;
-					return true;
-				}
-				if (b0 == 29) {
-					if (p + 3 >= end)
-						return false;
-					nkft_int32 v = ((nkft_int32)p[0] << 24) | ((nkft_int32)p[1] << 16) | ((nkft_int32)p[2] << 8) | p[3];
-					outVal = (nkft_float32)v;
-					p += 4;
-					return true;
-				}
-				if (b0 == 30) {
-					// Real number (float)
-					char buf[32];
-					nkft_int32 bi = 0;
-					while (p < end && bi < 30) {
-						nkft_uint8 b = *p++;
-						nkft_uint8 n1 = b >> 4;
-						nkft_uint8 n2 = b & 0xF;
-
-						auto nibbleChar = [](nkft_uint8 n, char *dst) -> nkft_int32 {
-							if (n <= 9) {
-								*dst = '0' + n;
-								return 1;
-							}
-							if (n == 0xA) {
-								*dst = '.';
-								return 1;
-							}
-							if (n == 0xB) {
-								dst[0] = 'E';
-								return 1;
-							}
-							if (n == 0xC) {
-								dst[0] = 'E';
-								dst[1] = '-';
-								return 2;
-							}
-							if (n == 0xE) {
-								dst[0] = '-';
-								return 1;
-							}
-							return 0;
-						};
-						bi += nibbleChar(n1, buf + bi);
-						if (n1 == 0xF)
-							break;
-						bi += nibbleChar(n2, buf + bi);
-						if (n2 == 0xF)
-							break;
-					}
-					buf[bi] = '\0';
-					outVal = (nkft_float32)atof(buf);
-					return true;
-				}
-				if (b0 >= 32 && b0 <= 246) {
-					outVal = (nkft_float32)((nkft_int32)b0 - 139);
-					return true;
-				}
-				if (b0 >= 247 && b0 <= 250) {
-					if (p >= end)
-						return false;
-					outVal = (nkft_float32)(((nkft_int32)b0 - 247) * 256 + *p++ + 108);
-					return true;
-				}
-				if (b0 >= 251 && b0 <= 254) {
-					if (p >= end)
-						return false;
-					outVal = (nkft_float32)(-((nkft_int32)b0 - 251) * 256 - *p++ - 108);
-					return true;
-				}
-				// C'est un opérateur, on remet le byte
-				--p;
-				return false;
-			}
-
-			// Interprète un charstring Type 2 et remplit le NkFontVertexBuffer
-			static bool InterpretType2(const nkft_uint8 *cs, nkft_uint32 csLen, NkFontVertexBuffer *buf,
-									   const nkft_uint8 *gsubrs, nkft_uint32 gsubrsLen, const nkft_uint8 *lsubrs,
-									   nkft_uint32 lsubrsLen, nkft_int32 gsubrBias, nkft_int32 lsubrBias,
-									   CFFContext &ctx, nkft_int32 depth = 0) {
-				if (depth > 10)
-					return false;
-				const nkft_uint8 *p = cs;
-				const nkft_uint8 *end = cs + csLen;
-
-				while (p < end) {
-					nkft_float32 val;
-					while (p < end && NkReadCFFNumber(p, end, val)) {
-						ctx.Push(val);
-					}
-					if (p >= end)
-						break;
-
-					nkft_uint8 op = *p++;
-					nkft_uint8 op2 = 0;
-					if (op == 12 && p < end) {
-						op2 = *p++;
-						op = 0; // escape
-					}
-
-					// ── Opérateurs de mouvement ───────────────────────────────────────
-					if (op == 21) { // rmoveto
-						if (ctx.stackTop >= 2) {
-							nkft_float32 dy = ctx.stack[--ctx.stackTop];
-							nkft_float32 dx = ctx.stack[--ctx.stackTop];
-							ctx.x += dx;
-							ctx.y += dy;
-						}
-						NkFontVertex v{};
-						v.type = NK_FONT_VERTEX_MOVE;
-						v.x = (nkft_int16)ctx.x;
-						v.y = (nkft_int16)ctx.y;
-						buf->Push(v);
-						ctx.Clear();
-					} else if (op == 22) { // hmoveto
-						if (ctx.stackTop >= 1) {
-							ctx.x += ctx.stack[--ctx.stackTop];
-						}
-						NkFontVertex v{};
-						v.type = NK_FONT_VERTEX_MOVE;
-						v.x = (nkft_int16)ctx.x;
-						v.y = (nkft_int16)ctx.y;
-						buf->Push(v);
-						ctx.Clear();
-					} else if (op == 4) { // vmoveto
-						if (ctx.stackTop >= 1) {
-							ctx.y += ctx.stack[--ctx.stackTop];
-						}
-						NkFontVertex v{};
-						v.type = NK_FONT_VERTEX_MOVE;
-						v.x = (nkft_int16)ctx.x;
-						v.y = (nkft_int16)ctx.y;
-						buf->Push(v);
-						ctx.Clear();
-					}
-					// ── Lignes ────────────────────────────────────────────────────────
-					else if (op == 5) { // rlineto
-						while (ctx.stackTop >= 2) {
-							ctx.x += ctx.stack[ctx.stackTop - 2];
-							ctx.y += ctx.stack[ctx.stackTop - 1];
-							ctx.stackTop -= 2;
-							NkFontVertex v{};
-							v.type = NK_FONT_VERTEX_LINE;
-							v.x = (nkft_int16)ctx.x;
-							v.y = (nkft_int16)ctx.y;
-							buf->Push(v);
-						}
-						ctx.Clear();
-					} else if (op == 6) { // hlineto
-						bool horiz = true;
-						while (ctx.stackTop > 0) {
-							nkft_float32 d = ctx.stack[0];
-							for (int i = 0; i < ctx.stackTop - 1; ++i) {
-								ctx.stack[i] = ctx.stack[i + 1];
-							}
-							--ctx.stackTop;
-							if (horiz)
-								ctx.x += d;
-							else
-								ctx.y += d;
-							NkFontVertex v{};
-							v.type = NK_FONT_VERTEX_LINE;
-							v.x = (nkft_int16)ctx.x;
-							v.y = (nkft_int16)ctx.y;
-							buf->Push(v);
-							horiz = !horiz;
-						}
-					} else if (op == 7) { // vlineto
-						bool vert = true;
-						while (ctx.stackTop > 0) {
-							nkft_float32 d = ctx.stack[0];
-							for (int i = 0; i < ctx.stackTop - 1; ++i) {
-								ctx.stack[i] = ctx.stack[i + 1];
-							}
-							--ctx.stackTop;
-							if (vert)
-								ctx.y += d;
-							else
-								ctx.x += d;
-							NkFontVertex v{};
-							v.type = NK_FONT_VERTEX_LINE;
-							v.x = (nkft_int16)ctx.x;
-							v.y = (nkft_int16)ctx.y;
-							buf->Push(v);
-							vert = !vert;
-						}
-					}
-					// ── Courbes cubiques ──────────────────────────────────────────────
-					else if (op == 8) { // rrcurveto
-						while (ctx.stackTop >= 6) {
-							nkft_float32 dx1 = ctx.stack[0];
-							nkft_float32 dy1 = ctx.stack[1];
-							nkft_float32 dx2 = ctx.stack[2];
-							nkft_float32 dy2 = ctx.stack[3];
-							nkft_float32 dx3 = ctx.stack[4];
-							nkft_float32 dy3 = ctx.stack[5];
-							for (int i = 0; i < ctx.stackTop - 6; ++i) {
-								ctx.stack[i] = ctx.stack[i + 6];
-							}
-							ctx.stackTop -= 6;
-							nkft_float32 cx1 = ctx.x + dx1;
-							nkft_float32 cy1 = ctx.y + dy1;
-							nkft_float32 cx2 = cx1 + dx2;
-							nkft_float32 cy2 = cy1 + dy2;
-							ctx.x = cx2 + dx3;
-							ctx.y = cy2 + dy3;
-							NkFontVertex v{};
-							v.type = NK_FONT_VERTEX_CUBIC;
-							v.x = (nkft_int16)ctx.x;
-							v.y = (nkft_int16)ctx.y;
-							v.cx = (nkft_int16)cx1;
-							v.cy = (nkft_int16)cy1;
-							v.cx1 = (nkft_int16)cx2;
-							v.cy1 = (nkft_int16)cy2;
-							buf->Push(v);
-						}
-						ctx.Clear();
-					} else if (op == 27) { // hhcurveto
-						nkft_int32 i = 0;
-						nkft_float32 dy1 = (ctx.stackTop & 1) ? ctx.stack[i++] : 0.f;
-						while (ctx.stackTop - i >= 4) {
-							nkft_float32 dx1 = ctx.stack[i];
-							nkft_float32 dx2 = ctx.stack[i + 1];
-							nkft_float32 dy2 = ctx.stack[i + 2];
-							nkft_float32 dx3 = ctx.stack[i + 3];
-							i += 4;
-							nkft_float32 cx1 = ctx.x + dx1;
-							nkft_float32 cy1 = ctx.y + dy1;
-							nkft_float32 cx2 = cx1 + dx2;
-							nkft_float32 cy2 = cy1 + dy2;
-							ctx.x = cx2 + dx3;
-							ctx.y = cy2;
-							NkFontVertex v{};
-							v.type = NK_FONT_VERTEX_CUBIC;
-							v.x = (nkft_int16)ctx.x;
-							v.y = (nkft_int16)ctx.y;
-							v.cx = (nkft_int16)cx1;
-							v.cy = (nkft_int16)cy1;
-							v.cx1 = (nkft_int16)cx2;
-							v.cy1 = (nkft_int16)cy2;
-							buf->Push(v);
-							dy1 = 0.f;
-						}
-						ctx.Clear();
-					} else if (op == 31) { // hvcurveto
-						bool hFirst = true;
-						nkft_int32 i = 0;
-						while (ctx.stackTop - i >= 4) {
-							nkft_float32 a = ctx.stack[i];
-							nkft_float32 b = ctx.stack[i + 1];
-							nkft_float32 c = ctx.stack[i + 2];
-							nkft_float32 d = ctx.stack[i + 3];
-							i += 4;
-							nkft_float32 extra = (ctx.stackTop - i == 1) ? ctx.stack[i++] : 0.f;
-							nkft_float32 cx1, cy1, cx2, cy2;
-							if (hFirst) {
-								cx1 = ctx.x + a;
-								cy1 = ctx.y;
-								cx2 = cx1 + b;
-								cy2 = cy1 + c;
-								ctx.x = cx2 + d + extra;
-								ctx.y = cy2;
-							} else {
-								cx1 = ctx.x;
-								cy1 = ctx.y + a;
-								cx2 = cx1 + b;
-								cy2 = cy1 + c;
-								ctx.x = cx2 + extra;
-								ctx.y = cy2 + d;
-							}
-							NkFontVertex v{};
-							v.type = NK_FONT_VERTEX_CUBIC;
-							v.x = (nkft_int16)ctx.x;
-							v.y = (nkft_int16)ctx.y;
-							v.cx = (nkft_int16)cx1;
-							v.cy = (nkft_int16)cy1;
-							v.cx1 = (nkft_int16)cx2;
-							v.cy1 = (nkft_int16)cy2;
-							buf->Push(v);
-							hFirst = !hFirst;
-						}
-						ctx.Clear();
-					} else if (op == 30) { // vhcurveto
-						bool vFirst = true;
-						nkft_int32 i = 0;
-						while (ctx.stackTop - i >= 4) {
-							nkft_float32 a = ctx.stack[i];
-							nkft_float32 b = ctx.stack[i + 1];
-							nkft_float32 c = ctx.stack[i + 2];
-							nkft_float32 d = ctx.stack[i + 3];
-							i += 4;
-							nkft_float32 extra = (ctx.stackTop - i == 1) ? ctx.stack[i++] : 0.f;
-							nkft_float32 cx1, cy1, cx2, cy2;
-							if (vFirst) {
-								cx1 = ctx.x;
-								cy1 = ctx.y + a;
-								cx2 = cx1 + b;
-								cy2 = cy1 + c;
-								ctx.x = cx2 + extra;
-								ctx.y = cy2 + d;
-							} else {
-								cx1 = ctx.x + a;
-								cy1 = ctx.y;
-								cx2 = cx1 + b;
-								cy2 = cy1 + c;
-								ctx.x = cx2 + d;
-								ctx.y = cy2 + extra;
-							}
-							NkFontVertex v{};
-							v.type = NK_FONT_VERTEX_CUBIC;
-							v.x = (nkft_int16)ctx.x;
-							v.y = (nkft_int16)ctx.y;
-							v.cx = (nkft_int16)cx1;
-							v.cy = (nkft_int16)cy1;
-							v.cx1 = (nkft_int16)cx2;
-							v.cy1 = (nkft_int16)cy2;
-							buf->Push(v);
-							vFirst = !vFirst;
-						}
-						ctx.Clear();
-					} else if (op == 24) { // rcurveline
-						while (ctx.stackTop >= 8) {
-							nkft_float32 dx1 = ctx.stack[0];
-							nkft_float32 dy1 = ctx.stack[1];
-							nkft_float32 dx2 = ctx.stack[2];
-							nkft_float32 dy2 = ctx.stack[3];
-							nkft_float32 dx3 = ctx.stack[4];
-							nkft_float32 dy3 = ctx.stack[5];
-							for (int i = 0; i < ctx.stackTop - 6; ++i) {
-								ctx.stack[i] = ctx.stack[i + 6];
-							}
-							ctx.stackTop -= 6;
-							nkft_float32 cx1 = ctx.x + dx1;
-							nkft_float32 cy1 = ctx.y + dy1;
-							nkft_float32 cx2 = cx1 + dx2;
-							nkft_float32 cy2 = cy1 + dy2;
-							ctx.x = cx2 + dx3;
-							ctx.y = cy2 + dy3;
-							NkFontVertex v{};
-							v.type = NK_FONT_VERTEX_CUBIC;
-							v.x = (nkft_int16)ctx.x;
-							v.y = (nkft_int16)ctx.y;
-							v.cx = (nkft_int16)cx1;
-							v.cy = (nkft_int16)cy1;
-							v.cx1 = (nkft_int16)cx2;
-							v.cy1 = (nkft_int16)cy2;
-							buf->Push(v);
-						}
-						if (ctx.stackTop >= 2) {
-							ctx.x += ctx.stack[0];
-							ctx.y += ctx.stack[1];
-							ctx.stackTop -= 2;
-							NkFontVertex v{};
-							v.type = NK_FONT_VERTEX_LINE;
-							v.x = (nkft_int16)ctx.x;
-							v.y = (nkft_int16)ctx.y;
-							buf->Push(v);
-						}
-						ctx.Clear();
-					}
-					// ── Subroutines ───────────────────────────────────────────────────
-					else if (op == 10) { // callsubr
-						if (ctx.stackTop > 0 && lsubrs) {
-							nkft_int32 si = (nkft_int32)ctx.Pop() + lsubrBias;
-							// Simplification : on ne supporte pas les subr pour l'instant
-						}
-					} else if (op == 29) { // callgsubr
-						if (ctx.stackTop > 0 && gsubrs) {
-							nkft_int32 si = (nkft_int32)ctx.Pop() + gsubrBias;
-						}
-					} else if (op == 11) { // return — fin de subr
-						return true;
-					}
-					// ── Fin de glyphe ─────────────────────────────────────────────────
-					else if (op == 14) { // endchar
-						return true;
-					}
-					// ── Hints (ignorés pour le rendu, mais consomment la stack) ───────
-					else if (op == 1 || op == 18) { // hstem / hstemhm
-						ctx.stackTop &= ~1;
-						ctx.Clear();
-					} else if (op == 3 || op == 23) { // vstem / vstemhm
-						ctx.stackTop &= ~1;
-						ctx.Clear();
-					} else if (op == 19 || op == 20) { // hintmask / cntrmask
-						++p;						   // consomme 1 byte par 8 hints
-						ctx.Clear();
-					} else if (op == 0 && op2 == 35) { // flex
-						ctx.Clear();
-					} else if (op == 0 && op2 == 34) { // hflex
-						ctx.Clear();
-					} else {
-						ctx.Clear(); // opérateur inconnu, vide la stack
-					}
-				}
-				return true;
-			}
-
-		} // anonymous namespace
+		// (06/10) L'interpreteur CFF / Type 2 vit dans NkFontCff.cpp (complet :
+		// subroutines, DICT prive, polices CID, charset, encodage, flex, seac).
 
 		// ============================================================
 		// InitFontFace
 		// ============================================================
 
-		bool NkInitFontFace(NkFontFaceInfo *info, const nkft_uint8 *data, nkft_size size, nkft_int32 faceIndex) {
+		bool NkInitFontFace(NkFontFaceInfo *info, const nkft_uint8 *data, nkft_size size, nkft_int32 faceIndex,
+							bool cmapUnicodeRequise) {
 			if (!info || !data || size < 12)
 				return false;
-			memset(info, 0, sizeof(*info));
+			*info = NkFontFaceInfo{}; // (06/10) les valeurs par defaut (cffMatrix) et non des zeros
+
+			// ── (06/10) CFF NU (PDF /FontFile3 : Type1C, CIDFontType0C) ──────────
+			// En-tete CFF : version majeure 1, mineure 0, hdrSize >= 4, offSize 1..4.
+			// Ni sfnt, ni cmap, ni hmtx : le lecteur PDF adresse ses glyphes par CID,
+			// par nom ou par code ; c'est pourquoi il faut l'avoir demande.
+			if (!cmapUnicodeRequise && data[0] == 1 && data[1] == 0 && data[2] >= 4 && data[3] >= 1 && data[3] <= 4) {
+				info->data.data = data;
+				info->data.size = size;
+				if (!NkCffInit(info, 0, static_cast<nkft_uint32>(size)))
+					return false;
+				info->cffNu = true;
+				const nkft_float32 m0 = info->cffMatrix[0];
+				info->unitsPerEm = m0 > 0.f ? static_cast<nkft_int32>(1.f / m0 + 0.5f) : 1000;
+				info->ascent = info->unitsPerEm * 8 / 10;
+				info->descent = -(info->unitsPerEm * 2 / 10);
+				return true;
+			}
 
 			// ── Détection WOFF ────────────────────────────────────────────────────
 			nkft_uint32 sig = NkReadU32(data);
@@ -997,7 +525,9 @@ namespace nkentseu {
 			info->loca = GetTable("loca");
 			info->cff = GetTable("CFF ");
 
-			if (!info->cmap || !info->head || !info->hhea || !info->hmtx)
+			// (06/10) La cmap n'est exigee que si l'appelant adresse par Unicode : un
+			// sous-ensemble TrueType embarque dans un PDF n'en a souvent aucune.
+			if (!info->head || !info->hhea || !info->hmtx || (cmapUnicodeRequise && !info->cmap))
 				return false;
 
 			if (!info->data.IsValid(info->head, 54))
@@ -1017,17 +547,21 @@ namespace nkentseu {
 			info->lineGap = NkReadI16(info->data.At(info->hhea + 8));
 			info->numHMetrics = NkReadU16(info->data.At(info->hhea + 34));
 
-			// ── CFF : parse le DICT pour extraire les offsets charstrings ─────────
+			// ── CFF : INDEX, DICT, subroutines, charset (NkFontCff.cpp) ──────────
 			if (info->isCFF && info->cff) {
 				info->cffBase = info->cff;
+				// Un echec laisse la police chargeable (metriques, cmap) mais sans contours.
+				(void)NkCffInit(info, info->cff, static_cast<nkft_uint32>(size - info->cff));
+				info->isCFF = true;
 			}
 
 			// ── cmap ─────────────────────────────────────────────────────────────
 			{
 				nkft_uint32 cmapBase = info->cmap;
-				if (!info->data.IsValid(cmapBase + 4, 0))
+				const bool cmapLisible = cmapBase && info->data.IsValid(cmapBase + 4, 0);
+				if (!cmapLisible && cmapUnicodeRequise)
 					return false;
-				nkft_uint32 numSub = NkReadU16(info->data.At(cmapBase + 2));
+				nkft_uint32 numSub = cmapLisible ? NkReadU16(info->data.At(cmapBase + 2)) : 0u;
 				nkft_uint32 fmt4Off = 0, fmt12Off = 0;
 
 				for (nkft_uint32 i = 0; i < numSub && i < 32; ++i) {
@@ -1041,8 +575,18 @@ namespace nkentseu {
 						continue;
 					nkft_uint32 fmt = NkReadU16(info->data.At(so));
 					bool isUni = (pid == 0) || (pid == 3 && eid == 1) || (pid == 3 && eid == 10);
-					if (!isUni)
+					if (!isUni) {
+						// (06/10) gardees pour les polices symboliques des PDF
+						const bool lisible = fmt == 0 || fmt == 4 || fmt == 6;
+						if (pid == 3 && eid == 0 && lisible && !info->cmapSymOffset) {
+							info->cmapSymOffset = so;
+							info->cmapSymFormat = static_cast<nkft_int32>(fmt);
+						} else if (pid == 1 && eid == 0 && lisible && !info->cmapMacOffset) {
+							info->cmapMacOffset = so;
+							info->cmapMacFormat = static_cast<nkft_int32>(fmt);
+						}
 						continue;
+					}
 					if (fmt == 4 && !fmt4Off)
 						fmt4Off = so;
 					if (fmt == 12 && !fmt12Off)
@@ -1054,7 +598,7 @@ namespace nkentseu {
 				} else if (fmt4Off) {
 					info->cmapTableOffset = fmt4Off;
 					info->cmapFormat = 4;
-				} else
+				} else if (cmapUnicodeRequise)
 					return false;
 			}
 			return true;
@@ -1139,6 +683,48 @@ namespace nkentseu {
 			return 0;
 		}
 
+		// (06/10) Une sous-table cmap quelconque : formats 0 (octets), 6 (tableau
+		// tronque) ici ; 4 et 12 par NkFindGlyphIndex, sur une copie qui la designe.
+		static NkGlyphId ChercherSousTable(const NkFontFaceInfo *info, nkft_uint32 off, nkft_int32 fmt, nkft_uint32 cp) {
+			if (!off)
+				return 0;
+			const NkFontDataSpan &s = info->data;
+			if (fmt == 0) {
+				if (cp > 255 || !s.IsValid(off + 6 + cp, 1))
+					return 0;
+				return s.data[off + 6 + cp];
+			}
+			if (fmt == 6) {
+				if (!s.IsValid(off + 6, 4))
+					return 0;
+				const nkft_uint32 premier = NkReadU16(s.At(off + 6)), nb = NkReadU16(s.At(off + 8));
+				if (cp < premier || cp >= premier + nb || !s.IsValid(off + 10 + (cp - premier) * 2, 2))
+					return 0;
+				return NkReadU16(s.At(off + 10 + (cp - premier) * 2));
+			}
+			if (fmt == 4 || fmt == 12) {
+				NkFontFaceInfo copie = *info;
+				copie.cmapTableOffset = off;
+				copie.cmapFormat = fmt;
+				return NkFindGlyphIndex(&copie, static_cast<NkFontCodepoint>(cp));
+			}
+			return 0;
+		}
+
+		NkGlyphId NkFindGlyphIndexSymbolique(const NkFontFaceInfo *info, nkft_uint32 code) {
+			if (!info)
+				return 0;
+			if (info->cmapSymOffset) {
+				const nkft_uint32 essais[4] = {code, 0xF000u + code, 0xF100u + code, 0xF200u + code};
+				for (nkft_uint32 c : essais) {
+					const NkGlyphId g = ChercherSousTable(info, info->cmapSymOffset, info->cmapSymFormat, c);
+					if (g)
+						return g;
+				}
+			}
+			return ChercherSousTable(info, info->cmapMacOffset, info->cmapMacFormat, code);
+		}
+
 		// ============================================================
 		// Métriques
 		// ============================================================
@@ -1204,6 +790,32 @@ namespace nkentseu {
 						   nkft_int32 *y1) {
 			if (!info)
 				return false;
+			if (info->isCFF) { // (06/10) pas de « glyf » : la boite vient du contour
+				NkFontVertexBuffer buf;
+				if (!NkCffGlyphShape(info, glyph, &buf) || buf.count == 0)
+					return false;
+				nkft_int32 a = 32767, b = 32767, c = -32768, d = -32768;
+				for (nkft_uint32 i = 0; i < buf.count; ++i) {
+					const NkFontVertex &v = buf.verts[i];
+					const nkft_int32 xs[3] = {v.x, v.cx, v.cx1}, ys[3] = {v.y, v.cy, v.cy1};
+					const nkft_int32 nb = v.type == NK_FONT_VERTEX_CUBIC ? 3 : 1;
+					for (nkft_int32 k = 0; k < nb; ++k) {
+						a = xs[k] < a ? xs[k] : a;
+						b = ys[k] < b ? ys[k] : b;
+						c = xs[k] > c ? xs[k] : c;
+						d = ys[k] > d ? ys[k] : d;
+					}
+				}
+				if (x0)
+					*x0 = a;
+				if (y0)
+					*y0 = b;
+				if (x1)
+					*x1 = c;
+				if (y1)
+					*y1 = d;
+				return true;
+			}
 			nkft_uint32 off = GlyphOffset(info, glyph);
 			if (!off || !info->data.IsValid(off, 10))
 				return false;
@@ -1509,98 +1121,6 @@ namespace nkentseu {
 				return true;
 			}
 
-			// Décode un glyphe CFF depuis la table CFF
-			static bool DecodeGlyphCFF(const NkFontFaceInfo *info, NkGlyphId glyph, NkFontVertexBuffer *buf) {
-				if (!info || !info->cff)
-					return false;
-				const nkft_uint8 *cffData = info->data.data + info->cffBase;
-				nkft_uint32 cffSize = (nkft_uint32)(info->data.size - info->cffBase);
-				(void)cffData;
-				(void)cffSize;
-
-				if (cffSize < 4)
-					return false;
-				nkft_uint8 hdrSize = cffData[2];
-				nkft_uint32 off = hdrSize;
-
-				CFFIndex nameIdx;
-				if (!nameIdx.Read(info->data, info->cffBase + off))
-					return false;
-				off += nameIdx.totalSize;
-
-				CFFIndex topDictIdx;
-				if (!topDictIdx.Read(info->data, info->cffBase + off))
-					return false;
-				off += topDictIdx.totalSize;
-
-				CFFIndex strIdx;
-				if (!strIdx.Read(info->data, info->cffBase + off))
-					return false;
-				off += strIdx.totalSize;
-
-				CFFIndex gsubrIdx;
-				gsubrIdx.Read(info->data, info->cffBase + off);
-
-				nkft_uint32 charstringsOff = 0;
-				nkft_int32 nominalWidthX = 0;
-				nkft_int32 defaultWidthX = 0;
-
-				if (topDictIdx.count > 0) {
-					nkft_uint32 tdOff = topDictIdx.GetOffset(0);
-					nkft_uint32 tdSize = topDictIdx.GetSize(0);
-					const nkft_uint8 *td = info->data.data + tdOff;
-					const nkft_uint8 *tde = td + tdSize;
-
-					nkft_float32 stack[48];
-					nkft_int32 top = 0;
-
-					while (td < tde) {
-						nkft_float32 v;
-						if (NkReadCFFNumber(td, tde, v)) {
-							if (top < 48)
-								stack[top++] = v;
-							continue;
-						}
-						nkft_uint8 op = *td++;
-						if (op == 12 && td < tde) {
-							nkft_uint8 op2 = *td++;
-							if (op2 == 6)
-								charstringsOff = (nkft_uint32)stack[0];
-						} else if (op == 17) {
-							if (top > 0)
-								charstringsOff = info->cffBase + (nkft_uint32)stack[0];
-						} else if (op == 20) {
-							if (top > 0)
-								defaultWidthX = (nkft_int32)stack[0];
-						} else if (op == 21) {
-							if (top > 0)
-								nominalWidthX = (nkft_int32)stack[0];
-						}
-						top = 0;
-					}
-				}
-
-				if (charstringsOff == 0)
-					return false;
-
-				CFFIndex csIdx;
-				if (!csIdx.Read(info->data, charstringsOff))
-					return false;
-				if (glyph >= csIdx.count)
-					return false;
-
-				nkft_uint32 csOff = csIdx.GetOffset(glyph);
-				nkft_uint32 csSize = csIdx.GetSize(glyph);
-				if (csSize == 0 || !info->data.IsValid(csOff, csSize))
-					return false;
-
-				CFFContext ctx;
-				ctx.nominalWidthX = nominalWidthX;
-				ctx.defaultWidthX = defaultWidthX;
-
-				InterpretType2(info->data.data + csOff, csSize, buf, nullptr, 0, nullptr, 0, 0, 0, ctx);
-				return buf->count > 0;
-			}
 
 		} // anonymous namespace
 
@@ -1609,9 +1129,8 @@ namespace nkentseu {
 				return false;
 			buf->Clear();
 
-			if (info->isCFF && info->cff) {
-				return DecodeGlyphCFF(info, glyph, buf);
-			}
+			if (info->isCFF)
+				return NkCffGlyphShape(info, glyph, buf); // OTTO comme CFF nu
 
 			nkft_uint32 off = GlyphOffset(info, glyph);
 			if (!off || !info->data.IsValid(off, 2))
