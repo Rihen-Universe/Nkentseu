@@ -840,6 +840,14 @@ with workspace("Nkentseu", location="."):
     with includeprive("Kernel/AI/Applications/NKCivilizationScaleTest/NKCivilizationScaleTest.jenga"):
         pass
 
+    # PV3DE, memoire (05/10/2026) : brique A (chaine de verification, banc de fidelite)
+    # et brique B (population calibree sur le Cameroun, banc H5).
+    with includeprive("Kernel/AI/Applications/NKPatientBanc/NKPatientBanc.jenga"):
+        pass
+
+    with includeprive("Kernel/AI/Applications/NKPopulationBanc/NKPopulationBanc.jenga"):
+        pass
+
     with includeprive("Kernel/AI/Applications/NKGenTest/NKGenTest.jenga"):
         pass
 
