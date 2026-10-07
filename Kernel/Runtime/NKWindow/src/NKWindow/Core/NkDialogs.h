@@ -71,6 +71,27 @@ namespace nkentseu {
 			static NkDialogResult ColorPicker(uint32 initial = 0xFFFFFFFF);
 
 			// -------------------------------------------------------------------
+			// (07/10/2026) UNE FENETRE CACHEE N'OUVRE AUCUNE BOITE DU SYSTEME
+			// -------------------------------------------------------------------
+			// Une application lancee par une sonde (`NK_FENETRE_CACHEE=1`) cache sa
+			// fenetre. Une boite du systeme, elle, surgissait quand meme sur l'ecran,
+			// et tenait l'application jusqu'a ce que quelqu'un la ferme (NKCraft, le
+			// 07/10 a 09 h 00 : un chemin de projet refuse, trois minutes de boite
+			// modale sur l'ecran de travail).
+			// La regle vit ICI, a la seule porte par laquelle les applications ouvrent
+			// une boite du systeme : bloquee, chaque fonction ECRIT ce qu'elle aurait
+			// montre (sortie standard) et rend « non confirme ». Fenetre visible, rien
+			// ne change.
+
+			/// Vrai si les boites du systeme sont refusees : `NK_FENETRE_CACHEE` posee
+			/// (ni vide ni « 0 »), ou `SetBlocked(true)`.
+			static bool Blocked();
+			/// L'hote peut l'imposer. `false` rend la main a la variable d'environnement.
+			static void SetBlocked(bool blocked);
+			/// Combien de boites ont ete refusees depuis le lancement (banc).
+			static uint32 RefusedCount();
+
+			// -------------------------------------------------------------------
 			// Variantes ASYNCHRONES (callback)
 			// -------------------------------------------------------------------
 			// Requises sur mobile : iOS présente ses pickers de façon asynchrone

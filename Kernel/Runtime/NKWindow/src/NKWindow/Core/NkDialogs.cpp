@@ -3,6 +3,9 @@
 #include "NKCore/Text/NkSnprintf.h"
 #include "NKPlatform/NkPlatformDetect.h"
 
+#include <cstdio>  // la boite refusee s'ecrit sur la sortie standard
+#include <cstdlib> // std::getenv : NK_FENETRE_CACHEE
+
 // ---------------------------------------------------------------------------
 // ImplÃ©mentations spÃ©cifiques aux plateformes
 // ---------------------------------------------------------------------------
@@ -54,6 +57,42 @@
  */
 namespace nkentseu {
 
+	// ===========================================================================
+	// (07/10/2026) FENETRE CACHEE = AUCUNE BOITE DU SYSTEME (voir NkDialogs.h)
+	// ===========================================================================
+	namespace {
+		bool gNkDialoguesBloques = false;
+		uint32 gNkDialoguesRefuses = 0;
+
+		/// Vrai = la boite est REFUSEE : on ecrit laquelle, on ne montre rien.
+		/// C'est la PREMIERE ligne de chaque fonction qui ouvre une boite.
+		bool NkDialogueRefuse(const char *quoi, const NkString &titre, const char *message = nullptr) {
+			if (!NkDialogs::Blocked())
+				return false;
+			++gNkDialoguesRefuses;
+			std::printf("[dialogues] BOITE DU SYSTEME REFUSEE (fenetre cachee) : %s \"%s\"%s%s\n", quoi, titre.CStr(),
+						message ? " : " : "", message ? message : "");
+			std::fflush(stdout);
+			return true;
+		}
+	} // namespace
+
+	bool NkDialogs::Blocked() {
+		if (gNkDialoguesBloques)
+			return true;
+		// la meme lecture que la coquille du kit (NkFenetreCacheeDemandee)
+		const char *cachee = std::getenv("NK_FENETRE_CACHEE");
+		return cachee && cachee[0] && cachee[0] != '0';
+	}
+
+	void NkDialogs::SetBlocked(bool blocked) {
+		gNkDialoguesBloques = blocked;
+	}
+
+	uint32 NkDialogs::RefusedCount() {
+		return gNkDialoguesRefuses;
+	}
+
 // ===========================================================================
 // Windows (Win32)
 // ===========================================================================
@@ -93,6 +132,8 @@ namespace nkentseu {
 	}
 
 	NkDialogResult NkDialogs::OpenFileDialog(const NkString &filter, const NkString &title) {
+		if (NkDialogueRefuse("OpenFileDialog", title))
+			return NkDialogResult{};
 		char buf[MAX_PATH] = {};
 		OPENFILENAMEA ofn = {};
 		ofn.lStructSize = sizeof(ofn);
@@ -110,6 +151,8 @@ namespace nkentseu {
 	}
 
 	NkDialogResult NkDialogs::OpenFolderDialog(const NkString &title) {
+		if (NkDialogueRefuse("OpenFolderDialog", title))
+			return NkDialogResult{};
 		NkDialogResult r;
 		char path[MAX_PATH] = {};
 		const HRESULT hrInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
@@ -131,6 +174,8 @@ namespace nkentseu {
 
 	NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title,
 											 const NkString &initialDir) {
+		if (NkDialogueRefuse("SaveFileDialog", title))
+			return NkDialogResult{};
 		char buf[MAX_PATH] = {};
 		OPENFILENAMEA ofn = {};
 		ofn.lStructSize = sizeof(ofn);
@@ -148,6 +193,8 @@ namespace nkentseu {
 	}
 
 	void NkDialogs::OpenMessageBox(const NkString &message, const NkString &title, int type) {
+		if (NkDialogueRefuse("OpenMessageBox", title, message.CStr()))
+			return;
 		UINT flags = MB_OK;
 		switch (type) {
 			case 1:
@@ -164,6 +211,8 @@ namespace nkentseu {
 	}
 
 	NkDialogResult NkDialogs::ColorPicker(uint32 initial) {
+		if (NkDialogueRefuse("ColorPicker", NkString()))
+			return NkDialogResult{};
 		static COLORREF customColors[16] = {};
 		CHOOSECOLORA cc = {};
 		cc.lStructSize = sizeof(cc);
@@ -201,6 +250,8 @@ namespace nkentseu {
 	}
 
 	NkDialogResult NkDialogs::OpenFileDialog(const NkString &filter, const NkString &title) {
+		if (NkDialogueRefuse("OpenFileDialog", title))
+			return NkDialogResult{};
 		NkDialogResult res;
 		// Construction de la commande zenity
 		NkString cmd = "zenity --file-selection --title=\"";
@@ -219,6 +270,8 @@ namespace nkentseu {
 	}
 
 	NkDialogResult NkDialogs::OpenFolderDialog(const NkString &title) {
+		if (NkDialogueRefuse("OpenFolderDialog", title))
+			return NkDialogResult{};
 		NkDialogResult res;
 		NkString cmd = "zenity --file-selection --directory --title=\"";
 		cmd += title;
@@ -231,6 +284,8 @@ namespace nkentseu {
 
 	NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title,
 											 const NkString &initialDir) {
+		if (NkDialogueRefuse("SaveFileDialog", title))
+			return NkDialogResult{};
 		NkDialogResult res;
 		NkString cmd = "zenity --file-selection --save --confirm-overwrite --title=\"";
 		cmd += title;
@@ -276,6 +331,8 @@ namespace nkentseu {
 	}
 
 	void NkDialogs::OpenMessageBox(const NkString &message, const NkString &title, int type) {
+		if (NkDialogueRefuse("OpenMessageBox", title, message.CStr()))
+			return;
 		NkString cmd = "zenity --";
 		switch (type) {
 			case 1:
@@ -297,6 +354,8 @@ namespace nkentseu {
 	}
 
 	NkDialogResult NkDialogs::ColorPicker(uint32 initial) {
+		if (NkDialogueRefuse("ColorPicker", NkString()))
+			return NkDialogResult{};
 		NkDialogResult res;
 		// Convertir initial en #RRGGBB pour zenity
 		char hex[8];
@@ -339,6 +398,8 @@ namespace nkentseu {
 
 	// Pour les dialogues de fichiers, on utilise osascript (AppleScript)
 	NkDialogResult NkDialogs::OpenFileDialog(const NkString &filter, const NkString &title) {
+		if (NkDialogueRefuse("OpenFileDialog", title))
+			return NkDialogResult{};
 		NkDialogResult res;
 		// Construction d'un script AppleScript pour choisir un fichier
 		NkString script = "osascript -e 'POSIX path of (choose file with prompt \"" + title + "\"";
@@ -382,6 +443,8 @@ namespace nkentseu {
 	}
 
 	NkDialogResult NkDialogs::OpenFolderDialog(const NkString &title) {
+		if (NkDialogueRefuse("OpenFolderDialog", title))
+			return NkDialogResult{};
 		NkDialogResult res;
 		NkString script = "osascript -e 'POSIX path of (choose folder with prompt \"" + title + "\")'";
 		NkString path = ExecCommand(script.CStr());
@@ -392,6 +455,8 @@ namespace nkentseu {
 
 	NkDialogResult NkDialogs::SaveFileDialog(const NkString &defaultExt, const NkString &title,
 											 const NkString &initialDir) {
+		if (NkDialogueRefuse("SaveFileDialog", title))
+			return NkDialogResult{};
 		NkDialogResult res;
 		NkString script = "osascript -e 'POSIX path of (choose file name with prompt \"" + title + "\"";
 		if (!initialDir.Empty()) {
@@ -408,6 +473,8 @@ namespace nkentseu {
 	}
 
 	void NkDialogs::OpenMessageBox(const NkString &message, const NkString &title, int type) {
+		if (NkDialogueRefuse("OpenMessageBox", title, message.CStr()))
+			return;
 		NkString script = "osascript -e 'display dialog \"" + message + "\" with title \"" + title + "\"";
 		switch (type) {
 			case 1:
@@ -425,6 +492,8 @@ namespace nkentseu {
 	}
 
 	NkDialogResult NkDialogs::ColorPicker(uint32 initial) {
+		if (NkDialogueRefuse("ColorPicker", NkString()))
+			return NkDialogResult{};
 		// Pas de color picker simple en ligne de commande sur macOS, on peut utiliser un script plus complexe.
 		// Pour simplifier, on renvoie un stub.
 		(void)initial;

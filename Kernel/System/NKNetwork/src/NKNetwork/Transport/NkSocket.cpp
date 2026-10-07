@@ -569,9 +569,10 @@ namespace nkentseu {
 				return NkNetResult::NK_NET_SOCKET_ERROR;
 			}
 
-			// Configuration par défaut des buffers pour performance
-			SetSendBufferSize(kNkSendBufferSize);
-			SetRecvBufferSize(kNkRecvBufferSize);
+			// Configuration par défaut des buffers pour performance : une preference.
+			// Refusee, le systeme garde sa taille et le socket reste utilisable.
+			(void)SetSendBufferSize(kNkSendBufferSize);
+			(void)SetRecvBufferSize(kNkRecvBufferSize);
 
 			return NkNetResult::NK_NET_OK;
 		}

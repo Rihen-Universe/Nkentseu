@@ -816,8 +816,9 @@ namespace nkentseu {
 			uint8 buffer[NkSystemHeader::kSize];
 			ping.Serialize(buffer);
 
-			// Envoi via RUDP en unreliable pour minimiser l'overhead
-			mRUDP.Send(buffer, NkSystemHeader::kSize, NkNetChannel::NK_NET_CHANNEL_UNRELIABLE);
+			// Envoi via RUDP en unreliable pour minimiser l'overhead. Un ping refuse et un
+			// ping perdu sont le meme cas : le suivant part a la prochaine periode.
+			(void)mRUDP.Send(buffer, NkSystemHeader::kSize, NkNetChannel::NK_NET_CHANNEL_UNRELIABLE);
 		}
 
 		void NkConnection::ProcessPing(const uint8 *data, uint32 size) noexcept {
@@ -836,8 +837,8 @@ namespace nkentseu {
 			uint8 buffer[NkSystemHeader::kSize];
 			pong.Serialize(buffer);
 
-			// Envoi de la réponse
-			mRUDP.Send(buffer, NkSystemHeader::kSize, NkNetChannel::NK_NET_CHANNEL_UNRELIABLE);
+			// Envoi de la réponse (non fiable : perdue ou refusee, le pair repingue)
+			(void)mRUDP.Send(buffer, NkSystemHeader::kSize, NkNetChannel::NK_NET_CHANNEL_UNRELIABLE);
 		}
 
 		void NkConnection::ProcessPong(const uint8 *data, uint32 size) noexcept {
@@ -913,9 +914,15 @@ namespace nkentseu {
 			// Récupération de la configuration globale
 			const auto &cfg = NkNetworkConfigManager::Get();
 
-			mSocket.SetNonBlocking(true);
-			mSocket.SetRecvBufferSize(kNkRecvBufferSize);
-			mSocket.SetSendBufferSize(kNkSendBufferSize);
+			// Un socket reste bloquant gele la boucle qui le lit : on ne demarre pas avec.
+			if (mSocket.SetNonBlocking(true) != NkNetResult::NK_NET_OK) {
+				NK_NET_LOG_ERROR("Le socket n'a pas pu passer en non bloquant");
+				mSocket.Close();
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+			// Tailles de tampon : une preference. Refusee, le systeme garde la sienne.
+			(void)mSocket.SetRecvBufferSize(kNkRecvBufferSize);
+			(void)mSocket.SetSendBufferSize(kNkSendBufferSize);
 
 			// Initialisation des membres
 			mIsServer = true;
@@ -951,9 +958,15 @@ namespace nkentseu {
 				return NkNetResult::NK_NET_SOCKET_ERROR;
 			}
 
-			mSocket.SetNonBlocking(true);
-			mSocket.SetRecvBufferSize(kNkRecvBufferSize);
-			mSocket.SetSendBufferSize(kNkSendBufferSize);
+			// Un socket reste bloquant gele la boucle qui le lit : on ne demarre pas avec.
+			if (mSocket.SetNonBlocking(true) != NkNetResult::NK_NET_OK) {
+				NK_NET_LOG_ERROR("Le socket n'a pas pu passer en non bloquant");
+				mSocket.Close();
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+			// Tailles de tampon : une preference. Refusee, le systeme garde la sienne.
+			(void)mSocket.SetRecvBufferSize(kNkRecvBufferSize);
+			(void)mSocket.SetSendBufferSize(kNkSendBufferSize);
 
 			// Initialisation des membres
 			mIsServer = false;
@@ -1130,7 +1143,7 @@ namespace nkentseu {
 			}
 
 			if (conn != nullptr) {
-				conn->Disconnect(reason);
+				(void)conn->Disconnect(reason); // on ferme : deja fermee ou non, le resultat est le meme
 			}
 		}
 
@@ -1139,7 +1152,7 @@ namespace nkentseu {
 			threading::NkScopedLockMutex lock(mConnMutex);
 			for (uint32 i = 0; i < mConnCount; ++i) {
 				if (mConnections[i] != nullptr) {
-					mConnections[i]->Disconnect(reason);
+					(void)mConnections[i]->Disconnect(reason); // idem : on ferme tout
 				}
 			}
 		}

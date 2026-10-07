@@ -479,8 +479,9 @@ namespace nkentseu {
 					header.Serialize(buffer);
 					nkentseu::memory::NkCopy(buffer + NkRUDPHeader::kSize, entry->data, entry->size);
 
-					// Envoi via socket
-					mSocket->SendTo(buffer, NkRUDPHeader::kSize + entry->size, mRemote);
+					// Envoi via socket. Refuse ou perdu en route, c'est le meme cas pour un
+					// paquet fiable : il reste dans la file et repart a la prochaine echeance.
+					(void)mSocket->SendTo(buffer, NkRUDPHeader::kSize + entry->size, mRemote);
 				}
 			}
 
@@ -506,7 +507,7 @@ namespace nkentseu {
 					header.Serialize(buffer);
 					nkentseu::memory::NkCopy(buffer + NkRUDPHeader::kSize, entry->data, entry->size);
 
-					mSocket->SendTo(buffer, NkRUDPHeader::kSize + entry->size, mRemote);
+					(void)mSocket->SendTo(buffer, NkRUDPHeader::kSize + entry->size, mRemote); // idem : il repartira
 				}
 			}
 
@@ -517,7 +518,7 @@ namespace nkentseu {
 			const float32 kAckInterval = 0.05f; // 50ms entre ACKs
 
 			if (mAckTimer >= kAckInterval) {
-				SendACK();
+				(void)SendACK(); // un accuse manque est rattrape par le suivant (50 ms)
 				mAckTimer = 0.f;
 			}
 
@@ -540,7 +541,7 @@ namespace nkentseu {
 				uint8 buffer[NkRUDPHeader::kSize];
 				header.Serialize(buffer);
 
-				mSocket->SendTo(buffer, NkRUDPHeader::kSize, mRemote);
+				(void)mSocket->SendTo(buffer, NkRUDPHeader::kSize, mRemote); // ping : le suivant le remplace
 				mPingSentAt = now;
 			}
 		}

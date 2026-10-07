@@ -578,7 +578,9 @@ namespace nkentseu {
 
 			// Broadcast à tous les pairs connectés
 			const uint32 totalSize = NkLobbyMessageHeader::kSize + payloadSize;
-			mConnMgr.Broadcast(buffer, totalSize, NkNetChannel::NK_NET_CHANNEL_RELIABLE_ORDERED);
+			if (mConnMgr.Broadcast(buffer, totalSize, NkNetChannel::NK_NET_CHANNEL_RELIABLE_ORDERED) != NkNetResult::NK_NET_OK) {
+				NK_NET_LOG_WARN("Session : la diffusion n'a pas atteint tous les pairs");
+			}
 		}
 
 		void NkSession::BroadcastPlayerInfo(const NkPlayerInfo &player) noexcept {
@@ -696,8 +698,10 @@ namespace nkentseu {
 			header.Serialize(buffer);
 			nkentseu::memory::NkCopy(buffer + NkLobbyMessageHeader::kSize, payload, writer.BytesWritten());
 
-			mSession.GetConnMgr()->Broadcast(buffer, NkLobbyMessageHeader::kSize + writer.BytesWritten(),
-											 NkNetChannel::NK_NET_CHANNEL_RELIABLE_ORDERED);
+			if (mSession.GetConnMgr()->Broadcast(buffer, NkLobbyMessageHeader::kSize + writer.BytesWritten(),
+												 NkNetChannel::NK_NET_CHANNEL_RELIABLE_ORDERED) != NkNetResult::NK_NET_OK) {
+				NK_NET_LOG_WARN("Chat : le message n'a pas atteint tous les pairs");
+			}
 
 			// Appel local du callback pour affichage immédiat
 			if (onChatMessage) {
@@ -767,8 +771,10 @@ namespace nkentseu {
 			header.Serialize(buffer);
 			nkentseu::memory::NkCopy(buffer + NkLobbyMessageHeader::kSize, payload, writer.BytesWritten());
 
-			mSession.GetConnMgr()->Broadcast(buffer, NkLobbyMessageHeader::kSize + writer.BytesWritten(),
-											 NkNetChannel::NK_NET_CHANNEL_RELIABLE_ORDERED);
+			if (mSession.GetConnMgr()->Broadcast(buffer, NkLobbyMessageHeader::kSize + writer.BytesWritten(),
+												 NkNetChannel::NK_NET_CHANNEL_RELIABLE_ORDERED) != NkNetResult::NK_NET_OK) {
+				NK_NET_LOG_WARN("Chat : le message n'a pas atteint tous les pairs");
+			}
 		}
 
 		// =====================================================================
@@ -923,8 +929,11 @@ namespace nkentseu {
 				return NkNetResult::NK_NET_SOCKET_ERROR;
 			}
 
-			// Activation du mode broadcast
-			socket.SetBroadcast(true);
+			// Activation du mode broadcast : sans lui, l'envoi vers l'adresse de diffusion est refuse
+			if (socket.SetBroadcast(true) != NkNetResult::NK_NET_OK) {
+				NK_NET_LOG_ERROR("Broadcast : le socket refuse le mode diffusion");
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
 			// Sérialisation des informations du serveur
 			uint8 payload[512];
@@ -964,9 +973,14 @@ namespace nkentseu {
 				return NkNetResult::NK_NET_SOCKET_ERROR;
 			}
 
-			// Activation du mode broadcast pour réception
-			socket.SetBroadcast(true);
-			socket.SetNonBlocking(true);
+			// Activation du mode broadcast pour réception. Recevoir une diffusion n'exige pas
+			// ce mode sur tous les systemes : refuse, on ecoute quand meme.
+			(void)socket.SetBroadcast(true);
+			// Bloquant, l'ecoute ne rendrait jamais la main a son delai.
+			if (socket.SetNonBlocking(true) != NkNetResult::NK_NET_OK) {
+				NK_NET_LOG_ERROR("Listen : le socket n'a pas pu passer en non bloquant");
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
 
 			// Buffer de réception
 			uint8 buffer[1024];

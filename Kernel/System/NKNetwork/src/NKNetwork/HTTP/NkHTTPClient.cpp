@@ -50,8 +50,12 @@
 
 // En-têtes système pour sockets et résolution DNS
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX // la ligne de commande la pose deja pour tout le moteur
 #define NOMINMAX
+#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #elif defined(NKENTSEU_PLATFORM_POSIX)
@@ -1261,7 +1265,12 @@ namespace nkentseu {
 			// Parsing de l'URL pour extraire host et path
 			NkString scheme, host, path;
 			uint16 port = 0;
-			ParseURL(req.url, scheme, host, port, path);
+			// L'appelant a deja valide cette URL (il s'arrete sur un ParseURL faux) : ici on
+			// n'en relit que les morceaux. Invalide malgre tout, elle donne une requete
+			// VIDE, jamais une requete construite sur des morceaux a moitie lus.
+			if (!ParseURL(req.url, scheme, host, port, path)) {
+				return result;
+			}
 			if (path.Empty()) {
 				path = "/";
 			}
@@ -1716,8 +1725,9 @@ namespace nkentseu {
 			json.Append("}");
 			req.SetJSON(json.CStr());
 
-			// Callback wrapper
-			mHttp.SendAsync(req, [cb](const NkHTTPResponse &resp) {
+			// Callback wrapper. L'identifiant rendu ne sert qu'a annuler la requete, ce que
+			// le classement n'offre pas ; SendAsync ne rend 0 que pour un rappel nul.
+			(void)mHttp.SendAsync(req, [cb](const NkHTTPResponse &resp) {
 				bool success = !resp.HasError() && resp.IsOK();
 				if (cb) {
 					cb(success);
@@ -1734,7 +1744,7 @@ namespace nkentseu {
 			req.url = mBaseUrl + "/top?count=" + NkString::Format("%u", count);
 			req.method = NkHTTPMethod::NK_HTTP_GET;
 
-			mHttp.SendAsync(req, [cb](const NkHTTPResponse &resp) {
+			(void)mHttp.SendAsync(req, [cb](const NkHTTPResponse &resp) { // identifiant : voir SubmitScore
 				NkVector<NkLeaderboardEntry> entries;
 				if (!resp.HasError() && resp.IsOK() && !resp.body.Empty()) {
 					// Parsing JSON simplifié — en production utiliser un vrai parser
@@ -1755,7 +1765,7 @@ namespace nkentseu {
 			req.url = mBaseUrl + "/player?name=" + NkHTTPClient::URLEncode(playerName);
 			req.method = NkHTTPMethod::NK_HTTP_GET;
 
-			mHttp.SendAsync(req, [cb](const NkHTTPResponse &resp) {
+			(void)mHttp.SendAsync(req, [cb](const NkHTTPResponse &resp) { // identifiant : voir SubmitScore
 				uint32 rank = 0;
 				uint64 score = 0;
 				if (!resp.HasError() && resp.IsOK() && !resp.body.Empty()) {
