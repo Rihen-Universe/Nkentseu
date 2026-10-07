@@ -259,6 +259,10 @@ DLLS_SYSTEME = {
     "mf.dll", "mfplat.dll", "mfreadwrite.dll", "mfuuid.dll", "xinput1_3.dll",
     "comctl32.dll", "gdiplus.dll", "oleacc.dll", "propsys.dll", "powrprof.dll",
     "hid.dll", "vulkan-1.dll",
+    # (07/10) Performance Data Helper : dans System32 de tout Windows. NKCode l'importe
+    # depuis le 05/10 (Profilage : compteurs du GPU, NkProfilage.cpp) ; la recette
+    # s'arretait sur lui comme sur une DLL a livrer.
+    "pdh.dll",
 }
 
 
@@ -559,7 +563,13 @@ def Main() -> int:
 
         def DataFilter(rel: Path, f: str) -> bool:
             # fonts/ : ne garde que les polices reellement chargees par le code.
-            if rel.parts and rel.parts[0] == "fonts":
+            # ⚠️ (07/10) SEULEMENT les fichiers poses DIRECTEMENT dans fonts/. Le filtre
+            #    s'appliquait aussi aux sous-dossiers : fonts/visionneuses/ (Inter et
+            #    DroidSerif, ajoutes le 02/10 pour les visionneuses) arrivait VIDE chez le
+            #    testeur -- 14 fichiers en moins, le texte des visionneuses rendu avec une
+            #    police de remplacement, sans qu'aucun message le dise. Un sous-dossier
+            #    de fonts/ appartient au sous-systeme qui le charge : il part entier.
+            if rel.parts and rel.parts[0] == "fonts" and len(rel.parts) == 1:
                 return f in KEEP_FONTS
             return True
 
