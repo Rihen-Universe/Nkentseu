@@ -633,7 +633,14 @@ def Main() -> int:
         'rem (le chemin des sources vient du fichier python*._pth, pas de PYTHONPATH)\r\n'
         "setlocal\r\n"
         'if exist "%~dp0compilers\\llvm-mingw\\bin\\clang.exe" set "PATH=%~dp0compilers\\llvm-mingw\\bin;%PATH%"\r\n'
+        # (07/10) NKCode, Reglages > Jenga : l'utilisateur peut garder le Jenga
+        # embarque et le faire tourner avec SON Python. NKCode pose alors
+        # NKCODE_PYTHON ; le terminal integre en herite, et ce shim lui obeit.
+        "if defined NKCODE_PYTHON goto autre_python\r\n"
         '"%~dp0python-embed\\python.exe" -m Jenga %*\r\n'
+        "exit /b %ERRORLEVEL%\r\n"
+        ":autre_python\r\n"
+        '"%NKCODE_PYTHON%" "%~dp0jenga-src\\Jenga\\Jenga.py" %*\r\n'
         "exit /b %ERRORLEVEL%\r\n", encoding="ascii", newline="")
     # Variante POSIX (Phase 6 Linux/macOS) : ecrite des maintenant pour que le
     # pipeline soit identique quand le runtime non-Windows arrivera.
@@ -642,6 +649,8 @@ def Main() -> int:
         "#!/bin/sh\n"
         "# Shim GENERE par scripts/MakeNkCodeDist.py : Jenga via le Python embarque.\n"
         'DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+        '# NKCODE_PYTHON : un autre Python choisi dans NKCode (Reglages > Jenga).\n'
+        'if [ -n "$NKCODE_PYTHON" ]; then exec "$NKCODE_PYTHON" "$DIR/jenga-src/Jenga/Jenga.py" "$@"; fi\n'
         'PYTHONPATH="$DIR/jenga-src" exec "$DIR/python-embed/python" -m Jenga "$@"\n',
         encoding="ascii", newline="\n")
     try:
