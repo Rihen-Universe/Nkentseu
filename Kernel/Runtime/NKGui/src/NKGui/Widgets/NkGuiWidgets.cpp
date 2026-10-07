@@ -5484,8 +5484,19 @@ namespace nkentseu {
 				// ombre portee douce, le fond et le contour arrondis -- le cadre des ilots.
 				const NkGuiMenuStyle &ms = ctx.menuStyle;
 				const float32 R = ms.rayonCadre;
-				if (ms.ombre.a)
-					ctx.DL().AddRectFilled({rect.x - 1.f, rect.y + 4.f, rect.w + 2.f, rect.h + 3.f}, ms.ombre, R + 2.f);
+				// (07/10) une ombre DOUCE : des couches de plus en plus larges et pales, au lieu
+				// d'un rectangle sombre decale dont le bord net se voyait (« grossieres »,
+				// Rodolf). La meme recette que editorkit::NkOmbreDouce (le noyau ne voit pas le kit).
+				if (ms.ombre.a) {
+					const float32 flou = ctx.S(6.f), decal = ctx.S(2.f);
+					NkColor c = ms.ombre;
+					int32 a = (int32)ms.ombre.a * 5 / (4 * 8);
+					c.a = (uint8)(a < 1 ? 1 : a);
+					for (int32 i = 8; i >= 1; --i) {
+						const float32 e = flou * (float32)i / 8.f;
+						ctx.DL().AddRectFilled({rect.x - e, rect.y - e + decal, rect.w + 2.f * e, rect.h + 2.f * e}, c, R + e);
+					}
+				}
 				ctx.DL().AddRectFilled(rect, ms.fond.a ? ms.fond : ctx.theme.panel, R);
 				ctx.DL().AddRect(rect, ms.contour.a ? ms.contour : ctx.theme.border, 1.f, R);
 			} else {
@@ -6074,13 +6085,22 @@ namespace nkentseu {
 				}
 			}
 			if (ctx.font && ctx.font->Valid()) {
+				// (07/10) LE LIBELLE S'ARRETE AVANT SON RACCOURCI. Dans une colonne plus
+				// etroite que son entree la plus longue, il passait dessous et les deux
+				// s'ecrivaient l'un sur l'autre (capture de NKCode : « Ajouter
+				// l'occurrenceCtrl+Shift+D »). Il est coupe a la limite, jamais superpose.
+				const float32 sw = shortcut ? ctx.font->MeasureWidth(shortcut) : 0.f;
+				const float32 limite = shortcut ? (r.x + r.w - sw - 10.f - 12.f) : (r.x + r.w - 6.f);
+				const bool coupe = limite > lx;
+				if (coupe)
+					ctx.DL().PushClipRect({lx, r.y, limite - lx, r.h}, true);
 				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {lx, CenteredBaseline(ctx, r)}, label, lc, -1.f, 0.f, LabelEnd(label));
-				if (shortcut) {
-					const float32 sw = ctx.font->MeasureWidth(shortcut);
+				if (coupe)
+					ctx.DL().PopClipRect();
+				if (shortcut)
 					ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
 									 {r.x + r.w - sw - 10.f, CenteredBaseline(ctx, r)}, shortcut,
 									 style ? ms.discret : ctx.theme.textDisabled);
-				}
 			}
 			// ⚠️ LA COCHE EST DESSINEE, PAS ECRITE. Un caractère « ✓ » dépendrait de
 			//    la présence du glyphe U+2713 dans l'atlas de la police chargée —

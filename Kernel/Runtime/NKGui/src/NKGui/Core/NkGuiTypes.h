@@ -202,6 +202,10 @@ namespace nkentseu {
 			Kp8,
 			Kp9,
 			KpPoint,
+			// (07/10) Page haut / Page bas : une liste longue (l'explorateur de NKCode) s'y
+			// parcourt par pages, comme VS Code. AJOUTEES AVANT `Count` (cf. plus haut).
+			PageUp,
+			PageDown,
 			Count
 		};
 
