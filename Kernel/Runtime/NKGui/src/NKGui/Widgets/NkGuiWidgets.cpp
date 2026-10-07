@@ -6144,7 +6144,9 @@ namespace nkentseu {
 			if (r.x < 0.f)
 				r.x = 0.f;
 			if (r.y + r.h > static_cast<float32>(ctx.viewH))
-				r.y = m.y - r.h - 6.f; // au-dessus si déborde
+				// (07/10) 20 px et non 6 : a 6 px du curseur, l'infobulle d'un bouton du pied de
+				// fenetre recouvrait la rangee meme qu'elle commentait (capture de Rodolf).
+				r.y = m.y - r.h - 20.f; // au-dessus si déborde
 			if (r.y < 0.f)
 				r.y = 0.f;
 
