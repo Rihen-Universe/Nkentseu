@@ -41,7 +41,18 @@ namespace nkentseu {
 				cfg.fpsNum = fpsNum;
 				cfg.fpsDen = fpsDen;
 				cfg.codec = NkVideoCodec::MJPEG;
-				cfg.container = NkVideoContainer::MOV;
+				// (07/10) Le conteneur suit l'EXTENSION demandee : « .avi » ecrit un AVI
+				// (RIFF), tout le reste un MOV comme avant. Un fichier nomme .avi qui
+				// contiendrait un MOV ne s'ouvre pas dans les lecteurs qui se fient au nom.
+				bool avi = false;
+				if (path) {
+					usize l = 0;
+					while (path[l])
+						++l;
+					avi = l >= 4 && path[l - 4] == '.' && (path[l - 3] == 'a' || path[l - 3] == 'A') &&
+						  (path[l - 2] == 'v' || path[l - 2] == 'V') && (path[l - 1] == 'i' || path[l - 1] == 'I');
+				}
+				cfg.container = avi ? NkVideoContainer::AVI : NkVideoContainer::MOV;
 				cfg.quality = mMjpegQuality;
 				if (!mMjpegWriter.Open(path, cfg))
 					return false;

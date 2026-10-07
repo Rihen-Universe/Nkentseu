@@ -35,7 +35,8 @@ namespace nkentseu {
 		// Codec vidéo de l'enregistreur. H264 (défaut) = MP4 H.264 + audio/sous-titres.
 		// MJPEG = chaque trame en JPEG (via le codec NKImage) → qualité intra propre (zéro
 		// macroblocking inter-frame), encodage BIEN moins cher (cadences hautes) ; conteneur
-		// MOV/MP4, VIDÉO SEULE (audio/sous-titres ignorés dans ce mode).
+		// MOV/MP4 -- ou AVI quand le chemin finit par « .avi » (07/10) --, VIDÉO SEULE
+		// (audio/sous-titres ignorés dans ce mode).
 		enum class NkRecorderCodec { H264, MJPEG };
 
 		struct NkVideoRecorder {
