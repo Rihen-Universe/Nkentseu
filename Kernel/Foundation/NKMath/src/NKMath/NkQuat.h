@@ -682,20 +682,39 @@ namespace nkentseu {
 				return;
 			}
 
-			// Cas 2 : vecteurs opposés → rotation 180° (cas singulier)
-			if (normalizedFrom == normalizedTo * T(-1)) {
-				// Choix d'un axe arbitraire perpendiculaire à from
-				NkVec3T<T> orthogonalAxis = {T(1), T(0), T(0)};
-				if (NkFabs(static_cast<float32>(normalizedFrom.y)) < NkFabs(static_cast<float32>(normalizedFrom.x))) {
-					orthogonalAxis = {T(0), T(1), T(0)};
+			// Cas 2 : vecteurs PRESQUE opposés → un demi-tour, ou peu s'en faut.
+			// (08/10/2026) Avant, ce cas se décidait par `==` : pour « vers » = -from à
+			// l'arrondi près (1e-7), on tombait dans le cas général, dont le demi-vecteur
+			// (from + to), de longueur 1e-7, n'était pas normalisé — un quaternion de norme
+			// 1e-7, donc AUCUNE rotation au lieu d'un demi-tour (LookAt vers -Z regardait
+			// +Z). Dunn et Parberry, « 3D Math Primer », ch. 10 : un cas dégénéré se garde
+			// par un seuil, pas par une égalité. Ici le produit scalaire : sous -1 + 1e-3
+			// (moins de 2,6 degrés du demi-tour exact), le demi-vecteur perd ses chiffres ;
+			// on prend l'axe from × to RENDU perpendiculaire à from (l'arrondi du produit
+			// vectoriel l'inclinait), et l'angle exact par l'arc tangente.
+			// Banc : tests/test_robustesse.cpp (A3), rouge avant ce changement.
+			const T cosinus = normalizedFrom.Dot(normalizedTo);
+			if (cosinus < T(-1) + T(1.0e-3)) {
+				NkVec3T<T> croix = normalizedFrom.Cross(normalizedTo);
+				const T sinus = croix.Len(); // sin de l'angle : mesuré avant de redresser l'axe
+				NkVec3T<T> axe = croix - normalizedFrom * croix.Dot(normalizedFrom);
+				if (axe.LenSq() < T(1.0e-12)) {
+					// opposés à l'arrondi près : aucun axe ne se mesure, tous conviennent —
+					// un axe perpendiculaire à from, pris sur sa plus petite composante
+					NkVec3T<T> orthogonalAxis = {T(1), T(0), T(0)};
+					if (NkFabs(static_cast<float32>(normalizedFrom.y)) < NkFabs(static_cast<float32>(normalizedFrom.x))) {
+						orthogonalAxis = {T(0), T(1), T(0)};
+					}
+					if (NkFabs(static_cast<float32>(normalizedFrom.z)) < NkFabs(static_cast<float32>(normalizedFrom.y)) &&
+						NkFabs(static_cast<float32>(normalizedFrom.z)) < NkFabs(static_cast<float32>(normalizedFrom.x))) {
+						orthogonalAxis = {T(0), T(0), T(1)};
+					}
+					axe = normalizedFrom.Cross(orthogonalAxis);
 				}
-				if (NkFabs(static_cast<float32>(normalizedFrom.z)) < NkFabs(static_cast<float32>(normalizedFrom.y)) &&
-					NkFabs(static_cast<float32>(normalizedFrom.z)) < NkFabs(static_cast<float32>(normalizedFrom.x))) {
-					orthogonalAxis = {T(0), T(0), T(1)};
-				}
-				// Quaternion 180° : axe normalisé, scalaire = 0
-				vector = normalizedFrom.Cross(orthogonalAxis).Normalized();
-				scalar = T(0);
+				axe.Normalize();
+				const T demiAngle = static_cast<T>(NkAtan2(static_cast<float64>(sinus), static_cast<float64>(cosinus)) * 0.5);
+				vector = axe * static_cast<T>(NkSin(static_cast<float64>(demiAngle)));
+				scalar = static_cast<T>(NkCos(static_cast<float64>(demiAngle)));
 			} else {
 				// Cas général : rotation minimale via demi-vecteur
 				NkVec3T<T> halfVector = (normalizedFrom + normalizedTo).Normalized();
@@ -711,7 +730,9 @@ namespace nkentseu {
 		// Opérateur : Produit de Hamilton
 		// -----------------------------------------------------------------
 		// Composition de deux rotations quaternioniques : this ⊗ other
-		// Convention : 'other' est appliqué APRÈS 'this' (ordre GLM/Unity)
+		// Convention : 'other' est appliqué AVANT 'this' — (a * b) * v == a * (b * v),
+		// et mat(a * b) == mat(a) * mat(b). (08/10 : ce commentaire disait « APRÈS », le
+		// code et le banc QuaternionToMatrix disent AVANT.)
 		//
 		// Formule développée :
 		//   w = w₁w₂ - x₁x₂ - y₁y₂ - z₁z₂

@@ -68,7 +68,7 @@ Légende : ✅ Livré · 🔶 Partiel · ⏳ En cours · ❌ TODO · 🚫 Abando
 - [NkQuat.h/.cpp](src/NKMath/NkQuat.h) : `NkQuatT<float32>` / `NkQuatT<float64>`
 - Construction depuis angle-axe, Euler, matrice, from-to, LookAt
 - Rotation via formule de Rodrigues optimisée (15 multiplications, Vince 2011)
-- Produit Hamilton convention GLM (r appliqué APRÈS this)
+- Produit Hamilton : `a * b` applique b AVANT a, `mat(a * b) == mat(a) * mat(b)`
 - SLerp via exponentiation (Shoemake 1985) avec chemin court garanti
 - Conversion Euler bidirectionnelle avec détection singularité ±90° yaw
 

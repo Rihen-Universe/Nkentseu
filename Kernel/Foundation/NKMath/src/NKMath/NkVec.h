@@ -58,6 +58,37 @@ namespace nkentseu {
 		// =================================================================
 		// Déclarations anticipées pour les conversions croisées
 		// =================================================================
+		// -------------------------------------------------------------------------
+		// (08/10/2026) LA LONGUEUR DANS LE TYPE DU VECTEUR, ET LE SEUIL DE NORMALISATION.
+		//
+		// CORRIGE (A1) : un vecteur `double` passait sa longueur par `NkSqrt(float32)` -- sept
+		// chiffres. `NkVecRacine` calcule dans le type du vecteur. (Tremblay, « Mathematics
+		// for Game Developers », ch. 19 ; ETUDE_LIVRES/SYNTHESE.md ; banc tests/test_robustesse.cpp.)
+		//
+		// CONNU, PROUVE, ET PAS ENCORE CORRIGE (A2) : le seuil ci-dessous est ABSOLU, 1e-12 sur
+		// le CARRE de la longueur, soit 1e-6. En dessous, Normalize() ne fait rien et Len() rend
+		// 0, SANS RIEN DIRE : la normale d'un triangle d'aretes de 0,5 mm (un produit vectoriel
+		// de 2,5e-7) sort non unitaire. Le banc qui le montre a ete ecrit et il rougit.
+		// Pourquoi le seuil reste : le descendre (essaye a 1e-30) DEPLACE LE TISSU. Mesure le
+		// 08/10 sur NKPhysics_Tests : 86 lignes de mesures changent dans les blocs de tissu et
+		// de vetements, et un septieme temoin de vetement bascule a son seuil (jupe : etirement
+		// 1,01 % pour 1 %) ; avec l'ancien seuil, la suite est identique a la reference. Du code
+		// s'appuie donc, sans le dire, sur « un vecteur de moins de 1e-6 ne se normalise pas »
+		// (une direction tiree de deux points confondus). CONDITION DE RETRAIT : que ces
+		// appelants portent LEUR seuil (celui de leur probleme) avant de normaliser ; alors ce
+		// seuil-ci devient le plus petit carre dont l'inverse de la racine est fini (1e-30 en
+		// float32, 1e-280 en float64), et le cas A2 rentre dans tests/test_robustesse.cpp.
+		// -------------------------------------------------------------------------
+		NK_FORCE_INLINE float64 NkVecRacine(float64 carre) noexcept {
+			return NkSqrt(carre);
+		}
+		template <typename T> NK_FORCE_INLINE T NkVecRacine(T carre) noexcept {
+			return static_cast<T>(NkSqrt(static_cast<float32>(carre)));
+		}
+		template <typename T> NK_FORCE_INLINE bool NkVecTropCourt(T carre) noexcept {
+			return carre < T(NkVectorEpsilon); // le seuil d'avant, tel quel (cf. A2 ci-dessus)
+		}
+
 		template <typename T> struct NkVec2T;
 		template <typename T> struct NkVec3T;
 		template <typename T> struct NkVec4T;
@@ -310,10 +341,10 @@ namespace nkentseu {
 				// Longueur euclidienne : racine carrée de LenSq avec garde epsilon
 				NK_FORCE_INLINE T Len() const noexcept {
 					T lengthSquared = LenSq();
-					if (lengthSquared < T(NkVectorEpsilon)) {
+					if (NkVecTropCourt(lengthSquared)) {
 						return T(0);
 					}
-					return static_cast<T>(NkSqrt(static_cast<float32>(lengthSquared)));
+					return NkVecRacine(lengthSquared);
 				}
 
 				// Distance euclidienne vers un autre vecteur
@@ -327,10 +358,10 @@ namespace nkentseu {
 				// Normalisation en place : modifie le vecteur courant
 				void Normalize() noexcept {
 					T lengthSquared = LenSq();
-					if (lengthSquared < T(NkVectorEpsilon)) {
+					if (NkVecTropCourt(lengthSquared)) {
 						return;
 					}
-					T inverseLength = T(1) / static_cast<T>(NkSqrt(static_cast<float32>(lengthSquared)));
+					T inverseLength = T(1) / NkVecRacine(lengthSquared);
 					x *= inverseLength;
 					y *= inverseLength;
 				}
@@ -726,10 +757,10 @@ namespace nkentseu {
 
 				NK_FORCE_INLINE T Len() const noexcept {
 					T lengthSquared = LenSq();
-					if (lengthSquared < T(NkVectorEpsilon)) {
+					if (NkVecTropCourt(lengthSquared)) {
 						return T(0);
 					}
-					return static_cast<T>(NkSqrt(static_cast<float32>(lengthSquared)));
+					return NkVecRacine(lengthSquared);
 				}
 
 				NK_FORCE_INLINE T Distance(const NkVec3T &other) const noexcept {
@@ -746,10 +777,10 @@ namespace nkentseu {
 				// -----------------------------------------------------------------
 				void Normalize() noexcept {
 					T lengthSquared = LenSq();
-					if (lengthSquared < T(NkVectorEpsilon)) {
+					if (NkVecTropCourt(lengthSquared)) {
 						return;
 					}
-					T inverseLength = T(1) / static_cast<T>(NkSqrt(static_cast<float32>(lengthSquared)));
+					T inverseLength = T(1) / NkVecRacine(lengthSquared);
 					x *= inverseLength;
 					y *= inverseLength;
 					z *= inverseLength;
@@ -1160,18 +1191,18 @@ namespace nkentseu {
 
 				NK_FORCE_INLINE T Len() const noexcept {
 					T lengthSquared = LenSq();
-					if (lengthSquared < T(NkVectorEpsilon)) {
+					if (NkVecTropCourt(lengthSquared)) {
 						return T(0);
 					}
-					return static_cast<T>(NkSqrt(static_cast<float32>(lengthSquared)));
+					return NkVecRacine(lengthSquared);
 				}
 
 				void Normalize() noexcept {
 					T lengthSquared = LenSq();
-					if (lengthSquared < T(NkVectorEpsilon)) {
+					if (NkVecTropCourt(lengthSquared)) {
 						return;
 					}
-					T inverseLength = T(1) / static_cast<T>(NkSqrt(static_cast<float32>(lengthSquared)));
+					T inverseLength = T(1) / NkVecRacine(lengthSquared);
 					x *= inverseLength;
 					y *= inverseLength;
 					z *= inverseLength;

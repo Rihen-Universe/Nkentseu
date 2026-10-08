@@ -69,6 +69,28 @@ namespace nkentseu {
 		//
 		// Utilisation typique : rotations 2D, mises à l'échelle, shearing.
 		// =================================================================
+		// -------------------------------------------------------------------------
+		// (08/10/2026) UNE MATRICE EST SINGULIERE A SON ECHELLE, PAS DANS L'ABSOLU.
+		// Avant : « |det| < 1e-12 -> l'identite de secours ». Le determinant d'une echelle
+		// uniforme s vaut s^3 : a s = 5e-5 il vaut 1,25e-13, et Inverse() rendait L'IDENTITE
+		// pour une matrice parfaitement inversible -- en silence. On compare maintenant le
+		// determinant au produit des normes de ses colonnes (la borne de Hadamard : il ne
+		// peut pas le depasser). Une matrice de l'ordre de l'unite est jugee comme avant.
+		// Banc : tests/test_robustesse.cpp (A4), rouge avant ce changement.
+		// -------------------------------------------------------------------------
+		template <typename T> NK_FORCE_INLINE bool NkMatSinguliere(const T *donnees, int n, float64 determinant) noexcept {
+			float64 produit = 1.0;
+			for (int c = 0; c < n; ++c) {
+				float64 carre = 0.0;
+				for (int l = 0; l < n; ++l) {
+					carre += static_cast<float64>(donnees[c * n + l]) * static_cast<float64>(donnees[c * n + l]); // colonne c, rangee par colonnes
+				}
+				produit *= NkSqrt(carre);
+			}
+			// `!(a > b)` : un determinant NaN est singulier, lui aussi
+			return !(NkFabs(determinant) > static_cast<float64>(NkMatrixEpsilon) * produit);
+		}
+
 		template <typename T> struct NkMat2T {
 				// -----------------------------------------------------------------
 				// Section : Union de données (accès flexible)
@@ -254,7 +276,7 @@ namespace nkentseu {
 				// Inverse : matrice inverse via formule analytique 2×2
 				NkMat2T Inverse() const noexcept {
 					T determinant = Determinant();
-					if (NkFabs(static_cast<float64>(determinant)) < static_cast<float64>(NkMatrixEpsilon)) {
+					if (NkMatSinguliere(data, 2, static_cast<float64>(determinant))) {
 						return Identity(); // Matrice singulière → identité de secours
 					}
 					T inverseDet = T(1) / determinant;
@@ -489,7 +511,7 @@ namespace nkentseu {
 
 				NkMat3T Inverse() const noexcept {
 					T determinant = Determinant();
-					if (NkFabs(static_cast<float64>(determinant)) < static_cast<float64>(NkMatrixEpsilon)) {
+					if (NkMatSinguliere(data, 3, static_cast<float64>(determinant))) {
 						return Identity();
 					}
 					T inverseDet = T(1) / determinant;
@@ -870,7 +892,7 @@ namespace nkentseu {
 						}
 					}
 					T determinant = Determinant();
-					if (NkFabs(static_cast<float64>(determinant)) < static_cast<float64>(NkMatrixEpsilon)) {
+					if (NkMatSinguliere(data, 4, static_cast<float64>(determinant))) {
 						return Identity(); // Matrice singulière → identité de secours
 					}
 					T inverseDet = T(1) / determinant;

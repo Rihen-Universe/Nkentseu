@@ -590,7 +590,9 @@ namespace nkentseu {
 		 */
 		NK_FORCE_INLINE
 		float32 NkFabs(float32 v) noexcept {
-			return v < 0.0f ? -v : v;
+			// (08/10) `v < 0 ? -v : v` rendait -0 pour -0 (le commentaire promettait +0), et
+			// 1 / NkFabs(-0.0f) valait -infini. `0 - v` rend +0 pour les deux zeros.
+			return v <= 0.0f ? 0.0f - v : v;
 		}
 
 		/**
@@ -600,7 +602,7 @@ namespace nkentseu {
 		 */
 		NK_FORCE_INLINE
 		float64 NkFabs(float64 v) noexcept {
-			return v < 0.0 ? -v : v;
+			return v <= 0.0 ? 0.0 - v : v; // -0 rend +0 (cf. la version float32)
 		}
 
 		/**
