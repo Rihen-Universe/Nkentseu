@@ -287,6 +287,13 @@ with workspace("Nkentseu", location="."):
 
     configurations(["Debug", "Release"])
 
+    # (08/10) LA FICHE D'IDENTITE de tous les executables de la famille (Jenga 2.8.16 : la
+    # ressource de version Windows -- societe, produit, description, version). Sans elle un
+    # .exe est un inconnu complet pour Windows (Smart App Control). Chaque application peut
+    # redire la sienne (apppublisher, appdescription, appversion, appcopyright).
+    apppublisher("Rihen Universe")
+    appcopyright("© 2026 Rihen Universe")
+
     # ===== Options Linux : choix du backend de fenetrage ========================
     newoption(
         trigger="linux-backend",

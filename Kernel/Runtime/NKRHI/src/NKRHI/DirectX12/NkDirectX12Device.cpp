@@ -24,6 +24,13 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wignored-attributes"
 #pragma clang diagnostic ignored "-Wunknown-attributes"
+// (08/10/2026) Le dxcapi.h du SDK Vulkan emploie l'annotation SAL `_Maybenull_` sans
+// inclure <sal.h>. Les en-tetes de msys64 la definissent par ailleurs ; ceux de
+// llvm-mingw (le compilateur que NKCode embarque) non : « unknown type name
+// '_Maybenull_' ». Vide, comme partout hors de MSVC.
+#ifndef _Maybenull_
+#define _Maybenull_
+#endif
 #include <dxc/dxcapi.h>
 #pragma clang diagnostic pop
 #define NK_HAS_DXC 1

@@ -57,6 +57,15 @@ KITS_CONNUS = {
     "Renderer": ["NKRenderer"],
 }
 
+# Ce qu'un kit embarque EN PLUS de ses bibliotheques : les fichiers que ses modules
+# LISENT A L'EXECUTION. NKRenderer charge ses nuanceurs dans Resources/NKRenderer/Shaders,
+# relatif au dossier courant ; sans eux il refuse de s'initialiser (constate le 27/09/2026
+# sur le code du volume III, et de nouveau le 08/10 : le kit construisait, le programme de
+# l'etudiant ne demarrait pas). Le projet qui utilise le kit les copie chez lui (postbuild).
+RESSOURCES_CONNUES = {
+    "Renderer": ["Resources/NKRenderer/Shaders"],
+}
+
 RACINE = Path(__file__).resolve().parent.parent
 
 
@@ -69,9 +78,23 @@ def Systeme():
     return {"Windows": "Windows", "Linux": "Linux", "Darwin": "macOS"}.get(nom, nom)
 
 
+def CommandeJenga():
+    """Le Jenga de CE Python s'il l'a (`python -m Jenga`), sinon le `jenga` du PATH.
+
+    Le lanceur `jenga.exe` de pip est un binaire non signe : Smart App Control le refuse
+    sur certaines machines (constate le 08/10/2026, « Permission denied »). Le Python qui
+    fait tourner ce script, lui, tourne deja.
+    """
+    try:
+        import Jenga  # noqa: F401
+        return [sys.executable, "-m", "Jenga"]
+    except ImportError:
+        return ["jenga"]
+
+
 def LancerJengaKit(nom, cibles, configs, dossier):
-    commande = ["jenga", "kit", "--target", ",".join(cibles), "--name", nom,
-                "--output", str(dossier).replace("\\", "/"), "--force"]
+    commande = CommandeJenga() + ["kit", "--target", ",".join(cibles), "--name", nom,
+                                  "--output", str(dossier).replace("\\", "/"), "--force"]
     for c in configs:
         commande += ["--config", c]
     Dire("$ " + " ".join(commande))
@@ -177,10 +200,33 @@ def Verifier(kit, nomKit):
     return cibles
 
 
-def Noter(kit, embarques, cibles):
+def EmbarquerRessources(kit, nomKit):
+    """Copie dans le kit les dossiers que ses modules lisent a l'execution. Rend leur liste."""
+    faits = []
+    for rel in RESSOURCES_CONNUES.get(nomKit, []):
+        source = RACINE / rel
+        if not source.is_dir():
+            raise SystemExit("ressource du kit introuvable dans le depot : %s" % source)
+        destination = kit / rel
+        if destination.exists():
+            shutil.rmtree(destination)
+        shutil.copytree(source, destination)
+        faits.append((rel, sum(1 for f in destination.rglob("*") if f.is_file())))
+    return faits
+
+
+def Noter(kit, embarques, cibles, ressources=()):
     note = kit / "KIT.txt"
     ajout = ["", "Rendu autonome par scripts/MakeKit.py le %s." % datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
              "Cibles : " + ", ".join(cibles) + "."]
+    if ressources:
+        ajout.append("")
+        ajout.append("RESSOURCES LUES A L'EXECUTION (dans ce kit, a copier dans VOTRE projet) :")
+        for rel, n in ressources:
+            ajout.append("  %s  (%d fichiers)" % (rel, n))
+        ajout.append("Le programme les cherche RELATIVEMENT AU DOSSIER COURANT, puis a cote de l'executable.")
+        ajout.append("Copiez-les par un postbuild de votre .jenga (voir le projet de depart livre avec le kit),")
+        ajout.append("et lancez le programme depuis le dossier de votre projet.")
     if embarques:
         ajout.append("Bibliotheques externes embarquees (elles etaient cherchees dans un dossier de la machine d'origine) :")
         for source, destination in embarques:
@@ -233,7 +279,10 @@ def main():
     for source, destination in embarques:
         Dire("embarque : %s -> %s" % (source, destination))
     cibles_presentes = Verifier(kit, nom)
-    Noter(kit, embarques, cibles_presentes)
+    ressources = EmbarquerRessources(kit, nom)
+    for rel, n in ressources:
+        Dire("ressources : %s (%d fichiers)" % (rel, n))
+    Noter(kit, embarques, cibles_presentes, ressources)
     Dire("kit autonome : %s (%s)" % (kit, ", ".join(cibles_presentes)))
     if not args.sans_archive:
         archive, total = Archiver(kit, nom, sortie)
