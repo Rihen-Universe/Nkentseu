@@ -158,10 +158,21 @@ _REGISTRY: dict = {
                                                     # Anim/NkUnkenyAnimateur : la HFSM de NKAnima (2026-09-29).
                                                     # Foundation seule, aucun GPU : l'exclusivite NKCanvas tient.
                                                     "NKAnima"]),
+    # « NKCanvas » et « NKUI » RETIRES de cette entree le 2026-10-08 (decision de
+    # Rodolf : « Noge est encore lie a NKCanvas et NKUI, pourtant ca ne devrait
+    # pas etre le cas »). Tant qu'ils y figuraient, TOUTE application listant
+    # « Noge » recevait par fermeture transitive leurs chemins d'inclusion,
+    # leurs defines _STATIC_LIB, leur construction ET leur lien -- y compris
+    # NKUI, pourtant retire de Noge.jenga des le 2026-08-17 : cette table fait
+    # foi, pas le .jenga du module (cf. l'avertissement de NKEditorKit plus bas).
+    # Noge n'inclut plus aucun en-tete de l'un ni de l'autre (son tampon CPU de
+    # HUD est a lui : Noge/ECS/Systems/NkUICpuFramebuffer.h).
+    # CONSEQUENCE : une application qui inclut ELLE-MEME des en-tetes de NKCanvas
+    # ou de NKUI doit les lister ELLE-MEME dans son nkentseudependson.
     "Noge"           : _m("NKENTSEU_NOGE",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers",
                                                     "NKMath", "NKThreading", "NKLogger", "NKTime",
-                                                    "NKEvent", "NKWindow", "NKCanvas", "NKRHI", "NKRenderer", "NKSL",
-                                                    "NKFont", "NKImage", "NKUI", "NKAnima"]),
+                                                    "NKEvent", "NKWindow", "NKRHI", "NKRenderer", "NKSL",
+                                                    "NKFont", "NKImage", "NKAnima"]),
     # Socle d'editeur partage (coquille dockable, panneaux, palette).
     #
     # ⚠️ AGNOSTIQUE DU BACKEND DE RENDU depuis le 2026-09-01 -- NI NKCanvas NI
