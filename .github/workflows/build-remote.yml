@@ -45,6 +45,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          # (2026-10-08) NKCode, NKEditorKit, PV3DE... sont des depots PRIVES : le jeton
+          # par defaut ne les clone pas, et la construction de NKCode s'arretait sur
+          # « Target project 'NKCode' not found » (132 parties privees absentes). Le
+          # secret NK_PRIVE -- un jeton a acces EN LECTURE aux depots prives de
+          # Rihen-Universe, cree par Rihen -- les ouvre ; sans lui, rien ne change.
+          token: ${{ secrets.NK_PRIVE || github.token }}
 
       - name: Version de Jenga exigee par NKCode
         id: jenga-version
