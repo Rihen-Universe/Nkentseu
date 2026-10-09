@@ -169,7 +169,10 @@ namespace nkentseu {
 			// Panning constant-power
 			float32 panAngle = (azimuth / (3.14159265f * 0.5f)); // [-1, 1]
 			panAngle = Clampf(panAngle, -1.0f, 1.0f);
-			float32 panRadians = (panAngle + 1.0f) * 0.25f * TWO_PI; // [0, π/2]
+			// (2026-10-09) 0.125 * 2pi = pi/4 : l'angle va de 0 (gauche) a pi/2 (droite), pi/4 devant.
+			// Avec 0.25, il allait jusqu'a pi : une source devant sortait toute a droite et une
+			// source a droite sortait a gauche (cos(pi) = -1). Mesure : TestPanoramique3D.
+			float32 panRadians = (panAngle + 1.0f) * 0.125f * TWO_PI; // [0, π/2]
 			result.leftGain = NkCosf(panRadians);
 			result.rightGain = NkSinf(panRadians);
 

@@ -656,6 +656,87 @@ static void TestAudioEngine() {
 }
 
 // ============================================================
+// TEST 7 : PANORAMIQUE 3D (mesure au MIX, par RenderToBuffer)
+// ============================================================
+// (2026-10-09) Le panoramique a puissance constante allait de 0 a pi au lieu de
+// 0 a pi/2 : une source DEVANT sortait entierement a droite, une source a DROITE
+// sortait a gauche (gain gauche -1, signal inverse). Releve dans le code par la
+// session du site (exercice « Le son qui a une place »). Le temoin mesure la
+// SORTIE du moteur : l'energie de chaque canal et le signe de leur produit.
+
+struct NkMesurePan {
+		float64 gauche = 0.0;  ///< somme des carres, canal gauche
+		float64 droite = 0.0;  ///< somme des carres, canal droit
+		float64 produit = 0.0; ///< somme de g*d : negative si un canal est inverse
+};
+
+static NkMesurePan MesurerPan(const AudioSample &son, float32 x, float32 y, float32 z) {
+	NkMesurePan m;
+	VoiceParams vp;
+	vp.source3d.positional = true;
+	vp.source3d.position[0] = x;
+	vp.source3d.position[1] = y;
+	vp.source3d.position[2] = z;
+	AudioHandle h = AudioEngine::Instance().Play(son, vp);
+	if (!h.IsValid()) {
+		return m;
+	}
+	static float32 tampon[4800 * 2];
+	AudioEngine::Instance().RenderToBuffer(tampon, 4800, 2);
+	for (int32 i = 0; i < 4800; ++i) {
+		const float64 g = tampon[i * 2 + 0], d = tampon[i * 2 + 1];
+		m.gauche += g * g;
+		m.droite += d * d;
+		m.produit += g * d;
+	}
+	AudioEngine::Instance().Stop(h);
+	float32 vide[256 * 2];
+	AudioEngine::Instance().RenderToBuffer(vide, 256, 2); // la voix arretee est liberee
+	return m;
+}
+
+static void TestPanoramique3D() {
+	printf("\n=== Panoramique 3D (mesure au mix) ===\n");
+	AudioEngineConfig cfg;
+	cfg.backend = AudioBackendType::NULL_OUTPUT;
+	cfg.sampleRate = 48000;
+	cfg.channels = 2;
+	cfg.bufferSize = 256;
+	const bool ok = AudioEngine::Instance().Initialize(cfg);
+	// L'ecouteur par defaut : a l'origine, regarde vers -Z, le haut vers +Y ; sa droite est +X.
+	AudioEngine::Instance().SetListenerPosition(0.0f, 0.0f, 0.0f);
+	AudioEngine::Instance().SetListenerOrientation(0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);
+	AudioSample son = AudioGenerator::GenerateTone(440.0f, 1.0f);
+
+	NK_TEST("Panoramique 3D : une source DEVANT sort des deux cotes, a egalite")
+	NKENTSEU_ASSERT_TRUE(ok);
+	const NkMesurePan m = MesurerPan(son, 0.0f, 0.0f, -2.0f);
+	printf("    devant : energie gauche %.3f, droite %.3f\n", m.gauche, m.droite);
+	NKENTSEU_ASSERT_TRUE(m.gauche > 1.0 && m.droite > 1.0);
+	NKENTSEU_ASSERT_TRUE(m.gauche > 0.95 * m.droite && m.droite > 0.95 * m.gauche);
+	NKENTSEU_ASSERT_TRUE(m.produit > 0.0);
+	NK_END_TEST()
+
+	NK_TEST("Panoramique 3D : une source a DROITE sort a droite, rien d'inverse a gauche")
+	const NkMesurePan m = MesurerPan(son, 2.0f, 0.0f, 0.0f);
+	printf("    droite : energie gauche %.3f, droite %.3f\n", m.gauche, m.droite);
+	NKENTSEU_ASSERT_TRUE(m.droite > 1.0);
+	NKENTSEU_ASSERT_TRUE(m.gauche < 0.01 * m.droite);
+	NKENTSEU_ASSERT_TRUE(m.produit >= -1e-3);
+	NK_END_TEST()
+
+	NK_TEST("Panoramique 3D : une source a GAUCHE sort a gauche")
+	const NkMesurePan m = MesurerPan(son, -2.0f, 0.0f, 0.0f);
+	printf("    gauche : energie gauche %.3f, droite %.3f\n", m.gauche, m.droite);
+	NKENTSEU_ASSERT_TRUE(m.gauche > 1.0);
+	NKENTSEU_ASSERT_TRUE(m.droite < 0.01 * m.gauche);
+	NK_END_TEST()
+
+	AudioLoader::Free(son);
+	AudioEngine::Instance().Shutdown();
+}
+
+// ============================================================
 // MAIN
 // ============================================================
 
@@ -670,6 +751,7 @@ int main() {
 	TestAudioMixer();
 	TestEffects();
 	TestAudioEngine();
+	TestPanoramique3D();
 
 	printf("\n══════════════════════════════════════════════════════\n");
 	printf("  Résultats : %d PASSED, %d FAILED\n", gTestPassed, gTestFailed);
