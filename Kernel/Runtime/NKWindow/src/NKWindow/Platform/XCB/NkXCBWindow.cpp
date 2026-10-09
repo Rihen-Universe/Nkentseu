@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkXCBWindow.cpp — XCB implementation of NkWindow (sans PIMPL)
 //
@@ -22,6 +23,7 @@
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKWindow/Platform/Common/NkSystemMemory.h" // NkXcbFree (wrappe le free() libc des replies libxcb)
+#include "NKWindow/Platform/Common/NkX11Icon.h"		 // NkX11EmballerIcones (_NET_WM_ICON)
 #include "NKMemory/NkAllocator.h"					 // NkGetDefaultAllocator().New/Delete
 #include "NKCore/NkAtomic.h"
 
@@ -259,6 +261,39 @@ namespace nkentseu {
 	}
 
 	// =============================================================================
+	// L'icone de la fenetre : _NET_WM_ICON (08/10)
+	// =============================================================================
+	//
+	// Rien ne la posait. Le format et la permutation RGBA -> ARGB vivent dans
+	// Platform/Common/NkX11Icon.h, communs avec XLib. Ici le tableau part TEL
+	// QUEL : XCB veut de vrais mots de 32 bits (Xlib, lui, veut des `long`).
+	//
+	// ⚠️ `iconPath` SEUL EST REFUSE A VOIX HAUTE : X11 n'a pas d'icone « par
+	//    fichier » et NKWindow ne decode pas d'image (il ne depend pas de NKImage).
+	static void NkXCBPoserIcone(xcb_connection_t *conn, xcb_window_t window, const NkWindowConfig &config) {
+		if (!conn || !window)
+			return;
+		if (config.iconImages.Empty()) {
+			if (!config.iconPath.Empty())
+				NkX11RefuserIcone("XCB", config.iconPath.CStr());
+			return;
+		}
+		// Plafond : la plus grande requete du serveur, en mots de 4 octets, moins
+		// l'en-tete de ChangeProperty et une marge.
+		const uint32_t maxRequete = xcb_get_maximum_request_length(conn);
+		const usize plafond = maxRequete > 64u ? static_cast<usize>(maxRequete - 64u) : 0u;
+
+		NkVector<uint32> cardinaux;
+		if (NkX11EmballerIcones(config.iconImages, plafond, cardinaux) == 0u) {
+			NkX11RefuserIcone("XCB", nullptr);
+			return;
+		}
+		const xcb_atom_t atome = NkXCBInternAtom(conn, "_NET_WM_ICON");
+		xcb_change_property(conn, XCB_PROP_MODE_REPLACE, window, atome, XCB_ATOM_CARDINAL, 32,
+							static_cast<uint32_t>(cardinaux.Size()), cardinaux.Data());
+	}
+
+	// =============================================================================
 	// Create
 	// =============================================================================
 
@@ -402,6 +437,10 @@ namespace nkentseu {
 							static_cast<uint32_t>(config.title.Size()), config.title.CStr());
 		xcb_change_property(sConnection, XCB_PROP_MODE_REPLACE, mData.mWindow, sAtomNetWmName, sAtomUtf8String, 8,
 							static_cast<uint32_t>(config.title.Size()), config.title.CStr());
+
+		// Icone (_NET_WM_ICON) : avant xcb_map_window, pour que le gestionnaire de
+		// fenetres la trouve des la premiere apparition.
+		NkXCBPoserIcone(sConnection, mData.mWindow, config);
 
 		if (config.native.utilityWindow) {
 			const xcb_atom_t wmType = NkXCBInternAtom(sConnection, "_NET_WM_WINDOW_TYPE");

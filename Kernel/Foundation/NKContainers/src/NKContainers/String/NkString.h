@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // FICHIER: Core\NKCore\src\NKCore\String\NkString.h
 // DESCRIPTION: Classe de chaîne dynamique avec Small String Optimization (SSO)
-// AUTEUR: Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // DATE: 2026-02-07
 // VERSION: 1.0.0
 // -----------------------------------------------------------------------------
@@ -1482,6 +1482,15 @@ namespace nkentseu {
 			 *       et appelle AllocateHeap/MoveToHeap si nécessaire.
 			 */
 			void GrowIfNeeded(SizeType additionalSize);
+
+			/**
+			 * @brief Vrai si p désigne un octet du buffer de CETTE chaîne (zéro terminal compris)
+			 *
+			 * @note (08/10) La garde des opérations qui reçoivent un pointeur ou une vue pris
+			 *       dans la chaîne elle-même : s.Append(s), s += s.CStr() + k, s.Insert(5, s).
+			 *       Sans elle, la croissance libère le buffer que l'argument désigne encore.
+			 */
+			bool PointsInside(const char *p) const noexcept;
 
 			/**
 			 * @brief Calcule la nouvelle capacité selon stratégie de croissance

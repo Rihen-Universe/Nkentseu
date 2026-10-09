@@ -14,6 +14,7 @@
 #include "NkTypes.h"
 #include "NKEvent/NkSafeArea.h"
 #include "NkSurfaceHint.h" // ← seul ajout d'include
+#include "NKContainers/Sequential/NkVector.h" // NkWindowIconImage (pixels de l'icone)
 
 namespace nkentseu {
 
@@ -63,6 +64,24 @@ namespace nkentseu {
 
 			// Win32 only: copy pixel format from this HWND before WGL context creation.
 			uintptr win32PixelFormatShareWindowHandle = 0;
+	};
+
+	// -------------------------------------------------------------------------
+	// NkWindowIconImage — UNE taille de l'icone de la fenetre, en pixels bruts.
+	//
+	// RGBA8 nu (width*height*4 octets, lignes du HAUT vers le bas, alpha NON
+	// premultiplie) et non un fichier : NKWindow ne depend PAS de NKImage (meme
+	// choix que NkClipboardImage). L'application, qui sait decoder son image,
+	// donne les tailles qu'elle veut ; le systeme choisit celle qui lui convient.
+	// -------------------------------------------------------------------------
+	struct NkWindowIconImage {
+			uint32 width = 0;
+			uint32 height = 0;
+			NkVector<uint8> pixels; ///< RGBA8, taille = width * height * 4
+
+			bool IsValid() const {
+				return width > 0 && height > 0 && pixels.Size() == static_cast<usize>(width) * height * 4u;
+			}
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════
@@ -187,6 +206,19 @@ namespace nkentseu {
 			NkString title = "NkWindow";
 			NkString name = "NkApp";
 			NkString iconPath;
+			// (08/10) L'ICONE EN PIXELS, une ou plusieurs tailles (16, 32, 48...).
+			//
+			// ⚠️ `iconPath` ET `iconImages` NE SONT PAS LA MEME PORTE, et aucun dorsal
+			//    ne tient les deux :
+			//      XLib, XCB : `iconImages` -> _NET_WM_ICON (barre des taches,
+			//                  Alt+Tab). `iconPath` y est REFUSE A VOIX HAUTE : le
+			//                  serveur X n'a pas d'icone « par fichier » et NKWindow
+			//                  ne decode pas d'image. Avant le 08/10 il etait ignore
+			//                  en silence, et la fenetre n'avait pas d'icone.
+			//      Win32     : `iconPath` (un .ico, LoadImageW) ; sans lui, l'icone
+			//                  embarquee dans l'exe. `iconImages` n'y est pas lu.
+			//      Cocoa, Web: `iconPath`. `iconImages` n'y est pas lu.
+			NkVector<NkWindowIconImage> iconImages;
 			NkNativeWindowOptions native;
 
 			// --- Mobile / Safe Area ---

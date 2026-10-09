@@ -11,7 +11,7 @@
 //  - Une instruction par ligne pour lisibilité et maintenance
 //  - Compatibilité multiplateforme via NKPlatform
 //
-// Auteur : Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Date : 2024-2026
 // License : Proprietary - All Rights Reserved (see LICENSE)
 //
@@ -379,6 +379,67 @@ namespace nkentseu {
 				mCapacity = newCapacity;
 			}
 
+			/**
+			 * @brief Agrandit le buffer ET construit le nouvel élément, dans cet ordre
+			 * @tparam Args Types des arguments de construction (déduits)
+			 * @param index Position du nouvel élément, dans [0, mSize]
+			 * @param args Arguments forwardés au constructeur de T
+			 * @ingroup VectorInternals
+			 *
+			 * ⚠️ LE NOUVEL ÉLÉMENT EST CONSTRUIT DANS LE NOUVEAU BUFFER AVANT QUE
+			 *    L'ANCIEN SOIT LIBÉRÉ. `args` peut désigner un élément de CE vecteur :
+			 *    `v.PushBack(v[0])`, `v.PushBack(v.Back())`, `v.Insert(it, v[2])`.
+			 *    std::vector le garantit, et tout le monde l'écrit sans y penser.
+			 *    L'ancienne séquence — Reserve() puis ConstructAt(mData + mSize, value)
+			 *    — lisait `value` APRÈS Deallocate() : une lecture de mémoire libérée.
+			 *
+			 *    Mesuré le 08/10 sur NkSVGCodec (PushPolyCCW referme chaque polygone par
+			 *    `xs.PushBack(xs[cStart])`). Le tas de Windows rend l'ancien bloc
+			 *    intact : la valeur lue est la bonne, par chance. Celui de Linux écrit
+			 *    son chaînage dans les seize premiers octets du bloc libéré : le point
+			 *    de fermeture du premier polygone d'un trait devenait un nombre
+			 *    quelconque, et les icônes au trait de NKCode sortaient coupées, pas les
+			 *    mêmes d'un lancement à l'autre. MemorySanitizer le nomme :
+			 *    « use-of-uninitialized-value … created by a heap deallocation ».
+			 *
+			 * @note Complexité : O(n) — un seul transfert des éléments existants
+			 * @note Si l'allocation échoue, le vecteur est laissé inchangé
+			 * @note Témoin : tests/test_vector.cpp (suite NKContainersVectorAlias),
+			 *       avec un allocateur qui EMPOISONNE ce qu'il libère — sans lui, le
+			 *       défaut passe sur toute machine dont le tas ne touche pas au bloc
+			 */
+			template <typename... Args> void ReallocateAndEmplace(SizeType index, Args &&...args) {
+				const SizeType newCapacity = (mCapacity == 0) ? 1 : CalculateGrowth(mSize + 1);
+
+				// Garde d'overflow, et vecteur déjà à sa taille maximale
+				if (newCapacity > MaxSize() || newCapacity <= mSize) {
+					NKENTSEU_CONTAINERS_THROW_BAD_ALLOC(newCapacity);
+					return;
+				}
+
+				T *newData = static_cast<T *>(mAllocator->Allocate(newCapacity * sizeof(T), alignof(T)));
+
+				if (!newData) {
+					NKENTSEU_CONTAINERS_THROW_BAD_ALLOC(newCapacity);
+					return;
+				}
+
+				// 1. Le nouvel élément D'ABORD : l'ancien buffer vit encore
+				ConstructAt(newData + index, traits::NkForward<Args>(args)...);
+
+				// 2. Puis les anciens, de part et d'autre de sa place
+				if (mData) {
+					MoveOrCopyRange(newData, mData, index);
+					MoveOrCopyRange(newData + index + 1, mData + index, mSize - index);
+					DestroyRange(mData, mData + mSize);
+					mAllocator->Deallocate(mData);
+				}
+
+				mData = newData;
+				mCapacity = newCapacity;
+				++mSize;
+			}
+
 		public:
 			// -----------------------------------------------------------------
 			// Sous-section : Constructeurs
@@ -674,10 +735,13 @@ namespace nkentseu {
 			 * @endcode
 			 */
 			void Assign(const T &value, SizeType count) {
+				// `value` peut désigner un élément de CE vecteur (v.Assign(v[0], 4)) :
+				// Clear() le détruit et Reserve() peut libérer son buffer. Copié d'abord.
+				const T copy(value);
 				Clear();
 				Reserve(count);
 				for (SizeType i = 0; i < count; ++i) {
-					PushBack(value);
+					PushBack(copy);
 				}
 			}
 
@@ -1882,7 +1946,10 @@ namespace nkentseu {
 			 */
 			void PushBack(const T &value) {
 				if (mSize >= mCapacity) {
-					Reserve(mCapacity == 0 ? 1 : CalculateGrowth(mSize + 1));
+					// `value` peut désigner un élément de ce vecteur : il est lu
+					// avant que l'ancien buffer soit libéré (ReallocateAndEmplace).
+					ReallocateAndEmplace(mSize, value);
+					return;
 				}
 				ConstructAt(mData + mSize, value);
 				++mSize;
@@ -1911,7 +1978,8 @@ namespace nkentseu {
 			 */
 			void PushBack(T &&value) {
 				if (mSize >= mCapacity) {
-					Reserve(mCapacity == 0 ? 1 : CalculateGrowth(mSize + 1));
+					ReallocateAndEmplace(mSize, traits::NkMove(value));
+					return;
 				}
 				ConstructAt(mData + mSize, traits::NkMove(value));
 				++mSize;
@@ -1942,7 +2010,8 @@ namespace nkentseu {
 			 */
 			template <typename... Args> void EmplaceBack(Args &&...args) {
 				if (mSize >= mCapacity) {
-					Reserve(mCapacity == 0 ? 1 : CalculateGrowth(mSize + 1));
+					ReallocateAndEmplace(mSize, traits::NkForward<Args>(args)...);
+					return;
 				}
 				ConstructAt(mData + mSize, traits::NkForward<Args>(args)...);
 				++mSize;
@@ -2028,8 +2097,15 @@ namespace nkentseu {
 			 * @endcode
 			 */
 			void Resize(SizeType newSize, const T &value) {
-				if (newSize > mSize) {
+				if (newSize > mCapacity) {
+					// La réallocation libère l'ancien buffer : `value` peut en désigner
+					// un élément (v.Resize(n, v[0])). Copié d'abord.
+					const T copy(value);
 					Reserve(newSize);
+					for (SizeType i = mSize; i < newSize; ++i) {
+						ConstructAt(mData + i, copy);
+					}
+				} else if (newSize > mSize) {
 					for (SizeType i = mSize; i < newSize; ++i) {
 						ConstructAt(mData + i, value);
 					}
@@ -2104,15 +2180,28 @@ namespace nkentseu {
 				NKENTSEU_ASSERT(index <= mSize);
 
 				if (mSize >= mCapacity) {
-					Reserve(CalculateGrowth(mSize + 1));
+					// Croissance : `value` est lu tant que l'ancien buffer vit.
+					ReallocateAndEmplace(index, value);
+					return Begin() + index;
 				}
+
+				if (index == mSize) {
+					ConstructAt(mData + mSize, value);
+					++mSize;
+					return Begin() + index;
+				}
+
+				// Sans croissance, `value` peut encore désigner un élément de
+				// [index, mSize) : le décalage le déplace et détruit sa place avant
+				// qu'on le lise. Copié d'abord.
+				T copy(value);
 
 				for (SizeType i = mSize; i > index; --i) {
 					ConstructAt(mData + i, traits::NkMove(mData[i - 1]));
 					mData[i - 1].~T();
 				}
 
-				ConstructAt(mData + index, value);
+				ConstructAt(mData + index, traits::NkMove(copy));
 				++mSize;
 				return Begin() + index;
 			}

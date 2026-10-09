@@ -393,6 +393,15 @@ namespace nkentseu {
 	 *       Plus efficace que conversion view -> NkString -> assign.
 	 */
 	NkString &NkString::operator=(NkStringView view) {
+		// 🔴 (08/10) MEME DEFENSE que `operator=(const char *)` ci-dessus : une vue
+		//    prise SUR cette chaine (`s = s.View().SubStr(2)`, `s = NkStringView(s)`)
+		//    designe le tampon que `Clear()` entame et qu'`Append` peut reallouer.
+		if (PointsInside(view.Data())) {
+			const NkString copie(view.Data(), view.Length()); // recopie AVANT de toucher au tampon
+			Clear();
+			Append(copie);
+			return *this;
+		}
 		Clear();
 		Append(view);
 		return *this;
@@ -701,7 +710,23 @@ namespace nkentseu {
 		if (!str || length == 0) {
 			return *this;
 		}
+		// 🔴 (08/10) `str` PEUT POINTER DANS CE TAMPON : `s.Append(s)`, `s += s`,
+		//    `s += s.CStr() + k`. `GrowIfNeeded` REALLOUE (ou fait passer la petite
+		//    chaine sur le tas, ce qui ecrase son tampon interne) : `str` designait
+		//    alors un bloc LIBERE, et la copie le lisait apres coup.
+		//    ASan (clang 18) : heap-use-after-free, NkMemCopy <- Append. Windows rend
+		//    le bloc intact et le texte sort juste, par chance ; Linux y ecrit son
+		//    chainage et les seize premiers octets ajoutes sont faux.
+		//
+		// ⚠️ ON RETIENT UN DECALAGE, PAS UNE COPIE : le contenu a ete recopie dans le
+		//    nouveau tampon, au meme decalage. Aucune allocation de plus, et le cas
+		//    ordinaire (un `str` etranger) ne paie qu'une comparaison.
+		const bool dedans = PointsInside(str);
+		const SizeType decalage = dedans ? static_cast<SizeType>(str - GetData()) : 0;
 		GrowIfNeeded(length);
+		if (dedans) {
+			str = GetData() + decalage;
+		}
 		memory::NkMemCopy(GetData() + mLength, str, length);
 		mLength += length;
 		GetData()[mLength] = '\0';
@@ -868,6 +893,13 @@ namespace nkentseu {
 		if (view.Empty()) {
 			return *this;
 		}
+		// 🔴 (08/10) UNE VUE SUR CETTE CHAINE (`s.Insert(5, s)`, `s.Insert(7, s.CStr() + 4)`)
+		//    ne survit ni a la croissance (tampon libere) ni au decalage (ce qu'elle
+		//    designe a bouge avant d'etre lu). Recopiee d'abord. Voir `Append`.
+		if (PointsInside(view.Data())) {
+			const NkString copie(view.Data(), view.Length());
+			return Insert(pos, copie.View());
+		}
 		GrowIfNeeded(view.Length());
 		char *data = GetData();
 		memory::NkMemMove(data + pos + view.Length(), data + pos, mLength - pos);
@@ -1004,6 +1036,12 @@ namespace nkentseu {
 		if (pos + count > mLength) {
 			count = mLength - pos;
 		}
+		// 🔴 (08/10) Une vue sur CETTE chaine : les deux branches la trahissent (copie
+		//    de zones qui se recouvrent ; `Erase` qui deplace ce qu'elle designe).
+		if (PointsInside(view.Data())) {
+			const NkString copie(view.Data(), view.Length());
+			return Replace(pos, count, copie.View());
+		}
 		if (count == view.Length()) {
 			memory::NkMemCopy(GetData() + pos, view.Data(), view.Length());
 		} else {
@@ -1114,6 +1152,13 @@ namespace nkentseu {
 		memory::NkMemCopy(temp, mSSOData, mLength + 1);
 		AllocateHeap(newCapacity);
 		memory::NkMemCopy(mHeapData, temp, mLength + 1);
+	}
+
+	// Vrai si `p` designe un octet du tampon de CETTE chaine (zero terminal compris).
+	// Meme comparaison que la garde de `operator=(const char *)` (25/09).
+	bool NkString::PointsInside(const char *p) const noexcept {
+		const char *deb = GetData();
+		return p != nullptr && p >= deb && p <= deb + mLength;
 	}
 
 	void NkString::GrowIfNeeded(SizeType additionalSize) {

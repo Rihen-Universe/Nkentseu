@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkXLibWindow.cpp - implementation XLib de NkWindow (sans PIMPL)
 //
@@ -20,6 +21,7 @@
 #include "NKWindow/Platform/XLib/NkXLibWindow.h"
 #include "NKWindow/Platform/XLib/NkXLibDropTarget.h"
 #include "NKWindow/Platform/Common/NkSystemMemory.h" // NkX11Free (wrappe XFree)
+#include "NKWindow/Platform/Common/NkX11Icon.h"		 // NkX11EmballerIcones (_NET_WM_ICON)
 #include "NKMemory/NkAllocator.h"					 // NkGetDefaultAllocator().New/Delete
 #include "NKCore/NkAtomic.h"
 
@@ -209,6 +211,51 @@ namespace nkentseu {
 	}
 
 	// =============================================================================
+	// L'icone de la fenetre : _NET_WM_ICON (08/10)
+	// =============================================================================
+	//
+	// Rien ne la posait : la fenetre n'avait pas d'icone dans la barre des taches
+	// ni dans Alt+Tab. Le format et la permutation RGBA -> ARGB vivent dans
+	// Platform/Common/NkX11Icon.h, communs avec XCB.
+	//
+	// ⚠️ UN FORMAT « 32 » SE PASSE A XLIB EN `long`, PAS EN uint32. Xlib lit un
+	//    `long` par element (8 octets sous LP64) et n'en envoie que les 32 bits de
+	//    poids faible. Lui donner le tableau de uint32 lirait un mot sur deux, et
+	//    la moitie de l'image au-dela du tampon.
+	//
+	// ⚠️ `iconPath` SEUL EST REFUSE A VOIX HAUTE : X11 n'a pas d'icone « par
+	//    fichier » et NKWindow ne decode pas d'image (il ne depend pas de NKImage).
+	static void NkXLibPoserIcone(::Display *display, ::Window xid, const NkWindowConfig &config) {
+		if (!display || !xid)
+			return;
+		if (config.iconImages.Empty()) {
+			if (!config.iconPath.Empty())
+				NkX11RefuserIcone("XLib", config.iconPath.CStr());
+			return;
+		}
+		// Plafond : la plus grande requete du serveur, en mots de 4 octets, moins
+		// l'en-tete de ChangeProperty et une marge.
+		long maxRequete = XExtendedMaxRequestSize(display);
+		if (maxRequete <= 0)
+			maxRequete = XMaxRequestSize(display);
+		const usize plafond = maxRequete > 64 ? static_cast<usize>(maxRequete - 64) : 0u;
+
+		NkVector<uint32> cardinaux;
+		if (NkX11EmballerIcones(config.iconImages, plafond, cardinaux) == 0u) {
+			NkX11RefuserIcone("XLib", nullptr);
+			return;
+		}
+		NkVector<unsigned long> mots;
+		mots.Reserve(cardinaux.Size());
+		for (usize i = 0; i < cardinaux.Size(); ++i)
+			mots.PushBack(static_cast<unsigned long>(cardinaux[i]));
+
+		const Atom atome = XInternAtom(display, "_NET_WM_ICON", False);
+		XChangeProperty(display, xid, atome, XA_CARDINAL, 32, PropModeReplace,
+						reinterpret_cast<const unsigned char *>(mots.Data()), static_cast<int>(mots.Size()));
+	}
+
+	// =============================================================================
 	// Create
 	// =============================================================================
 
@@ -370,6 +417,10 @@ namespace nkentseu {
 
 		// Title
 		XStoreName(sDisplay, mData.mXid, config.title.CStr());
+
+		// Icone (_NET_WM_ICON) : avant XMapWindow, pour que le gestionnaire de
+		// fenetres la trouve des la premiere apparition.
+		NkXLibPoserIcone(sDisplay, mData.mXid, config);
 
 		// Size constraints : non-resizable -> taille fixe ; resizable -> taille MINI.
 		{
