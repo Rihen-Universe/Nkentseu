@@ -1,0 +1,7 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// shadowskinned.frag.nksl — NKRenderer — Ombre des maillages à squelette, FS (NkSL)
+// Depth-only : aucun output couleur, gl_FragDepth écrit implicitement.
+
+@stage(fragment)
+@entry
+void main() {}

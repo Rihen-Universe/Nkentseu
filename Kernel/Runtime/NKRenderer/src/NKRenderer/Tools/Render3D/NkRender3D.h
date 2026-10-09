@@ -188,8 +188,13 @@ namespace nkentseu {
 
 				// Nombre d'objets que la passe d'ombre va reellement dessiner.
 				// Zero ici avec des slots alloues = l'atlas se remplit de vide.
+				// (08/10/2026) Les maillages a squelette qui projettent en font partie.
 				uint32 GetShadowCasterCount() const {
-					return (uint32)mShadowCasters.Size();
+					uint32 n = (uint32)mShadowCasters.Size();
+					for (const auto &dc : mSkinned) {
+						n += SkinnedCastsShadow(dc) ? 1u : 0u;
+					}
+					return n;
 				}
 
 				// ── Stats frustum culling (frame en cours de soumission) ────────
@@ -838,6 +843,29 @@ namespace nkentseu {
 				// dans mObjectSetPool (1 slot/batch, négligeable).
 				::nkentseu::NkShaderHandle mShadowInstanceShader;
 				NkPipelineHandle mShadowInstancePipeline;
+
+				// ── OMBRE DES MAILLAGES A SQUELETTE (08/10/2026) ────────────────
+				// La passe d'ombre ne parcourait que mShadowCasters (statiques) et
+				// mInstanced : un NkDrawCallSkinned portait `castShadow = true` par
+				// defaut et ne projetait RIEN (constate dans PV3DE : le patient sans
+				// ombre dans sa salle). Ce pipeline est la version depth-only du
+				// pipeline Skin (meme vertex layout NkVertexSkinned, memes os en
+				// set=1 binding=4), projetee par lightVP (push constant) -- shader
+				// « ShadowSkinned ». Un draw par maillage ; il lit SES os dans le
+				// tampon que FlushSkinned remplira du meme contenu (meme rang).
+				// LIMITES : les sous-maillages d'un materiau TRANSPARENT (cheveux et
+				// cils en cartes) ne projettent pas ; les faces d'omni en distance
+				// lineaire (RenderShadowPassLinear) ne recoivent pas ces ombres.
+				::nkentseu::NkShaderHandle mShadowSkinShader;
+				NkPipelineHandle mShadowSkinPipeline;
+				// Ce draw projette-t-il ? (des os, `castShadow`, et pas un fantome
+				// semi-transparent).
+				static bool SkinnedCastsShadow(const NkDrawCallSkinned &dc) {
+					return dc.castShadow && !dc.boneMatrices.Empty() && dc.alpha >= 0.999f;
+				}
+				// L'empreinte d'un maillage a squelette qui projette (pose, os,
+				// identite) : le cache des cartes d'ombre s'invalide quand il bouge.
+				void StampSkinnedCaster(const NkDrawCallSkinned &dc);
 				NkVector<NkVector<NkBufferHandle>> mUBOShadowInstPool; // [frame][idx] models[128]+tints[128]
 				uint32 mShadowInstIdx = 0;
 				static constexpr uint32 kShadowInstPoolCap = 128; // batches×invocations/frame

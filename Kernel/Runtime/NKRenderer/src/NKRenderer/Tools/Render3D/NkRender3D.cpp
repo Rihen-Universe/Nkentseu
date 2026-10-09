@@ -710,6 +710,47 @@ namespace nkentseu {
 							mShadowInstanceShader.IsValid() ? 1 : 0, mShadowInstancePipeline.IsValid() ? 1 : 0);
 			}
 
+			// ── Shadow des maillages A SQUELETTE (08/10/2026) ────────────────────
+			// Version depth-only du pipeline Skin : meme vertex layout
+			// (NkVertexSkinned, os en TEXCOORD2/3, cf. EnsureSkinPipeline), memes os
+			// (set1 binding4), projection par lightVP. Les biais du rasterizer sont
+			// ceux du pipeline Shadow (plus haut : le signe, la pente et sa borne y
+			// sont justifies) -- un personnage se projette surtout sur LUI-MEME.
+			if (mShaderLib) {
+				auto progSSkin = mShaderLib->LoadOrCompileVF("ShadowSkinned", "", "");
+				if (progSSkin.IsValid())
+					mShadowSkinShader = mShaderLib->GetRHIHandle(progSSkin);
+				logger.Info("[NkRender3D] ShadowSkinned shader compile: valid={0}\n", mShadowSkinShader.IsValid() ? 1 : 0);
+			}
+			if (mShadowSkinShader.IsValid()) {
+				NkGraphicsPipelineDesc pd;
+				pd.shader = mShadowSkinShader;
+				pd.depthStencil = NkDepthStencilDesc::Default(); // depth write
+				if (mShadow)
+					pd.renderPass = mShadow->GetShadowRenderPass();
+				pd.rasterizer = NkRasterizerDesc::NoCull();
+				pd.rasterizer.depthBiasConst = 64.f;
+				pd.rasterizer.depthBiasSlope = 2.f;
+				pd.rasterizer.depthBiasClamp = 0.004f;
+				pd.blend = NkBlendDesc::Opaque();
+				pd.debugName = "ShadowSkinned_DepthOnly";
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f));
+				pd.descriptorSetLayouts.PushBack(mGlobalLayout);
+				pd.descriptorSetLayouts.PushBack(mObjectLayout); // binding1 + binding4 (os)
+				pd.vertexLayout.AddBinding(0, sizeof(NkVertexSkinned), false)
+					.AddAttribute(0, 0, NkVertexFormat::NK_RGB32_FLOAT, 0, "POSITION", 0)
+					.AddAttribute(1, 0, NkVertexFormat::NK_RGB32_FLOAT, 12, "NORMAL", 0)
+					.AddAttribute(2, 0, NkVertexFormat::NK_RGB32_FLOAT, 24, "TANGENT", 0)
+					.AddAttribute(3, 0, NkVertexFormat::NK_RG32_FLOAT, 36, "TEXCOORD", 0)
+					.AddAttribute(4, 0, NkVertexFormat::NK_RG32_FLOAT, 44, "TEXCOORD", 1)
+					.AddAttribute(5, 0, NkVertexFormat::NK_RGBA8_UNORM, 52, "COLOR", 0)
+					.AddAttribute(6, 0, NkVertexFormat::NK_RGBA32_FLOAT, 56, "TEXCOORD", 2)
+					.AddAttribute(7, 0, NkVertexFormat::NK_RGBA32_FLOAT, 72, "TEXCOORD", 3);
+				mShadowSkinPipeline = mDevice->CreateGraphicsPipeline(pd);
+				logger.Info("[NkRender3D] ShadowSkinned pipeline create: shader_valid={0} pipeline_valid={1}\n",
+							mShadowSkinShader.IsValid() ? 1 : 0, mShadowSkinPipeline.IsValid() ? 1 : 0);
+			}
+
 			// ── Skinning GPU : shader Skin ───────────────────────────────────
 			// Source canonique : Resources/NKRenderer/Shaders/Skin/VK/skin.{vert,frag}.vk.glsl
 			// (converti VK->GL/HLSL/MSL au run par SPIRV-Cross). Le vertex shader
@@ -1440,6 +1481,10 @@ namespace nkentseu {
 				mDevice->DestroyPipeline(mShadowPipeline);
 				mShadowPipeline = {};
 			}
+			if (mShadowSkinPipeline.IsValid()) {
+				mDevice->DestroyPipeline(mShadowSkinPipeline);
+				mShadowSkinPipeline = {};
+			}
 			if (mPBRBlendPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mPBRBlendPipeline);
 				mPBRBlendPipeline = {};
@@ -1833,6 +1878,13 @@ namespace nkentseu {
 				b.Merge(sdc.dc.aabb);
 			for (const auto &idc : mInstanced)
 				b.Merge(idc.aabb);
+			// (08/10/2026) Les maillages a squelette qui projettent : sans eux, la
+			// cascade ajustee aux casters ne couvrait pas un personnage seul. Une
+			// boite non renseignee (inversee) n'est pas fusionnee.
+			for (const auto &sdc : mSkinned) {
+				if (SkinnedCastsShadow(sdc) && sdc.aabb.min.x <= sdc.aabb.max.x)
+					b.Merge(sdc.aabb);
+			}
 			// Aucun caster -> AABB "inverse" (min>max) ; retourne un cube unite.
 			if (b.min.x > b.max.x) {
 				b.min = {-1.f, -1.f, -1.f};
@@ -1841,8 +1893,31 @@ namespace nkentseu {
 			return b;
 		}
 
+		// (08/10/2026) L'EMPREINTE D'UN MAILLAGE A SQUELETTE QUI PROJETTE : sa pose,
+		// son identite ET ses os -- un personnage bouge sans que sa matrice change.
+		// Meme resume FNV-1a que Submit ; le cache des cartes d'ombre s'invalide
+		// des que le personnage s'anime.
+		void NkRender3D::StampSkinnedCaster(const NkDrawCallSkinned &dc) {
+			if (!SkinnedCastsShadow(dc))
+				return;
+			for (int32 k = 0; k < 16; ++k) {
+				uint32 bits = 0;
+				std::memcpy(&bits, &dc.transform.data[k], sizeof(bits));
+				mShadowStamp = (mShadowStamp ^ (uint64)bits) * 1099511628211ull;
+			}
+			mShadowStamp = (mShadowStamp ^ dc.mesh.id) * 1099511628211ull;
+			for (usize b = 0; b < dc.boneMatrices.Size(); ++b) {
+				for (int32 k = 0; k < 16; ++k) {
+					uint32 bits = 0;
+					std::memcpy(&bits, &dc.boneMatrices[b].data[k], sizeof(bits));
+					mShadowStamp = (mShadowStamp ^ (uint64)bits) * 1099511628211ull;
+				}
+			}
+		}
+
 		void NkRender3D::SubmitSkinned(const NkDrawCallSkinned &dc) {
 			mSkinned.PushBack(dc);
+			StampSkinnedCaster(dc);
 		}
 
 		void NkRender3D::SubmitSkinnedTinted(const NkDrawCallSkinned &dc, NkVec3f tint, float32 alpha) {
@@ -1850,6 +1925,7 @@ namespace nkentseu {
 			copy.tint = tint;
 			copy.alpha = alpha;
 			mSkinned.PushBack(copy);
+			StampSkinnedCaster(copy);
 		}
 
 		// ── Sort ──────────────────────────────────────────────────────────────────
@@ -3190,6 +3266,85 @@ namespace nkentseu {
 					}
 				}
 			}
+
+			// ── Ombres des maillages A SQUELETTE (mSkinned) : 1 slot objet/maillage ──
+			// (08/10/2026) Pipeline ShadowSkinned : le skinning du pipeline Skin,
+			// projete par lightVP. LES OS DU DRAW k SONT ECRITS DANS LE TAMPON QUE
+			// FlushSkinned EMPLOIERA POUR LE MEME DRAW (meme rang : `k == 0` -> l'anneau,
+			// sinon BonesDuDraw(k)) et avec le MEME contenu : la passe de geometrie, qui
+			// vient apres dans la meme image, le reecrit a l'identique -- aucun conflit
+			// entre les deux lectures. Le rang se compte donc comme la-bas : sur les
+			// draws qui ont des os, qu'ils projettent ou non.
+			if (mShadowSkinPipeline.IsValid() && !mSkinned.Empty()) {
+				bool lie = false;
+				NkMat4f bonesScratch[kMaxBonesUBO];
+				uint32 drawSkinne = 0;
+				for (auto &dc : mSkinned) {
+					if (dc.boneMatrices.Empty())
+						continue;
+					const uint32 k = drawSkinne++;
+					if (!SkinnedCastsShadow(dc))
+						continue;
+					if (mObjectDrawIdx >= mObjectPoolCap) {
+						logger.Errorf("[NkRender3D] ObjectUBO pool overflow (shadow skinned): "
+									  "drawIdx=%u >= max=%u, skipping draw\n",
+									  mObjectDrawIdx, mObjectPoolCap);
+						break;
+					}
+					if (!lie) {
+						cmd->BindGraphicsPipeline(mShadowSkinPipeline);
+						cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(NkMat4f), &lightVP);
+						lie = true;
+					}
+					const NkBufferHandle os = BonesDuDraw(k);
+					if (os.IsValid()) {
+						uint32 count = (uint32)dc.boneMatrices.Size();
+						if (count > kMaxBonesUBO)
+							count = kMaxBonesUBO;
+						for (uint32 b = 0; b < count; b++)
+							bonesScratch[b] = dc.boneMatrices[b];
+						for (uint32 b = count; b < kMaxBonesUBO; b++)
+							bonesScratch[b] = NkMat4f::Identity();
+						mDevice->WriteBuffer(os, bonesScratch, kMaxBonesUBO * sizeof(NkMat4f));
+					}
+					ObjBlock ob{};
+					ob.model = dc.transform;
+					ob.normalMatrix = dc.transform.Inverse().Transpose();
+					ob.tint = {1, 1, 1, 1};
+					ob.shadowOverrides = {1.f, 0.f, 1.f, 0.f};
+					ob.metallic = 0.f;
+					ob.roughness = 0.5f;
+					ob.aoStrength = 1.f;
+					NkBufferHandle ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
+					NkDescSetHandle set = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
+					if (ubo.IsValid())
+						mDevice->WriteBuffer(ubo, &ob, sizeof(ob), 0);
+					if (set.IsValid() && os.IsValid())
+						mDevice->BindUniformBuffer(set, 4, os);
+					if (set.IsValid())
+						cmd->BindDescriptorSet(set, 1);
+					mMesh->BindMesh(cmd, dc.mesh);
+					// Un sous-maillage dont le materiau est TRANSPARENT (cheveux, cils en
+					// cartes : une carte pleine projetterait un rectangle) ne projette
+					// pas. Sans materiaux par sous-maillage : le maillage entier.
+					if (dc.materialSlots.Empty() || mMat == nullptr) {
+						mMesh->DrawAll(cmd, dc.mesh);
+					} else {
+						const uint32 nSubs = mMesh->GetSubMeshCount(dc.mesh);
+						for (uint32 si = 0; si < nSubs; ++si) {
+							NkMaterialInstance *inst = nullptr;
+							if (si < dc.materialSlots.Size() && dc.materialSlots[si].IsValid())
+								inst = mMat->GetInstance(dc.materialSlots[si]);
+							else if (dc.material.IsValid())
+								inst = mMat->GetInstance(dc.material);
+							if (inst != nullptr && inst->GetQueue() == NkRenderQueue::NK_TRANSPARENT)
+								continue;
+							mMesh->DrawSubMesh(cmd, dc.mesh, si);
+						}
+					}
+					mObjectDrawIdx++;
+				}
+			}
 		}
 
 		// ── DEPOT D'OMBRE OMNI EN DISTANCE LINEAIRE ─────────────────────────────
@@ -4155,15 +4310,28 @@ namespace nkentseu {
 				// ObjectUBO du draw (set=1, binding=1) : ecrit AVANT BindInstance
 				// (WriteBuffer = memcpy mapped, legal a tout moment ; aucun bind
 				// d'etat). Le set=1 lui-meme est re-bind plus bas, apres le skin.
+				// (08/10/2026) LE BLOC OBJET ENTIER. Il s'arretait a `p[8]` (176
+				// octets) : `subsurfaceColor` et `shadowOverrides` gardaient ce que le
+				// tampon contenait. Le shader Skin lit desormais shadowOverrides (.x :
+				// la surface recoit l'ombre ; .z : le multiplicateur de biais) -- il
+				// faut donc l'ECRIRE. subsurfaceColor prend son defaut documente (blanc,
+				// NkDrawCall3D::subsurfaceColor).
 				struct ObjB {
 						NkMat4f m, nm;
 						NkVec4f tint;
 						float32 p[8];
+						NkVec4f subsurfaceColor;
+						NkVec4f shadowOverrides;
+						NkVec4f triplanarParams;
+						NkVec4f wetParams;
 				} ob{};
+				static_assert(sizeof(ObjB) == 240, "ObjB std140 skinned");
 
 				ob.m = dc.transform;
 				ob.nm = dc.transform.Inverse().Transpose();
 				ob.tint = {dc.tint.x, dc.tint.y, dc.tint.z, dc.alpha};
+				ob.subsurfaceColor = NkVec4f{1.f, 1.f, 1.f, 1.f};
+				ob.shadowOverrides = NkVec4f{1.f, 0.f, 1.f, 0.f};
 				NkBufferHandle ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
 				NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
 				if (ubo.IsValid())
@@ -4220,10 +4388,20 @@ namespace nkentseu {
 								NkMat4f m, nm;
 								NkVec4f tint;
 								float32 p[8];
+								NkVec4f subsurfaceColor;
+								NkVec4f shadowOverrides;
+								NkVec4f triplanarParams;
+								NkVec4f wetParams;
 						} sob{};
+						static_assert(sizeof(ObjB2) == 240, "ObjB2 std140 skinned");
 
 						sob.m = dc.transform;
 						sob.nm = dnm;
+						// (08/10/2026) Le bloc entier (voir ObjB plus haut) : l'ombre recue
+						// suit le materiau du sous-maillage, comme dans le chemin opaque.
+						sob.subsurfaceColor = NkVec4f{1.f, 1.f, 1.f, 1.f};
+						sob.shadowOverrides = sInst ? NkVec4f{sInst->mReceiveShadow ? 1.f : 0.f, 0.f, sInst->mShadowBiasMul, 0.f}
+													: NkVec4f{1.f, 0.f, 1.f, 0.f};
 						// Params PBR du materiau (le frag skin lit metallic/roughness/
 						// aoStrength/... depuis uObj). Sans ca p[8]=0 -> ao=0 ->
 						// aucun ambient -> modele sombre + bords qui bloom (glow).
