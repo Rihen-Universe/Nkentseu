@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 """MakeKit.py - fabrique le kit AUTONOME d'une bibliotheque publique de Nkentseu.
 
 POURQUOI
@@ -62,8 +63,13 @@ KITS_CONNUS = {
 # relatif au dossier courant ; sans eux il refuse de s'initialiser (constate le 27/09/2026
 # sur le code du volume III, et de nouveau le 08/10 : le kit construisait, le programme de
 # l'etudiant ne demarrait pas). Le projet qui utilise le kit les copie chez lui (postbuild).
-RESSOURCES_CONNUES = {
-    "Renderer": ["Resources/NKRenderer/Shaders"],
+#
+# (09/10/2026) La table est tenue PAR MODULE, et non plus par nom de kit. Un kit nomme a la main
+# (`--name R3D --target NKRenderer,...`) contient NKRenderer sans s'appeler « Renderer » : il
+# sortait sans nuanceurs, et le programme de l'etudiant ne demarrait pas -- le defaut du 08/10,
+# revenu par un autre nom.
+RESSOURCES_PAR_MODULE = {
+    "NKRenderer": ["Resources/NKRenderer/Shaders"],
 }
 
 RACINE = Path(__file__).resolve().parent.parent
@@ -200,10 +206,28 @@ def Verifier(kit, nomKit):
     return cibles
 
 
+def ModulesDuKit(kit):
+    """Les modules reellement presents dans le kit, lus dans ses bibliotheques (libNKRenderer.a,
+    NKRenderer.lib...) : ce que le kit CONTIENT, pas ce qu'on a demande ni son nom."""
+    presents = set()
+    for f in (kit / "lib").rglob("*"):
+        if f.is_file():
+            nom = f.name
+            if nom.startswith("lib"):
+                nom = nom[3:]
+            presents.add(nom.split(".")[0])
+    return presents
+
+
 def EmbarquerRessources(kit, nomKit):
     """Copie dans le kit les dossiers que ses modules lisent a l'execution. Rend leur liste."""
     faits = []
-    for rel in RESSOURCES_CONNUES.get(nomKit, []):
+    presents = ModulesDuKit(kit)
+    voulus = []
+    for module, dossiers in sorted(RESSOURCES_PAR_MODULE.items()):
+        if module in presents:
+            voulus += [d for d in dossiers if d not in voulus]
+    for rel in voulus:
         source = RACINE / rel
         if not source.is_dir():
             raise SystemExit("ressource du kit introuvable dans le depot : %s" % source)
