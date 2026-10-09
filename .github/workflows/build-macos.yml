@@ -78,12 +78,25 @@ jobs:
         env:
           # Le paquet Python `Jenga` vit a la racine du depot Jenga.
           PYTHONPATH: ${{ github.workspace }}/jenga-src
+          # (09/10/2026) Sans cible, clang compile pour le macOS du RUNNER : le
+          # binaire de NkRef 0.1.0 exigeait macOS 26 (LC_BUILD_VERSION minos 26.0)
+          # et ne s'ouvrait sur aucun Mac en macOS 13, 14 ou 15. 11.0 = premier
+          # macOS des Mac a puce Apple, et la valeur de Jenga (Commands/Gen.py).
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
         run: |
           python3 --version
           # construire.sh publie les erreurs en ANNOTATIONS (lisibles sans
           # compte) : du 26/09 au 30/09, ce job ne disait que « exit code 1 ».
           chmod +x .github/scripts/*.sh
           .github/scripts/construire.sh build NkRef Release journaux
+
+      - name: Le binaire tourne sur macOS 11 (minos)
+        run: |
+          set -e
+          BIN=$(find Build/Bin -type f -name NkRef -path "*Release*" | head -1)
+          MINOS=$(otool -l "$BIN" | awk '/LC_BUILD_VERSION/{v=1} v && /minos/{print $2; exit}')
+          echo "minos du binaire : $MINOS"
+          test "$MINOS" = "11.0" || { echo "::error::NkRef exige macOS $MINOS (attendu 11.0)"; exit 1; }
 
       - name: Empaqueter (tar.gz pour testeurs)
         run: |
