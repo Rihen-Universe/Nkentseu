@@ -43,7 +43,7 @@ with project("NkRef"):
     dependfiles(["../../Resources/Fonts"])
 
     apppublisher("Rihen Universe")
-    appversion("0.3.0")
+    appversion("0.3.1")
 
     # ===== Windows ===========================================================
     with filter("system:Windows"):
@@ -59,6 +59,15 @@ with project("NkRef"):
             "d3d11", "d3d12", "dxgi", "d3dcompiler",
             "vulkan-1",
         ])
+        # (10/10) Programme FENETRE, pas console. `windowedapp()` ne suffit pas :
+        # le constructeur Windows de Jenga 2.8.18 ne passe aucun sous-systeme a
+        # l'editeur de liens. NkRef.exe 0.3.0 est sorti en programme CONSOLE
+        # (Subsystem du PE = 3, mesure sur le paquet publie) : une fenetre noire
+        # s'ouvrait avec la planche. A RETIRER quand Jenga passera le sous-systeme.
+        if "mingw" in TC_WINDOWS.lower():
+            ldflags(["-mwindows"])
+        else:
+            ldflags(["/SUBSYSTEM:WINDOWS"])
 
     # Frameworks Apple via ldflags NIVEAU PROJET : l'API frameworks() de Jenga
     # écrit dans la TOOLCHAIN courante (None au niveau projet → perdu en
