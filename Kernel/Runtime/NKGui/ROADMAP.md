@@ -583,7 +583,7 @@ pas corrigé ici.
   ne réécrit une primitive. Les émulations restantes (`MouDraw.h`,
   `NkoungDraw.h`, `NkcDraw.h`) en sont la mesure, et elle est décroissante.
 
-# PLUS TARD — le focus de panneau (souhait de Rodolf, 2026-10-10)
+# FAIT — le focus de panneau (souhait de Rodolf, 2026-10-10)
 
 > « On doit implémenter ce système de focus de panneau, c'est important. »
 
@@ -594,18 +594,101 @@ tableau blanc de NKCode : avec la souris posée sur le tableau, une lettre tapé
 dans le chat ou un champ de recherche déclenchait aussi un raccourci du tableau,
 J pour l'union, ou Suppr pour effacer les formes choisies.
 
-**Décidé le 10/10 : on le fait tout de suite.** Le chantier est en cours, et son
-premier client est le tableau blanc de NKCode. Rodolf a fixé la condition : les
+**Décidé le 10/10 : on le fait tout de suite.** Rodolf a fixé la condition : les
 raccourcis ne jouent que si le tableau a le focus et qu'aucun texte n'est en
 frappe.
 
-**Ce qu'il faut à NKGui :**
-- un identifiant de panneau focalisé dans le contexte, posé au clic, avec un
-  ordre de priorité pour les surcouches (menus, modales) ;
-- une question unique, du type « ce panneau a-t-il le clavier ? », qui dit aussi
-  si un champ texte est en frappe ;
-- le passage du focus au clavier (Tab, Ctrl+Tab) ;
-- un cadre de focus visible, à rattacher à `NkGuiNavigation`.
+## Ce qui est fait (10/10) — uniquement des ajouts à l'API
 
-**À reprendre ensuite :** les gardes « survol » des autres vues qui écoutent le
-clavier (l'inventaire est dans le rapport du chantier).
+Dans `Core/NkGuiContext.h` (bloc « LE FOCUS DE PANNEAU ») :
+
+| ajout | rôle |
+|---|---|
+| `PanneauDebut(id, rect)` / `PanneauFin()`, ou `NkPanneauScope` | le panneau se **déclare** à chaque image, autour de son dessin (imbrication : 8 niveaux) |
+| `panneauFocus` | le panneau qui a le focus (persistant ; `NKGUI_ID_NONE` = aucun) |
+| `PanneauAFocus(id)` | le focus seul |
+| `PanneauAuClavier(id)` | **la question** : focus, aucun menu de NKGui ouvert, aucune modale qui a réservé la saisie, aucun texte en frappe **ailleurs** que chez lui |
+| `NoterFrappe()` | un champ dont le focus ne passe pas par `inputId` se déclare en frappe (le champ d'overlay du kit le fait : un seul site, `NkOverlayTextField`) |
+| `TexteEnFrappeHors(id)` | la frappe ailleurs : `inputId` (son panneau est celui où il a changé), ou une frappe déclarée (image courante ou précédente) |
+
+**Les règles**, toutes dérivées de l'ordre de clic déjà en place :
+
+- un clic (gauche, droit ou milieu) qui **atteint** un panneau lui donne le focus.
+  « Atteindre » est la règle d'`ItemHoverable` : pas sous une surface d'une couche
+  supérieure (`PointReachable`), pas sous un popup plus profond, pas sous une autre
+  fenêtre. Entre deux panneaux atteints, le **dernier déclaré** gagne (peint
+  par-dessus, comme `hotId`) ;
+- un clic qui n'atteint aucun panneau **retire** le focus — sauf sur une
+  **surcouche** : popup ouvert ou son ancre, surface d'une couche > 0, modale de
+  l'image d'avant (`modalDepth`, `appModal`, `ReserverSaisie`), barre de menus,
+  barre de titre de l'hôte (`titleBarH`). Lu au **début** de l'image, comme
+  `hotIdPrev` : le menu qui se referme sur ce clic compte encore ;
+- le focus se résout en **fin d'image** : la réponse ne dépend pas de l'ordre de
+  dessin ;
+- les infobulles ne prennent pas le clic (règle existante) : un clic sur une
+  infobulle atteint le panneau dessous ;
+- un panneau qui oublie de se déclarer ne reçoit jamais le focus, et un clic chez
+  lui le retire aux autres : l'oubli **échoue fermé**.
+
+**Témoin** : `Applications/NKGuiInteractTest`, cas `CasFocusPanneau.h` (b24),
+non visuel, **28 critères**, banc entier **539/539**. Une mutation par règle,
+`NK_FOCUS_MUTATION=collant|garde|popup|surcouche|frappe|proprietaire`, armée dans le
+même processus **et** posée de l'extérieur : chacune fait rougir exactement les
+critères de sa règle (536, 538, 536, 532, 536, 537 sur 539).
+
+**Premier client** : le tableau blanc de NKCode (`NkVisioTableau.h`). Son bloc
+clavier (Suppr, Retour arrière, J I D O, Ctrl+Z, Ctrl+Y) se garde par
+`PanneauAuClavier` et `!E.saisie` ; la garde au survol reste en commentaire.
+Banc : `tools/banc_tableau.sh`, témoins tb15 à tb18 (l'autre panneau est
+« Problèmes »), mutations `tableau-garde-survol` (rougit tb16 et tb18) et
+`tableau-frappe-ignoree` (rougit tb17) : **24/24 VERT** (les 20 d'avant, tb14b compris avec la 1.2.0, et les 4 neufs), **contre-essai 11/11** (chaque mutation rougit).
+
+⚠️ **Pourquoi pas l'explorateur comme « autre panneau »** : un clic chez lui pose
+déjà un focus maison (`explorerFocus`), et `Panels.h` coupe alors tout le clavier
+de l'éditeur. Sous l'ancienne garde, J n'arrivait donc pas au tableau : le témoin
+était vert pour une mauvaise raison — c'est la contre-épreuve, qui n'a pas rougi,
+qui l'a dit.
+
+## Ce qui reste
+
+1. **Le passage du focus au clavier** (Tab, Ctrl+Tab entre panneaux) et **un cadre
+   de focus visible**, à rattacher à `NkGuiNavigation` (qui a déjà son focus de
+   contrôle, à la manette). Non fait : rien ne le demandait encore.
+2. **La barre de titre, les barres d'outils et d'état** : seule la barre de titre
+   déclarée par l'hôte (`titleBarH`) et la barre de menus sont neutres. Un clic sur
+   une barre d'outils ou d'état retire le focus (choix « échouer fermé ») ; si cela
+   gêne, l'hôte pourra déclarer ces zones neutres.
+3. **Les autres vues de NKCode** qui lisent le clavier sans le focus (inventaire du
+   10/10, voir ci-dessous).
+
+### Inventaire des vues de NKCode (10/10)
+
+**Gardées par un survol** (`KeyPressed` sous un `Survol`) :
+
+| vue | touches | garde | état |
+|---|---|---|---|
+| `NkVisioTableau.h` | Suppr, Retour arrière, J I D O, Ctrl+Z, Ctrl+Y | `u.Survol(R)` | **adoptée** (focus + frappe) |
+| `NkVisioPdf.h` (« clavier : pages ») | Gauche, Droite | `surDoc` = `u.Survol(doc)` hors carte et zoom | **non adoptée** : elle changerait une conduite (aujourd'hui Gauche/Droite tournent la page dès que la souris est sur le document, sans clic), et aucun banc ne pilote ses pages. Même remède, une dizaine de lignes : à décider |
+
+**Sans garde de survol, mais « l'onglet actif suffit »** — elles prennent les
+touches de toute frappe qui ne passe pas par `inputId` (les champs d'overlay du
+kit : filtre de l'explorateur, recherche) :
+
+| vue | touches | garde |
+|---|---|---|
+| `NkVisioAudio.h` | Espace, A, B, L, M, flèches, Début | `popupDepth == 0 && inputId == NONE && !ctrl` |
+| `NkVisioVideo.h` | Espace, flèches, A, B, L, K… | idem |
+| `NkVisioCsv.h` | flèches, Ctrl+C (cellule active) | une cellule choisie, pas de recherche |
+| `NkVisioJenga.h` | Ctrl+Z | `!E.edite && popupDepth == 0` |
+| `NkVisioImage.h` | Maj+C | `popupDepth == 0` |
+| `NkVisioMarkdown.h` | Échap | aucune |
+| Pdf, Csv, Json, Markdown | Ctrl+F | `popupDepth == 0` |
+
+Le remède est le même : se déclarer (`NkPanneauScope`) et demander
+`PanneauAuClavier`. Il change une conduite (le clavier ne joue plus qu'après un
+clic dans la vue) : à décider vue par vue, chacune avec son banc.
+
+**Un focus « maison » au clic** (déjà juste, à migrer pour n'avoir qu'une
+source) : l'explorateur (`mFocus`, publié en `explorerFocus` ; `Panels.h` coupe
+alors **tout** le clavier de l'éditeur, visionneuses comprises), le panneau Git
+(`mFocusMessage`, `mFocusNom`…), la recherche (`mFocus`), l'éditeur de code.

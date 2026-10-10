@@ -28,6 +28,24 @@ namespace nkentseu {
 			return gCurrentContext;
 		}
 
+		namespace {
+			/// (10/10) LES MUTATIONS DU FOCUS DE PANNEAU : NK_FOCUS_MUTATION=<regle> retire
+			/// UNE regle, pour prouver que le temoin sait rougir. RELUE A CHAQUE APPEL (pas
+			/// de `static`) : le temoin arme et desarme la mutation dans le MEME processus,
+			/// entre deux scenes -- le positif et le negatif sortent de la meme execution.
+			/// Elle n'est lue que sur un clic, ou quand un texte est en frappe.
+			bool FocusMutation(const char *regle) noexcept {
+				const char *v = getenv("NK_FOCUS_MUTATION");
+				if (!v || !regle)
+					return false;
+				while (*v && *v == *regle) {
+					++v;
+					++regle;
+				}
+				return *v == 0 && *regle == 0;
+			}
+		} // namespace
+
 		bool NkGuiContext::Init(int32 width, int32 height) noexcept {
 			viewW = width;
 			viewH = height;
@@ -50,6 +68,9 @@ namespace nkentseu {
 		}
 
 		void NkGuiContext::BeginFrame(float32 dt) noexcept {
+			// (10/10) LE FOCUS DE PANNEAU : une modale dessinee a l'image d'avant (le kit
+			// compte `modalDepth`, l'hote declare `appModal`) -- lu AVANT leur remise a zero.
+			const bool modalePrec = modalDepth > 0 || appModal;
 			input.dt = dt;
 			// Un rectangle pose et jamais consomme (widget conditionnel non
 			// atteint) ne doit pas s'appliquer a la frame suivante.
@@ -98,6 +119,33 @@ namespace nkentseu {
 			}
 			occlCountNew = 0;
 			curInputLayer = 0;
+			// ── LE FOCUS DE PANNEAU (10/10) : le clic de CETTE image, et s'il tombe sur
+			//    une surcouche. Lu ICI, avec l'etat de l'image d'avant (popups ouverts,
+			//    surfaces declarees) -- la meme source que `hotIdPrev` et l'occultation :
+			//    le menu qui se referme sur ce clic compte encore comme menu.
+			panneauProfondeur = 0;
+			panneauReclame = NKGUI_ID_NONE;
+			frappeCount = frappeCountNew;
+			for (int32 i = 0; i < frappeCountNew; ++i)
+				frappePanneaux[i] = frappePanneauxNew[i];
+			frappeCountNew = 0;
+			panneauClic = input.mouseClicked[0] || input.mouseClicked[1] || input.mouseClicked[2];
+			panneauClicNeutre = false;
+			if (panneauClic) {
+				const NkVec2 p = input.mousePos;
+				bool neutre = modalePrec || input.saisieReserveePrec;
+				for (int32 i = 0; i < popupDepth && !neutre; ++i)
+					neutre = NkGuiRectContains(popupRects[i], p);
+				if (!neutre && popupDepth > 0)
+					neutre = NkGuiRectContains(popupAnchor, p); // l'ancre d'un menu ouvert (la barre)
+				if (!neutre) // la barre de menus : le clic qui OUVRE un menu appartient au menu
+					neutre = NkGuiRectContains(menuBarRect, p);
+				if (!neutre && titleBarH > 0.f) // la barre de titre de l'hote (deplacer, boutons)
+					neutre = p.y >= 0.f && p.y < titleBarH;
+				for (int32 i = 0; i < occlCount && !neutre; ++i)
+					neutre = occlLayers[i] > 0 && NkGuiRectContains(occlRects[i], p);
+				panneauClicNeutre = neutre && !FocusMutation("surcouche");
+			}
 			winCount = 0;		// pool de fenêtres ré-attribué cette frame
 			curWindow = -1;
 			curWindowId = NKGUI_ID_NONE;
@@ -165,6 +213,14 @@ namespace nkentseu {
 				hoveredWindowId = NKGUI_ID_NONE;
 			}
 
+			// ── LE FOCUS DE PANNEAU (10/10), RESOLU EN FIN D'IMAGE : le panneau atteint
+			//    par le clic le prend ; un clic qui n'en atteint aucun, hors surcouche,
+			//    le retire.
+			if (panneauReclame != NKGUI_ID_NONE) {
+				if (!(panneauFocus != NKGUI_ID_NONE && FocusMutation("collant")))
+					panneauFocus = panneauReclame;
+			} else if (panneauClic && !panneauClicNeutre && !FocusMutation("garde"))
+				panneauFocus = NKGUI_ID_NONE;
 			// Fermeture de la chaîne de popups : Échap ferme le niveau le plus
 			// profond ; un clic hors de TOUS les popups (et hors de l'ancre) ferme tout.
 			if (popupDepth > 0) {
@@ -612,6 +668,89 @@ namespace nkentseu {
 			// dessous, lui, met à jour hotId mais retourne false → ne capture pas.
 			hotId = id;
 			return hotIdPrev == id;
+		}
+
+		// ═══════════════════════════════════════════════════════════════════
+		//  LE FOCUS DE PANNEAU (2026-10-10) — voir NkGuiContext.h
+		// ═══════════════════════════════════════════════════════════════════
+		void NkGuiContext::PanneauDebut(NkGuiId id, const NkRect &r) noexcept {
+			if (panneauProfondeur < PanneauPileMax) {
+				panneauPile[panneauProfondeur] = id;
+				panneauChampDebut[panneauProfondeur] = inputId;
+			}
+			++panneauProfondeur; // au-dela de la pile : compte, pour que PanneauFin reste apparie
+			if (id == NKGUI_ID_NONE)
+				return;
+			// LE CLIC QUI L'ATTEINT : l'entree que voit le panneau (une coquille qui le
+			// masque sous une modale lui rend un clic efface et une souris « nulle part »),
+			// et la regle d'ItemHoverable, sans le survol d'image d'avant (le dernier
+			// panneau declare gagne en fin d'image, comme `hotId`).
+			if (!(input.mouseClicked[0] || input.mouseClicked[1] || input.mouseClicked[2]))
+				return;
+			const NkVec2 p = input.mousePos;
+			if (!NkGuiRectContains(r, p))
+				return;
+			if (!PointReachable(p)) // une surface d'une couche superieure le couvre
+				return;
+			if (!FocusMutation("popup"))
+				for (int32 i = curPopupLevel + 1; i < popupDepth; ++i)
+					if (NkGuiRectContains(popupRects[i], p)) // un popup plus profond le couvre
+						return;
+			if (curPopupLevel < 0 && hoveredWindowId != NKGUI_ID_NONE && hoveredWindowId != curWindowId)
+				return; // une autre fenetre est au-dessus
+			panneauReclame = id;
+		}
+
+		void NkGuiContext::PanneauFin() noexcept {
+			if (panneauProfondeur <= 0)
+				return;
+			--panneauProfondeur;
+			if (panneauProfondeur >= PanneauPileMax)
+				return;
+			// LE CHAMP QUI A PRIS LE FOCUS ICI : `inputId` a change pendant ce panneau. Le
+			// plus INTERIEUR gagne : il se referme le premier, et l'exterieur trouve la
+			// paternite deja ecrite.
+			if (inputId != NKGUI_ID_NONE && inputId != panneauChampDebut[panneauProfondeur] && champPanneauId != inputId) {
+				champPanneauId = inputId;
+				champPanneau = panneauPile[panneauProfondeur];
+			}
+		}
+
+		void NkGuiContext::NoterFrappe() noexcept {
+			const NkGuiId p = PanneauCourant();
+			for (int32 i = 0; i < frappeCountNew; ++i)
+				if (frappePanneauxNew[i] == p)
+					return;
+			if (frappeCountNew < FrappeMax)
+				frappePanneauxNew[frappeCountNew++] = p;
+			else // trop de champs a la fois : on ne sait plus a qui -- « ailleurs » pour tous
+				frappePanneauxNew[FrappeMax - 1] = NKGUI_ID_NONE;
+		}
+
+		bool NkGuiContext::TexteEnFrappeHors(NkGuiId id) const noexcept {
+			bool chezLui = false, ailleurs = false;
+			for (int32 i = 0; i < frappeCount; ++i)
+				(frappePanneaux[i] == id ? chezLui : ailleurs) = true;
+			for (int32 i = 0; i < frappeCountNew; ++i)
+				(frappePanneauxNew[i] == id ? chezLui : ailleurs) = true;
+			if (inputId != NKGUI_ID_NONE) // un champ de NKGui : son panneau, s'il est connu
+				((champPanneauId == inputId && champPanneau == id) ? chezLui : ailleurs) = true;
+			if (ailleurs)
+				return true;
+			// contre-epreuve : la paternite ignoree, un texte en frappe chez lui compte comme ailleurs
+			return chezLui && FocusMutation("proprietaire");
+		}
+
+		bool NkGuiContext::PanneauAuClavier(NkGuiId id) const noexcept {
+			if (id == NKGUI_ID_NONE || panneauFocus != id)
+				return false;
+			if (popupDepth > 0) // un menu ouvert a le clavier (Echap, fleches, Entree)
+				return false;
+			if (input.saisieReservee || input.saisieReserveePrec) // une modale l'a reserve
+				return false;
+			if (TexteEnFrappeHors(id) && !FocusMutation("frappe"))
+				return false;
+			return true;
 		}
 
 		bool NkGuiContext::ButtonBehavior(NkGuiId id, const NkRect &r, NkGuiButtonFlags flags,

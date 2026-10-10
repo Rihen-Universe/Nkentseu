@@ -28,6 +28,7 @@ Mesuré sur cette branche : **9 051 lignes**, **116 fonctions** déclarées dans
 | Liste de dessin (`NkGuiDrawList`) | rect plein/contour **arrondis**, cercle plein/contour, ligne, polyligne, polygone convexe, dégradés, image, texte |
 | Widgets | boutons, cases, saisie (mono/multi-ligne), listes, arbres, tables, onglets, menus, popups, sélecteur de couleur, sliders, séparateurs… |
 | Fenêtres | ancrage (docking), onglets, redimensionnement, **routeur d'entrée par couches** (`NkInputLayerScope`) |
+| Focus de panneau | (10/10) quel panneau a le **clavier** : il se déclare (`NkPanneauScope`), un clic le lui donne, les surcouches ne le déplacent pas ; une question, `PanneauAuClavier` (focus, aucun menu, aucune frappe ailleurs) — témoin `NKGuiInteractTest` (b24), voir `ROADMAP.md` |
 | Glisser-déposer | charge typée, fantôme dessiné par la bibliothèque (`BeginDragSource`, `AcceptDragPayload`) |
 | Mise en page | curseur immédiat, HBox, grille, flex (`Row`/`Column`), pile, **et placement explicite** (`SetNextItemRect`) |
 | Thème | **35 jetons énumérables** par nom (`NkGuiThemeTokens`), hook de re-skin par widget (`styleFn`) |

@@ -381,6 +381,100 @@ namespace nkentseu {
 						}
 				};
 
+				// ── LE FOCUS DE PANNEAU (2026-10-10) — STRICTEMENT ADDITIF ─────────
+				//  Rodolf : « on doit implementer ce systeme de focus de panneau, c'est
+				//  important ». NKGui savait quel widget est survole (`hotId`) et lequel
+				//  est en interaction (`activeId`), pas QUEL PANNEAU A LE CLAVIER : chaque
+				//  application le devinait au survol. Defaut mesure dans le tableau blanc
+				//  de NKCode : la souris posee sur le tableau, un J tape dans le chat
+				//  faisait une union, un Suppr effacait les formes choisies.
+				//
+				//  LE CONTRAT, en trois gestes :
+				//   1. le panneau se DECLARE a chaque image, autour de son dessin :
+				//      `PanneauDebut(id, rect)` ... `PanneauFin()` (ou `NkPanneauScope`) ;
+				//   2. un clic (gauche, droit ou milieu) qui l'ATTEINT lui donne le focus ;
+				//      un clic ailleurs le retire. « Atteindre » est la regle des widgets
+				//      (ItemHoverable) : pas sous une surface d'une couche superieure
+				//      (PushOcclusion), pas sous un popup plus profond, pas sous une autre
+				//      fenetre. Entre plusieurs panneaux atteints, le DERNIER declare
+				//      gagne -- il est peint par-dessus, comme `hotId`.
+				//   3. une seule question : `PanneauAuClavier(id)`.
+				//  LES SURCOUCHES NE DEPLACENT PAS LE FOCUS : un clic dans un popup ouvert
+				//  (ou son ancre), sur une surface d'une couche > 0, sous une modale
+				//  (`modalDepth`, `appModal`, `ReserverSaisie` de l'image d'avant), dans la
+				//  barre de menus ou dans la barre de titre de l'hote (`titleBarH`) ne donne
+				//  ni ne retire rien. Lu au DEBUT de l'image, comme `hotIdPrev` et
+				//  l'occultation : le menu qui se referme sur ce clic compte encore.
+				//  Le focus se RESOUT en fin d'image (EndFrame) : pendant l'image du clic,
+				//  la reponse est celle d'avant -- independante de l'ordre de dessin.
+				//  ⚠️ Un panneau qui ne se declare pas ne prend jamais le focus, et un clic
+				//     chez lui le RETIRE aux autres : l'oubli echoue FERME (le clavier ne va
+				//     a personne), jamais ouvert (le clavier n'arrive pas au mauvais).
+				//  Temoin : Applications/NKGuiInteractTest (CasFocusPanneau.h), une mutation
+				//  par regle : NK_FOCUS_MUTATION=collant|garde|popup|surcouche|frappe|proprietaire.
+				NkGuiId panneauFocus = NKGUI_ID_NONE; ///< le panneau qui a le clavier (persistant ; NONE = aucun)
+				static constexpr int32 PanneauPileMax = 8;
+				NkGuiId panneauPile[PanneauPileMax] = {};		///< panneaux en cours de dessin (imbriques)
+				NkGuiId panneauChampDebut[PanneauPileMax] = {}; ///< `inputId` a l'ouverture de chacun
+				int32 panneauProfondeur = 0;
+				NkGuiId panneauReclame = NKGUI_ID_NONE; ///< le panneau atteint par le clic de CETTE image
+				bool panneauClic = false;				///< un clic (bouton 0, 1 ou 2) a eu lieu a cette image
+				bool panneauClicNeutre = false;			///< ... sur une surcouche : il ne deplace pas le focus
+				/// Le champ texte focalise (`inputId`) dont on connait le panneau, et ce
+				/// panneau : celui dans lequel `inputId` a CHANGE (le plus interieur). Un
+				/// focus pose hors de tout panneau laisse le proprietaire inconnu : le
+				/// champ compte alors comme « ailleurs » pour tous.
+				NkGuiId champPanneauId = NKGUI_ID_NONE;
+				NkGuiId champPanneau = NKGUI_ID_NONE;
+				/// LES CHAMPS EN FRAPPE DECLARES (`NoterFrappe`), par panneau : ceux dont le
+				/// focus ne passe pas par `inputId` (le champ d'overlay du kit, dont
+				/// l'application tient le focus). Image PRECEDENTE (lue) et image COURANTE
+				/// (ecrite) : un champ dessine APRES le panneau qui interroge compte aussi.
+				static constexpr int32 FrappeMax = 4;
+				NkGuiId frappePanneaux[FrappeMax] = {}; ///< image precedente (NONE = hors panneau)
+				int32 frappeCount = 0;
+				NkGuiId frappePanneauxNew[FrappeMax] = {}; ///< image courante
+				int32 frappeCountNew = 0;
+
+				/// Ouvre la declaration d'un panneau pour CETTE image (a refermer par
+				/// `PanneauFin`). `r` : la zone ou un clic lui donne le focus.
+				void PanneauDebut(NkGuiId id, const NkRect &r) noexcept;
+				void PanneauFin() noexcept;
+				/// Le panneau en cours de dessin (NONE hors de tout panneau).
+				NkGuiId PanneauCourant() const noexcept {
+					const int32 n = panneauProfondeur < PanneauPileMax ? panneauProfondeur : PanneauPileMax;
+					return n > 0 ? panneauPile[n - 1] : NKGUI_ID_NONE;
+				}
+				/// Le panneau `id` a-t-il le focus (sans juger la frappe ni les menus) ?
+				bool PanneauAFocus(NkGuiId id) const noexcept {
+					return id != NKGUI_ID_NONE && panneauFocus == id;
+				}
+				/// Un champ texte declare qu'il est EN FRAPPE a cette image, dans le
+				/// panneau en cours de dessin. Pour un champ dont le focus ne passe pas
+				/// par `inputId` (ceux de NKGui n'ont rien a faire).
+				void NoterFrappe() noexcept;
+				/// Un texte est-il en frappe AILLEURS que dans le panneau `id` ?
+				bool TexteEnFrappeHors(NkGuiId id) const noexcept;
+				/// LA QUESTION : le panneau `id` a-t-il le clavier ? Oui s'il a le focus,
+				/// qu'aucun menu de NKGui n'est ouvert, qu'aucune modale n'a reserve la
+				/// saisie, et qu'aucun champ texte n'est en frappe ailleurs que chez lui.
+				/// Un texte en frappe DANS le panneau reste son affaire : lui seul sait
+				/// quelles touches vont a son champ.
+				bool PanneauAuClavier(NkGuiId id) const noexcept;
+
+				/// RAII : `PanneauDebut` a la construction, `PanneauFin` a la destruction.
+				struct NkPanneauScope {
+						NkGuiContext *c;
+						NkPanneauScope(NkGuiContext &ctx, NkGuiId id, const NkRect &r) : c(&ctx) {
+							ctx.PanneauDebut(id, r);
+						}
+						~NkPanneauScope() {
+							c->PanneauFin();
+						}
+						NkPanneauScope(const NkPanneauScope &) = delete;
+						NkPanneauScope &operator=(const NkPanneauScope &) = delete;
+				};
+
 				// ── Fenêtres flottantes (Begin/End) ───────────────────────────────
 				// Chaque fenêtre dessine dans SA draw-list (pool `winDL`), fusionnées dans
 				// `dl` triées par z-order à EndFrame → recouvrement correct + passage devant.
@@ -439,7 +533,9 @@ namespace nkentseu {
 				//    reposer a CHAQUE image tant que le dialogue est ouvert. L'ancien contrat
 				//    (« mis a true a l'ouverture, false a la fermeture -- le shell ne le reset
 				//    pas ») a laisse trois sources de NKUIDesign masquer le corps pour toujours.
-				//    NKGui lui-meme ne lit pas ce drapeau.
+				//    NKGui lui-meme ne lit pas ce drapeau -- (10/10) SAUF le focus de panneau :
+				//    BeginFrame lit la declaration de l'image d'avant, et un clic sous une
+				//    modale declaree ne deplace pas le focus (voir « LE FOCUS DE PANNEAU »).
 				bool appModal = false;
 
 				// Ecran plein cadre applicatif : quand leve, le shell remplace le corps
