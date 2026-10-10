@@ -164,6 +164,16 @@ jobs:
           chmod +x .github/scripts/*.sh
           .github/scripts/construire.sh build NKCanvas Release journaux
 
+      # (10/10/2026) Le deuxieme arret de Karl : NKCamera, dont le dorsal Cocoa
+      # (.mm) n'est compile que sur Mac -- `NkString::c_str()` n'existe pas.
+      # Ce job s'arretait avant (NKCanvas seul) : il construit aussi NKCamera.
+      - name: Builder NKCamera (Release)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          .github/scripts/construire.sh build NKCamera Release journaux-camera
+
   nkref-linux:
     runs-on: ubuntu-latest
     timeout-minutes: 40
