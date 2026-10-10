@@ -25,6 +25,7 @@
 | Codec MP3 Layer 3 (decode) | Livré | — | — |
 | Codec MP3 Layer 1 / Layer 2 | TODO | M | P3 |
 | Codec MP3 streaming incrémental + seek | TODO | M | P2 |
+| Codec AAC-LC (encodage) — demande de Rodolf du 2026-10-10, à faire plus tard | TODO | L | P2 |
 | Codec Opus (.opus Ogg-Opus via NKMedia, validé vs ffmpeg) | Livré | — | — |
 | Codec Opus : stéréo (SILK MS→LR + CELT mid/side + hybride) — 2026-07-22 | Livré | — | — |
 | Codec AIFF (`AiffStream`, streaming, PCM 8/16/24/32-bit) | Livré | — | — |
@@ -252,6 +253,13 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 - Opus (codec moderne streaming, VoIP) — déjà dans `AudioFormat::OPUS` mais non implémenté
 - AIFF (Apple Audio Interchange Format)
 - Format Nkentseu compact pour SFX (header + PCM compressé ADPCM ?)
+
+### Encodeur AAC-LC — à faire plus tard (demande de Rodolf, 2026-10-10)
+- **Pourquoi** : aucun module de Nkentseu n'encode l'AAC. NKAudio décode le MP3 et NKMedia décode l'AAC, mais une vidéo MP4 pour Instagram ou TikTok exige une piste AAC, et le direct RTMP de NKCode aussi. Aujourd'hui, la vidéo de NKCode 1.3.0 a son image encodée par NKMedia et son son encodé par un ffmpeg trouvé sur la machine : c'est le seul outil tiers de la chaîne.
+- **Ce qu'il faut** : de l'AAC-LC en 44,1 et 48 kHz, mono et stéréo, à débit constant (128 à 192 kb/s). Il faut aussi une MDCT 1024/128 (blocs longs et courts), un modèle psychoacoustique simple, la quantification, le codage Huffman et le TNS en option. La sortie se fait en ADTS (fichier et flux) et en trames brutes avec leur `AudioSpecificConfig` pour la boîte `esds` du MP4.
+- **Qui l'utilise** : le multiplexeur MP4 de NKMedia (`NKMediaTest --encoder-mp4` avec une piste son), puis le direct (`NkDirect.h` dans NKCode, `NkFamilleDirect.h` dans le kit).
+- **Le témoin** : on encode, puis on décode avec notre `NkAacDecoder` ET avec un décodeur qui n'est pas le nôtre (Media Foundation sous Windows, ffmpeg là où il existe). On mesure le rapport signal/bruit contre la source. Contre-épreuve : un défaut volontaire dans la quantification doit faire chuter la mesure des deux décodeurs.
+- Voir aussi le point 6 du plan H.264 dans `Kernel/Runtime/NKMedia/ROADMAP.md`.
 
 ### Extensions MP3
 - **Layer 1 et Layer 2** : actuellement skippés silencieusement (`HdrGetLayer == 1` ne traite que Layer 3). Rare en pratique (Layer 3 = 99% des MP3) — P3.

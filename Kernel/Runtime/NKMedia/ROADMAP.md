@@ -1235,8 +1235,15 @@ zero-STL, `nkentseu::media`.
 5. **Qualité des aplats et dégradés** : quantification adaptative et réglage du déblocage. Le profil High
    (transformée 8x8, CABAC) viendra plus tard.
 6. **Encodeur AAC-LC**, partagé avec le chantier « direct complet » (son et RTMPS) que Rodolf a confirmé.
+   Le 2026-10-10, Rodolf l'a rangé dans NKAudio, pour plus tard : voir « Encodeur AAC-LC » dans
+   `Kernel/Runtime/NKAudio/ROADMAP.md`. NKMedia ne fera que l'appeler.
 7. **Préréglages d'export** : web (720p, 2 à 4 Mb/s, `moov` en tête), réseaux sociaux (1080p), avec le
    GOP et le débit adaptés.
+   Ces préréglages écriront en **plage TV** (luminance 16 à 235, `video_full_range_flag = 0`). Aujourd'hui,
+   l'encodeur écrit la pleine plage (0 à 255) et la signale correctement (`NkH264Encoder.cpp`, VUI). Mais
+   certains lecteurs et certaines plateformes ignorent ce signal et affichent l'image délavée ou trop
+   contrastée (remarque du site, 10/10 : il convertit nos maîtres avec `scale=in_range=pc:out_range=tv`).
+   La pleine plage restera une option.
 
 Tant que les points 1 et 2 ne sont pas faits, l'export sans défaut passe par `--encoder-mp4 ... <qp> <sortie>
 1` (images I seulement), et il est lourd.
