@@ -582,3 +582,30 @@ pas corrigé ici.
 - **long** — NKGui comme socle unique de dessin du dépôt : plus une application
   ne réécrit une primitive. Les émulations restantes (`MouDraw.h`,
   `NkoungDraw.h`, `NkcDraw.h`) en sont la mesure, et elle est décroissante.
+
+# PLUS TARD — le focus de panneau (souhait de Rodolf, 2026-10-10)
+
+> « On doit implémenter ce système de focus de panneau, c'est important. »
+
+**Le manque.** NKGui sait quel widget est survolé (`hotId`) et lequel est en
+interaction (`activeId`), mais pas **quel panneau a le focus clavier**. Chaque
+application le devine par le survol de la souris. Le défaut est mesuré dans le
+tableau blanc de NKCode : avec la souris posée sur le tableau, une lettre tapée
+dans le chat ou un champ de recherche déclenchait aussi un raccourci du tableau,
+J pour l'union, ou Suppr pour effacer les formes choisies.
+
+**Décidé le 10/10 : on le fait tout de suite.** Le chantier est en cours, et son
+premier client est le tableau blanc de NKCode. Rodolf a fixé la condition : les
+raccourcis ne jouent que si le tableau a le focus et qu'aucun texte n'est en
+frappe.
+
+**Ce qu'il faut à NKGui :**
+- un identifiant de panneau focalisé dans le contexte, posé au clic, avec un
+  ordre de priorité pour les surcouches (menus, modales) ;
+- une question unique, du type « ce panneau a-t-il le clavier ? », qui dit aussi
+  si un champ texte est en frappe ;
+- le passage du focus au clavier (Tab, Ctrl+Tab) ;
+- un cadre de focus visible, à rattacher à `NkGuiNavigation`.
+
+**À reprendre ensuite :** les gardes « survol » des autres vues qui écoutent le
+clavier (l'inventaire est dans le rapport du chantier).
