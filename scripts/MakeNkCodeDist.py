@@ -534,6 +534,16 @@ def Main() -> int:
         Log(f"ERREUR : {exe} introuvable — builder d'abord :")
         Log(f"  jenga build --target NKCode --config {args.config}")
         return 1
+    # (10/10) LE PROGRAMME D'AIDE DE LA MISE A JOUR (Applications/NKCode/maj/NkCodeMaj.cpp),
+    # construit avec NKCode dans le meme dossier (projet NKCodeMaj, dependance de NKCode).
+    # NKCode le copie dans le dossier de preparation et le lance pour echanger les deux
+    # versions : sans lui, « Redemarrer pour mettre a jour » ne peut rien faire. Verifie
+    # ICI, avant d'ecrire quoi que ce soit. Le paquet Linux (copie du dossier de sortie)
+    # l'emporte deja.
+    aide = exe.parent / "NKCodeMaj.exe"
+    if not aide.exists():
+        Log(f"ERREUR : {aide} introuvable -- reconstruire NKCode (le projet NKCodeMaj suit sa cible)")
+        return 1
     jenga_repo = Path(args.jenga_repo)
     if not (jenga_repo / "Jenga" / "__init__.py").exists():
         Log(f"ERREUR : package Jenga introuvable dans {jenga_repo}")
@@ -552,6 +562,10 @@ def Main() -> int:
 
     Log("copie de NKCode.exe")
     shutil.copy2(exe, out / "NKCode.exe")
+
+    # (10/10) Le programme d'aide de la mise a jour (verifie plus haut, avant toute ecriture).
+    Log("copie de NKCodeMaj.exe (programme d'aide de la mise a jour)")
+    shutil.copy2(aide, out / "NKCodeMaj.exe")
 
     # Ressources de l'IDE (logos, icones SVG, polices, langues, icons.cfg) :
     # NkAppFonts/NkAppIcons cherchent notamment "data/..." RELATIF au dossier
