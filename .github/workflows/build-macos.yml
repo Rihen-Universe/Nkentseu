@@ -115,6 +115,55 @@ jobs:
           name: NkRef-macOS
           path: NkRef-macOS.tar.gz
 
+  # (10/10/2026) LA CONFIGURATION DE KARL : un Mac AVEC le SDK Vulkan (LunarG).
+  # NKCanvas compile alors son dorsal Vulkan, et vulkan_metal.h
+  # (`typedef void CAMetalLayer;`) heurtait NkSurface.h
+  # (`using CAMetalLayer = struct objc_object;`) : 16 erreurs dans 8 fichiers.
+  # Le job nkref-macos ne le voyait pas : sans VULKAN_SDK, config/graphics.jenga
+  # n'active pas Vulkan. Ici, les en-tetes Vulkan de Homebrew tiennent lieu de
+  # SDK (VULKAN_SDK -> Include, disque insensible a la casse), et on construit
+  # NKCanvas : la bibliotheque statique ne demande que les en-tetes.
+  nkcanvas-macos-vulkan:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
+
+      - name: Depot Jenga (public, la source EST le build system)
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: ${{ steps.jenga-version.outputs.ref }}
+          path: jenga-src
+
+      - name: En-tetes Vulkan (Homebrew), comme un SDK installe
+        run: |
+          brew install vulkan-headers
+          P=$(brew --prefix vulkan-headers)
+          test -f "$P/include/vulkan/vulkan_metal.h" || { echo "::error::vulkan_metal.h absent de $P"; exit 1; }
+          grep -n "CAMetalLayer" "$P/include/vulkan/vulkan_metal.h" | head -3
+          echo "VULKAN_SDK=$P" >> "$GITHUB_ENV"
+
+      - name: Builder NKCanvas (Release) avec Vulkan
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          echo "VULKAN_SDK=$VULKAN_SDK"
+          chmod +x .github/scripts/*.sh
+          .github/scripts/construire.sh build NKCanvas Release journaux
+
   nkref-linux:
     runs-on: ubuntu-latest
     timeout-minutes: 40
