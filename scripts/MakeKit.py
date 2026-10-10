@@ -186,6 +186,30 @@ def RendreAutonome(kit, nomKit):
     return embarques
 
 
+_FILTRE_WINDOWS = re.compile(r'^(\s*)with filter\("system:Windows && configurations:\w+"\):\s*$')
+
+
+def LienStatiqueWindows(kit, nomKit):
+    """(10/10/2026) Un programme lie a un kit Windows tire la runtime de son compilateur. Avec
+    llvm-mingw (celui que NKCode embarque), elle est en DLL par defaut : l'executable de l'etudiant
+    s'arretait sur « libunwind.dll introuvable » (code 127) des qu'on le lancait hors de `jenga run`
+    (mesure par la session du site, kit Mon3D). La chaine du moteur lie deja tout en statique
+    (config/toolchain.jenga) ; le kit demande la meme chose au programme qui l'utilise."""
+    fichier = kit / (nomKit + ".jenga")
+    lignes = fichier.read_text(encoding="utf-8").split("\n")
+    sortie, ajouts = [], 0
+    for i, ligne in enumerate(lignes):
+        sortie.append(ligne)
+        if _FILTRE_WINDOWS.match(ligne):
+            suivante = lignes[i + 1] if i + 1 < len(lignes) else ""
+            retrait = suivante[:len(suivante) - len(suivante.lstrip())] or (_FILTRE_WINDOWS.match(ligne).group(1) + "    ")
+            sortie.append(retrait + "# la runtime du compilateur (libunwind, libc++) dans l'executable, et pas en DLL")
+            sortie.append(retrait + 'ldflags(["-static"])')
+            ajouts += 1
+    fichier.write_text("\n".join(sortie), encoding="utf-8", newline="\n")
+    Dire("lien statique demande sous Windows : %d filtre(s)" % ajouts)
+
+
 def Verifier(kit, nomKit):
     """Aucun chemin absolu ne reste ; le .jenga est du Python qui se compile."""
     fichier = kit / (nomKit + ".jenga")
@@ -300,6 +324,7 @@ def main():
 
     LancerJengaKit(nom, cibles, configs, kit)
     embarques = RendreAutonome(kit, nom)
+    LienStatiqueWindows(kit, nom)
     for source, destination in embarques:
         Dire("embarque : %s -> %s" % (source, destination))
     cibles_presentes = Verifier(kit, nom)

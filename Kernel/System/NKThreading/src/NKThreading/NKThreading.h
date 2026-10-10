@@ -394,14 +394,11 @@ namespace nkentseu {
 	/// @tparam T Type de la valeur produite par le promise.
 	template <typename T> using NkPromise = threading::NkPromise<T>;
 
-	/// @brief Alias global template pour NkScopedLock (compatibilité legacy).
-	/// @deprecated Utiliser nkentseu::threading::NkScopedLock<TMutex> directement.
-	/// @tparam TMutex Type du mutex à protéger (doit implémenter Lock()/Unlock()).
-	template <typename TMutex> using NkScopedLock = threading::NkScopedLock<TMutex>;
-
-	/// @brief Alias global pour NkLockGuard (compatibilité legacy).
-	/// @deprecated Utiliser nkentseu::threading::NkLockGuard directement.
-	using NkLockGuard = threading::NkLockGuard;
+	// (10/10/2026) nkentseu::NkScopedLock et nkentseu::NkLockGuard sont declares dans
+	// NkScopedLock.h (inclus plus haut), et seulement la : un alias de modele ne peut pas etre
+	// declare deux fois dans le meme espace de noms.
+	//   template <typename TMutex> using NkScopedLock = threading::NkScopedLock<TMutex>;
+	//   using NkLockGuard = threading::NkLockGuard;
 
 	/// @brief Alias global pour Yield() (compatibilité legacy).
 	/// @deprecated Utiliser nkentseu::threading::Yield() directement.

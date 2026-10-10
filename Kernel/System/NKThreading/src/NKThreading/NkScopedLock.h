@@ -138,14 +138,22 @@ namespace nkentseu {
 // Nouveau code recommandé : utiliser nkentseu::threading:: directement.
 // Code legacy : ces alias assurent la rétrocompatibilité sans duplication.
 
-/// @brief Alias global pour NkLockGuard (compatibilité legacy).
-/// @deprecated Utiliser nkentseu::threading::NkLockGuard directement.
-using NkLockGuard = nkentseu::threading::NkLockGuard;
+// (10/10/2026) Ces deux alias vivaient a la portee GLOBALE (hors de nkentseu). Un programme qui
+// ecrivait `using namespace nkentseu::threading;` puis `NkScopedLock<NkMutex>` echouait alors :
+// « reference to 'NkScopedLock' is ambiguous » (l'alias global contre la classe de threading::),
+// mesure avec le clang++ de NKCode sur le kit Canvas. Tous leurs usages du depot sont DANS
+// nkentseu (NKEditorKit, NKECS, UnkenyEditor, NKMemory) : ils les y retrouvent. Ils vivent ici,
+// et seulement ici (NKThreading.h ne les redeclare plus : un alias de modele ne se declare qu'une fois).
+namespace nkentseu {
+	/// @brief Alias pour NkLockGuard (compatibilité legacy).
+	/// @deprecated Utiliser nkentseu::threading::NkLockGuard directement.
+	using NkLockGuard = threading::NkLockGuard;
 
-/// @brief Alias global template pour NkScopedLock (compatibilité legacy).
-/// @deprecated Utiliser nkentseu::threading::NkScopedLock<T> directement.
-/// @tparam T Type du mutex à protéger.
-template <typename T> using NkScopedLock = nkentseu::threading::NkScopedLock<T>;
+	/// @brief Alias template pour NkScopedLock (compatibilité legacy).
+	/// @deprecated Utiliser nkentseu::threading::NkScopedLock<T> directement.
+	/// @tparam T Type du mutex à protéger.
+	template <typename T> using NkScopedLock = threading::NkScopedLock<T>;
+} // namespace nkentseu
 
 #endif
 
