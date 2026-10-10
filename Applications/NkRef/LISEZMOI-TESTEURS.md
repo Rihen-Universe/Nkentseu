@@ -25,6 +25,9 @@ coince, plante ou manque — c'est exactement ce qu'on cherche.
 - **Déposez des images** (glisser-déposer) ou **Ctrl+V** (coller une capture).
 - **Molette** : zoom centré sous le curseur · **clic milieu** ou
   **Espace+glisser** : déplacer la planche.
+- **Ctrl+S** : enregistrer la planche (fichier `.nkref`, images embarquées : elle se
+  rouvre sur une autre machine) · **Ctrl+Maj+S** : enregistrer sous · **Ctrl+O** :
+  ouvrir · **Ctrl+K** : nouvelle planche.
 - **Clic droit** : LE menu (tout y est).
 - **Clic gauche** : sélectionner ; glisser une image : la déplacer ; coins :
   échelle ; rond au-dessus : rotation (Maj = crans de 15°).
@@ -38,8 +41,6 @@ coince, plante ou manque — c'est exactement ce qu'on cherche.
 
 ## Limites connues de cette préversion
 
-- **Pas encore d'enregistrement de planche** (le fichier .nkref arrive) : tout
-  est perdu à la fermeture.
 - Formats **WebP/AVIF non lus** (refusés proprement, comptés dans l'en-tête).
 - Les grandes images sont réduites à 4096 px à l'import (désactivable dans
   Réglages > Préférences).

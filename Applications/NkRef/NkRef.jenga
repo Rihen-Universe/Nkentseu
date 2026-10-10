@@ -43,7 +43,7 @@ with project("NkRef"):
     dependfiles(["../../Resources/Fonts"])
 
     apppublisher("Rihen Universe")
-    appversion("0.1.0")
+    appversion("0.3.0")
 
     # ===== Windows ===========================================================
     with filter("system:Windows"):

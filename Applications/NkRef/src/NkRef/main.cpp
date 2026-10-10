@@ -431,7 +431,7 @@ namespace {
 NKENTSEU_DEFINE_APP_DATA(([]() {
 	NkAppData d{};
 	d.appName = "NkRef";
-	d.appVersion = "0.1.0";
+	d.appVersion = "0.3.0";
 	return d;
 })());
 
