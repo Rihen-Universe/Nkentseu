@@ -205,7 +205,7 @@ namespace nkentseu {
 		}
 
 		// Utiliser AVAssetWriter pour H.264
-		NSURL *url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:config.outputPath.c_str()]];
+		NSURL *url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:config.outputPath.CStr()]];
 		NSError *err = nil;
 		AVAssetWriter *writer = [[AVAssetWriter alloc] initWithURL:url fileType:AVFileTypeMPEG4 error:&err];
 		if (!writer) {
