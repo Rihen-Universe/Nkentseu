@@ -69,7 +69,12 @@
 @class CAMetalLayer;
 #else
 using NSView = struct objc_object;
-using CAMetalLayer = struct objc_object;
+// (10/10) LA DEFINITION DU SDK VULKAN (vulkan_metal.h : typedef void CAMetalLayer;).
+// Les deux en-tetes se rencontrent dans NKCanvas des que Vulkan est actif (Mac de
+// Karl, SDK LunarG) : struct objc_object contredisait le SDK, 16 erreurs dans 8
+// fichiers. Redire le MEME typedef est permis en C++ ; Objective-C++ garde @class.
+// Avant : using CAMetalLayer = struct objc_object;
+typedef void CAMetalLayer;
 #endif
 
 #elif defined(NKENTSEU_PLATFORM_IOS)
@@ -78,7 +83,12 @@ using CAMetalLayer = struct objc_object;
 @class CAMetalLayer;
 #else
 using UIView = struct objc_object;
-using CAMetalLayer = struct objc_object;
+// (10/10) LA DEFINITION DU SDK VULKAN (vulkan_metal.h : typedef void CAMetalLayer;).
+// Les deux en-tetes se rencontrent dans NKCanvas des que Vulkan est actif (Mac de
+// Karl, SDK LunarG) : struct objc_object contredisait le SDK, 16 erreurs dans 8
+// fichiers. Redire le MEME typedef est permis en C++ ; Objective-C++ garde @class.
+// Avant : using CAMetalLayer = struct objc_object;
+typedef void CAMetalLayer;
 #endif
 
 #elif defined(NKENTSEU_WINDOWING_XCB)
