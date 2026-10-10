@@ -1189,6 +1189,58 @@ zero-STL, `nkentseu::media`.
   `ref_pic_lists_modification()`, `scaling_list_data()`, bit depth >8 pour l'inter (10-bit MC pas
   encore branché).
 
+## Encodeur H.264 — plan d'évolution (mesuré le 2026-10-10)
+
+> Demande de Rodolf (10/10) : « si tu juges que NKMedia côté vidéo est encore limité, ajoute son plan
+> d'évolution dans la spec ». Il l'est. Constats faits en encodant la vidéo de présentation de NKCode
+> (`NKMediaTest --encoder-mp4`, images RGB24 brutes sur l'entrée standard, 1080x1920 et 1080x1080,
+> 30 images/s), sans aucun outil tiers.
+
+### Ce qui a été mesuré
+
+| Essai (2 s, 60 images par format) | 9:16 | 1:1 | Encodage des deux | Ce qu'on voit |
+|---|---|---|---|---|
+| GOP 30 (une image I, puis des P), QP 20 | 2,56 Mo | 1,55 Mo | 2 min 45 s | **artefacts visibles** (Rodolf, dans un vrai lecteur) |
+| GOP 1 (images I seulement), QP 22 | 1,48 Mo | 1,04 Mo | 16 s | **plus d'artefacts** (Rodolf) |
+
+- **Les images P sont le point faible** : elles sont 10 fois plus lentes à encoder et PLUS LOURDES que des
+  images I, et elles portent les artefacts. Signature probable : la reconstruction de l'encodeur s'écarte de
+  celle d'un décodeur standard (dérive jusqu'à la prochaine image I), et la recherche de mouvement est
+  inefficace.
+- **Les images I seules sont propres mais lourdes** : la vidéo complète de 30,9 s pèse 59,8 Mo en 1080x1920
+  et 41,5 Mo en 1080x1080. Impossible d'en faire une vidéo web légère.
+- **Un léger quadrillage de blocs** apparaît dans les dégradés sombres, même sur une image I (première image
+  décodée par Edge).
+- **Le QP est fixe** : pas de contrôle de débit. `NkFamilleDirect.h` (kit) et `NkDirect.h` (NKCode)
+  demandent un débit constant pour le direct RTMP, sinon le serveur coupe.
+- **Il n'y a pas d'encodeur AAC** : le direct part muet, et une vidéo ne peut pas porter de son AAC.
+- **Le conteneur est sain** : Edge lit le MP4 (avc1 « probably », dimensions, durée exacte, première image
+  décodée).
+- **Instrument à ne pas croire** : Edge headless (`--dump-dom`) s'arrête après la première image pour TOUS
+  les fichiers, avec ou sans images P. Il prouve le conteneur et l'image I, pas la suite.
+
+### Le plan, dans l'ordre
+
+1. **Un témoin de conformité indépendant**, avant toute correction. On encode, on décode avec un décodeur QUI
+   N'EST PAS LE NÔTRE (Media Foundation sous Windows, ou ffmpeg là où il existe), et on calcule le PSNR de
+   chaque image contre la source. Une dérive se voit comme un PSNR qui baisse le long du GOP et remonte à
+   chaque image I. Contre-épreuve : une mutation qui casse la reconstruction de référence doit faire chuter
+   le PSNR.
+2. **Corriger le chemin des images P** : reconstruction de référence identique à celle du décodeur (arrondis,
+   filtre de déblocage), prédiction des vecteurs, macroblocs sautés. Critère : PSNR stable sur tout le GOP.
+3. **Contrôle de débit** : CBR pour le direct (2,5 à 6 Mb/s en 1080p30) et VBR à débit cible pour les exports
+   web. Critère : le débit mesuré reste à ±10 % de la cible.
+4. **Vitesse** : recherche de mouvement en losange ou hexagone, sortie anticipée, tranches encodées en
+   parallèle. Critère : au moins le temps réel en 1080p30 sur la machine de Rodolf.
+5. **Qualité des aplats et dégradés** : quantification adaptative et réglage du déblocage. Le profil High
+   (transformée 8x8, CABAC) viendra plus tard.
+6. **Encodeur AAC-LC**, partagé avec le chantier « direct complet » (son et RTMPS) que Rodolf a confirmé.
+7. **Préréglages d'export** : web (720p, 2 à 4 Mb/s, `moov` en tête), réseaux sociaux (1080p), avec le
+   GOP et le débit adaptés.
+
+Tant que les points 1 et 2 ne sont pas faits, l'export sans défaut passe par `--encoder-mp4 ... <qp> <sortie>
+1` (images I seulement), et il est lourd.
+
 ## Reste à faire — synthèse (MAJ 2026-07-26)
 
 Le CŒUR de NKMedia est **fonctionnellement complet** : lire/décoder/jouer les formats du monde réel

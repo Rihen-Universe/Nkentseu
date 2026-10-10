@@ -23,6 +23,11 @@
 #include "NKMedia/Codecs/Aac/NkAacTns.h"
 #include "NKMedia/Codecs/Aac/NkAacFilterbank.h"
 #include "NKMedia/Codecs/Aac/NkAacDecoder.h"
+#include "NKMedia/Codecs/Video/H264/NkH264Encoder.h" // (10/10) --encoder-mp4
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDenorm.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDeemphasis.h"
 #include "NKMedia/Codecs/Opus/Celt/NkCeltDecoder.h"
@@ -68,6 +73,63 @@ static const char *TrackTypeName(media::NkMediaTrackType t) {
 }
 
 int main(int argc, char **argv) {
+	// (10/10) Encoder des images en MP4 avec l'encodeur H.264 maison de NKMedia :
+	//   --encoder-mp4 <largeur> <hauteur> <ips> <qp> <sortie.mp4> [gop]   (gop 1 : images cles seulement)
+	// Les images arrivent sur l'ENTREE STANDARD, en RGB24 brut (largeur x hauteur x 3 octets
+	// chacune), jusqu'a la fin du flux -- le meme contrat que `ffmpeg -f rawvideo -pix_fmt rgb24`,
+	// pour qu'un script de rendu (Publications/.../motion_nkcode.py) n'ait besoin d'aucun outil tiers.
+	// GOP d'une seconde ; le code de sortie dit si l'encodeur a tout accepte et ferme le fichier.
+	if (argc >= 7 && NkString(argv[1]) == NkString("--encoder-mp4")) {
+		const int32 w = (int32)atoi(argv[2]), h = (int32)atoi(argv[3]), ips = (int32)atoi(argv[4]), qp = (int32)atoi(argv[5]);
+		if (w <= 0 || h <= 0 || ips <= 0 || qp < 0 || qp > 51 || (w & 1) || (h & 1)) {
+			printf("[ERREUR] parametres : largeur et hauteur paires, ips > 0, qp 0..51\n");
+			return 2;
+		}
+#ifdef _WIN32
+		_setmode(_fileno(stdin), _O_BINARY); // sans cela, Windows traduit les octets 0x0D 0x0A du flux
+#endif
+		media::NkH264Encoder enc;
+		const int32 gop = argc >= 8 ? (int32)atoi(argv[7]) : ips;
+		if (!enc.Open(argv[6], w, h, ips, 1, qp, gop > 0 ? gop : ips)) {
+			printf("[ERREUR] ouverture de %s\n", argv[6]);
+			return 3;
+		}
+		const usize taille = (usize)w * (usize)h * 3u;
+		uint8 *image = (uint8 *)malloc(taille);
+		if (!image) {
+			printf("[ERREUR] memoire\n");
+			return 4;
+		}
+		int32 n = 0;
+		bool ok = true;
+		for (;;) {
+			usize lu = 0;
+			while (lu < taille) {
+				const usize r = fread(image + lu, 1, taille - lu, stdin);
+				if (r == 0)
+					break;
+				lu += r;
+			}
+			if (lu == 0)
+				break;
+			if (lu < taille) {
+				printf("[ERREUR] image %d tronquee : %u octets sur %u\n", (int)n, (unsigned)lu, (unsigned)taille);
+				ok = false;
+				break;
+			}
+			if (!enc.WriteFrame(image, media::NkVideoInputFormat::RGB24)) {
+				printf("[ERREUR] l'encodeur refuse l'image %d\n", (int)n);
+				ok = false;
+				break;
+			}
+			++n;
+		}
+		free(image);
+		const bool ferme = enc.Close();
+		printf("[encoder-mp4] %d image(s), %dx%d a %d ips, qp %d -> %s : %s\n", (int)n, (int)w, (int)h, (int)ips, (int)qp, argv[6],
+			   ok && ferme && n > 0 ? "OK" : "ECHEC");
+		return ok && ferme && n > 0 ? 0 : 1;
+	}
 	// Mode validation SILK : --silk <flux.webm> <sortie.pcm> (PCM s16le débit interne).
 	if (argc >= 4 && NkString(argv[1]) == NkString("--silk")) {
 		NkVector<nk_uint8> bytes;
