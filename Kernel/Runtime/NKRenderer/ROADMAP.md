@@ -1903,6 +1903,45 @@ la section jumelle dans `Engine/Noge/ROADMAP.md`.
 
 ---
 
+## 🎬 Deux moteurs : le temps réel et le film (décidé par Rodolf le 2026-10-11)
+
+**La décision.** Nkentseu aura deux moteurs de rendu sur les MÊMES scènes et les MÊMES matières :
+
+- **le temps réel**, pour les jeux et, souvent, pour nos films : le style Rihen demande peu de géométrie et
+  beaucoup de matière, et la qualité perçue y vient des textures, de l'usure et de l'éclairage ;
+- **le « mode film »**, hors temps réel : un traceur de chemins progressif, pour les images qu'aucune
+  approximation ne donne (rebonds de lumière, ombres douces, peau, volumes, vrai flou de mouvement). C'est lui
+  qui vise le niveau d'un moteur de production comme MoonRay. Il sert aussi d'ARBITRE : chaque approximation du
+  temps réel se mesure contre lui.
+
+**Le plan existe déjà** : `D:/Projets/2026/Nkentseu/ETUDE_LIVRES/RENDU_2026-10-10.md`, tiré de nos livres
+(*Real-Time Rendering*, *Physically Based Rendering*, *Advanced Global Illumination*, *Ray Tracing Gems*,
+*Real-Time Shadows*, les *GPU Gems* et *GPU Pro*…). Rien n'y est encore appliqué.
+
+- Section 2 et rangs 1 à 3 : les constats du temps réel (T1…T50), chacun avec son banc qui doit d'abord être ROUGE.
+- Section 3, le cinéma, dans cet ordre :
+  **C0** (un contrat de matériau et d'unités commun) → **C2** (le mode « accumulation » : N rendus décalés et
+  moyennés, sur les cinq dorsaux) → **C1** (l'oracle : un traceur de chemins CPU) → **C3, C4, C5** (profondeur de
+  champ, flou de mouvement, caméra physique et sortie EXR) → **C6** (peau et volumes) → **C7** (traceur GPU) →
+  **C8** (débruiteur).
+
+**MoonRay, juge extérieur (ajout du 2026-10-11).** MoonRay est le moteur de production de DreamWorks, ouvert
+sous licence Apache 2.0. On ne l'embarque pas : nos moteurs restent écrits par nous.
+
+- On étudie ses méthodes : échantillonnage, matériaux en couches, peau, cheveux. Les cheveux sont justement ce
+  que notre oracle ne saura pas juger, puisque son livre de référence n'a pas de modèle de fibre.
+- On s'en sert comme juge : la même scène témoin rendue par lui et par notre mode film doit donner la même
+  image, à un écart que l'on fixe AVANT de mesurer.
+- **Ce qui manque pour le faire, et qui n'est pas vérifié** : MoonRay se construit sous Linux (à essayer dans
+  WSL), et il lit ses propres scènes (RDL) ou de l'USD. Il nous faut donc un export de nos scènes témoins vers
+  l'un des deux. Brique **C9**, à placer après C1.
+
+**Ce que cela ne dit pas.** Le temps réel n'égalera pas MoonRay image pour image sur une scène quelconque : il a
+16 ms là où un traceur de chemins prend des minutes. La cible du temps réel est « exceptionnel dans le style
+Rihen », mesuré contre notre mode film.
+
+---
+
 ## ❌ Priorité 4 — Avancé
 
 - **Phase K** — Volumétrique : fog, god rays, clouds raymarched, volume textures, SSS amélioré
