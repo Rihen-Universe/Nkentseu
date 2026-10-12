@@ -220,6 +220,15 @@ Le dépôt fournit des scripts qui garantissent des commits/PR propres :
 
 ## Licence
 
-Nkentseu est distribué sous licence **MIT**. Voir [LICENSE](LICENSE).
+Nkentseu est distribué sous la **licence propriétaire de Rihen Universe**. Tous droits réservés.
+Le texte qui fait foi est le fichier [LICENSE](LICENSE).
+
+- **Autorisé** : installer et exécuter le logiciel pour un usage personnel, récréatif et non commercial,
+  et évaluer les versions de démonstration.
+- **Soumis à un accord écrit préalable de Rihen Universe** : tout autre usage, notamment commercial, ainsi
+  que la copie, la redistribution et la modification.
+
+Les bibliothèques tierces gardent leurs propres licences : voir
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 **Auteur** : Rihen — nkentseu@gmail.com
