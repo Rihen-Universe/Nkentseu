@@ -173,7 +173,13 @@ namespace nkentseu {
 		memset(fonts, 0, sizeof(fonts));
 		memset(fontDataBufs, 0, sizeof(fontDataBufs));
 		memset(customRects, 0, sizeof(customRects));
-		memset(configs, 0, sizeof(configs));
+		// (13/10) ⚠️ PLUS DE `memset(configs, 0, sizeof(configs));` ICI. `NkFontConfig` DECLARE ses valeurs par
+		// defaut (rasterizerMultiply = 1, glyphMaxAdvanceX = 1e9, glyphFallback = '?', oversampleH = 2) et
+		// `configs[]` les porte deja en entrant ici. Le memset les EFFACAIT : une police ajoutee sans
+		// configuration -- `AddFontFromFile(chemin, taille)`, ce que l'en-tete propose -- etait dessinee puis
+		// multipliee par zero. Atlas entierement transparent, avances nulles, et pas une erreur.
+		// Vu une premiere fois le 11/08 (NkRef) et contourne alors dans NKCanvas, qui passe toujours une
+		// configuration ; la cause est retiree ici. Banc : tests/TestAtlasSansConfig.cpp.
 	}
 
 	NkFontAtlas::~NkFontAtlas() {
@@ -270,8 +276,10 @@ namespace nkentseu {
 			return nullptr;
 		}
 		NkFontConfig &cfg = configs[fontCount];
-		if (inCfg)
-			cfg = *inCfg;
+		// (13/10) Sans configuration, l'emplacement recoit les VALEURS PAR DEFAUT, pas ce qu'il contenait :
+		// apres Clear(), il gardait le reglage de la police d'avant (multiplicateur, avance maximale, repli).
+		// Avant : `if (inCfg) cfg = *inCfg;`
+		cfg = inCfg ? *inCfg : NkFontConfig();
 		cfg.fontData = d;
 		cfg.fontDataSize = ds;
 		cfg.fontDataOwned = true;
@@ -636,6 +644,14 @@ namespace nkentseu {
 				logger.Info("[NkFontAtlas] Font{0}:0 glyphes\n", fi);
 				continue;
 			}
+			// (13/10) LA TABLE D'ABORD : FindGlyphNoFallback lit `indexLookup`, que BuildLookupTable remplit.
+			// Appelee APRES la recherche du repli, elle laissait `fallbackGlyph` nul pour TOUTE police :
+			// `glyphFallback` n'etait jamais honore, seul le '?' ecrit en dur dans FindGlyph tenait.
+			font->BuildLookupTable();
+			// Une police FUSIONNEE (mergeMode) partage le NkFont de sa base : le repli est celui de la BASE,
+			// deja pose a son tour de boucle. La configuration fusionnee ne le remplace pas.
+			if (configs[fi].mergeMode && font->fallbackGlyph)
+				continue;
 			NkFontCodepoint fb = configs[fi].glyphFallback;
 			font->fallbackGlyph = font->FindGlyphNoFallback(fb);
 			if (!font->fallbackGlyph && fb != 0x003Fu) {
@@ -644,7 +660,7 @@ namespace nkentseu {
 			if (font->fallbackGlyph) {
 				font->fallbackAdvanceX = font->fallbackGlyph->advanceX;
 			}
-			font->BuildLookupTable();
+			// font->BuildLookupTable();  -- deplacee AVANT la recherche du repli (13/10), voir plus haut.
 		}
 
 		texReady = true;

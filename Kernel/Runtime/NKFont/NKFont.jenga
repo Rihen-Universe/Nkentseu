@@ -133,6 +133,9 @@ with project("NKFont"):
     with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
         with test():
             testfiles(["tests/**.cpp"])
+            # (13/10) La suite existe enfin (tests/TestAtlasSansConfig.cpp) et fournit son main() :
+            # elle compte ses temoins et rend un code de sortie qui dit la verite.
+            testownmain()
             links([
                 "NKFont",
                 "NKMemory",
