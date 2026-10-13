@@ -440,7 +440,12 @@ SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
-UninstallDisplayName=NKCode {version}
+; (13/10) LE DESINSTALLEUR VIT HORS DU DOSSIER DE NKCode. La mise a jour en un bouton (1.4.0) REMPLACE ce
+; dossier en entier : range dedans, le desinstalleur disparaissait a la premiere mise a jour, et l'entree
+; « Programmes et fonctionnalites » pointait dans le vide. Son nom ne porte plus de numero de version : celui
+; de l'installation ne serait plus vrai apres une mise a jour.
+UninstallFilesDir={{autopf}}\\NKCode-desinstallation
+UninstallDisplayName=NKCode
 UninstallDisplayIcon={{app}}\\NKCode.exe
 
 [Languages]
@@ -453,6 +458,18 @@ Name: "contextmenu"; Description: "Ajouter « Ouvrir avec NKCode » au menu cont
 
 [Files]
 Source: "{distDir.as_posix()}\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[UninstallDelete]
+; Apres une mise a jour, le dossier contient des fichiers que le journal de l'installation ne connait pas.
+; On retire CE QUE NKCode pose (jamais le dossier entier en aveugle : l'utilisateur a pu choisir un dossier
+; qui contient autre chose), puis le dossier s'il est vide, et le dossier de preparation des mises a jour.
+Type: filesandordirs; Name: "{{app}}\\data"
+Type: filesandordirs; Name: "{{app}}\\tools"
+Type: filesandordirs; Name: "{{app}}\\logs"
+Type: files; Name: "{{app}}\\*.exe"
+Type: files; Name: "{{app}}\\*.dll"
+Type: dirifempty; Name: "{{app}}"
+Type: filesandordirs; Name: "{{app}}-maj"
 
 [Icons]
 Name: "{{group}}\\NKCode"; Filename: "{{app}}\\NKCode.exe"; WorkingDir: "{{app}}"
@@ -468,9 +485,9 @@ Name: "{{autodesktop}}\\NKCode"; Filename: "{{app}}\\NKCode.exe"; WorkingDir: "{
 ; ne reclame volontairement pas — c'etait deja la cause d'un retour beta.
 ;
 ; Trois emplacements sont necessaires pour couvrir les trois gestes de l'utilisateur :
-;   Directory\shell            -> clic droit SUR une icone de dossier   -> %1
-;   Directory\Background\shell -> clic droit DANS un dossier ouvert     -> %V
-;   Drive\shell                -> clic droit sur une racine de lecteur  -> %V
+;   Directory\\shell            -> clic droit SUR une icone de dossier   -> %1
+;   Directory\\Background\\shell -> clic droit DANS un dossier ouvert     -> %V
+;   Drive\\shell                -> clic droit sur une racine de lecteur  -> %V
 ; Les jetons %1 et %V ne sont pas interchangeables : %1 est l'element designe,
 ; %V le dossier courant. Les intervertir ouvre le mauvais dossier, ou rien.
 ;

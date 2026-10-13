@@ -44,6 +44,64 @@ namespace nkentseu {
 				bool mouseDoubleClicked[3] = {};
 				bool dblClickPending[3] = {}; ///< double-clic OS injecté par l'app (consommé en NewFrame)
 				float32 mouseDownDur[3] = {-1.f, -1.f, -1.f};
+				// ── LES TRANSITIONS DE BOUTON, EN FILE (12/10/2026) ──────────────
+				// 🔴 LE DEFAUT, dans les mots d'un utilisateur (portable, pave tactile) : « les
+				//    touches qui sont dans la fenetre ne donnent pas », « c'est apres plusieurs
+				//    clics que... ». `mouseClicked` se DEDUIT de l'etat (`mouseDown && !mousePrev`),
+				//    une fois par image. Or l'hote vide toute la file du systeme avant chaque
+				//    image : un appui ET son relachement recus entre les deux memes images -- une
+				//    tape de pave tactile (les deux partent ensemble, au lever du doigt), ou un clic
+				//    ordinaire pendant une image lente -- remettent l'etat ou il etait. Aucun clic
+				//    n'est vu : ni les boutons, ni les modales, ni la barre de titre (mesure :
+				//    NKCode, tools/banc_clic_bref.sh).
+				// LA REGLE : l'hote ne pose plus l'etat, il DIT ce qui est arrive
+				//    (`AddMouseButtonEvent`) ; `NewFrame` applique AU PLUS UNE transition par bouton
+				//    et par image. L'appui est vu pendant une image entiere, le relachement a la
+				//    suivante : aucun appui ne se perd, quelle que soit la cadence.
+				// ⚠️ CHAQUE TRANSITION PORTE SA POSITION : c'est LA que le clic a eu lieu, meme si
+				//    la souris a file depuis. Elle vaut pour l'image de la transition ; la position
+				//    reelle revient a la suivante.
+				// ⚠️ ECRIRE `mouseDown[i]` DIRECTEMENT RESTE PERMIS (les applications qui ont leur
+				//    propre boucle, les bancs, la coquille qui consomme un geste en cours d'image) :
+				//    la file ne change rien pour qui ne s'en sert pas.
+				struct NkGuiBoutonEv {
+						uint8 bouton = 0;
+						bool bas = false;
+						bool attendu = false; ///< elle a deja attendu une image (comptee une fois)
+						NkVec2 pos{0.f, 0.f};
+				};
+				static constexpr int32 kFileBoutons = 24;
+				NkGuiBoutonEv fileBoutons[kFileBoutons] = {};
+				int32 fileBoutonsN = 0;
+				bool posForcee = false;		 ///< `mousePos` porte, cette image, la position d'une transition
+				NkVec2 posForceeA{0.f, 0.f}; ///< ... celle-ci
+				NkVec2 posBrute{0.f, 0.f};	 ///< ... et voici la position reelle, a rendre a l'image suivante
+				uint32 clicsComprimes = 0;	 ///< transitions qui ont du attendre l'image suivante (journal de session)
+
+				/// Un bouton de souris vient de changer (0 gauche, 1 droit, 2 milieu), a la position
+				/// courante. A appeler par l'hote pendant le pompage, A LA PLACE de `mouseDown[i] = ...`.
+				void AddMouseButtonEvent(int32 bouton, bool bas) noexcept {
+					if (bouton < 0 || bouton >= 3)
+						return;
+					if (fileBoutonsN >= kFileBoutons) { // file pleine (jamais vu) : l'etat final reste juste
+						mouseDown[bouton] = bas;
+						int32 garde = 0;
+						for (int32 k = 0; k < fileBoutonsN; ++k)
+							if (fileBoutons[k].bouton != static_cast<uint8>(bouton))
+								fileBoutons[garde++] = fileBoutons[k];
+						fileBoutonsN = garde;
+						return;
+					}
+					NkGuiBoutonEv &e = fileBoutons[fileBoutonsN++];
+					e.bouton = static_cast<uint8>(bouton);
+					e.bas = bas;
+					e.attendu = false;
+					e.pos = mousePos;
+				}
+				/// Vide la file (la porte d'inertie des sondes : une entree qui ne doit pas agir).
+				void ClearMouseButtonEvents() noexcept {
+					fileBoutonsN = 0;
+				}
 				float32 clickTime[3] = {-1.f, -1.f, -1.f}; ///< temps depuis le dernier clic (détection interne)
 				NkVec2 clickPos[3] = {}; ///< POSITION du dernier clic — cf. kDblMaxDist
 				/// Écart maximal, en pixels, entre deux clics pour qu'ils forment un
@@ -203,6 +261,45 @@ namespace nkentseu {
 					moletteReservee = false; // a re-armer par celui qui reste ouvert
 					saisieReserveePrec = saisieReservee; // la modale de l'image d'avant possede celle-ci
 					saisieReservee = false;				 // a re-armer par celle qui reste ouverte
+					// ── (12/10) LA FILE DES BOUTONS : une transition par bouton et par image ──
+					// (avant le deplacement et les fronts : ils se derivent de ce qui est applique ici)
+					if (posForcee) { // la position reelle revient (sauf si l'application en a ecrit une autre)
+						if (mousePos.x == posForceeA.x && mousePos.y == posForceeA.y)
+							mousePos = posBrute;
+						posForcee = false;
+					}
+					if (fileBoutonsN > 0) {
+						bool pris[3] = {false, false, false};
+						bool force = false;
+						NkVec2 pf{0.f, 0.f};
+						int32 garde = 0;
+						for (int32 k = 0; k < fileBoutonsN; ++k) {
+							NkGuiBoutonEv e = fileBoutons[k];
+							if (pris[e.bouton]) { // ce bouton a deja change a cette image : la suite attend
+								if (!e.attendu) {
+									e.attendu = true;
+									++clicsComprimes;
+								}
+								fileBoutons[garde++] = e;
+								continue;
+							}
+							if (mouseDown[e.bouton] == e.bas)
+								continue; // sans effet (deja dans cet etat) : elle tombe
+							mouseDown[e.bouton] = e.bas;
+							pris[e.bouton] = true;
+							if (!force) {
+								force = true;
+								pf = e.pos;
+							}
+						}
+						fileBoutonsN = garde;
+						if (force && (pf.x != mousePos.x || pf.y != mousePos.y)) {
+							posBrute = mousePos;
+							mousePos = pf;
+							posForcee = true;
+							posForceeA = pf;
+						}
+					}
 					// ── LE DEPLACEMENT DU POINTEUR (26/09) ────────────────────────
 					//  🔴 `mouseDelta` ETAIT DECLARE, LU PAR TROIS CONSOMMATEURS, ET
 					//     ECRIT PAR PERSONNE. Recense le 26/09 : `Splitter` (la variante
