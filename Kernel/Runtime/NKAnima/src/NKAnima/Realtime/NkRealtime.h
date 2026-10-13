@@ -22,6 +22,11 @@
 
 #include "NKAnima/Realtime/NkRtMath.h"
 #include "NKAnima/Realtime/NkRtRig.h"
+#include "NKAnima/Realtime/NkRtTwist.h"
+#include "NKAnima/Realtime/NkRtHingeIK.h"
+#include "NKAnima/Realtime/NkRtBend.h"
+#include "NKAnima/Realtime/NkRtChainTurn.h"
+#include "NKAnima/Realtime/NkRtEase.h"
 #include "NKAnima/Realtime/NkRtGround.h"
 #include "NKAnima/Realtime/NkSpringBones.h"
 #include "NKAnima/Realtime/NkLiveBalance.h"

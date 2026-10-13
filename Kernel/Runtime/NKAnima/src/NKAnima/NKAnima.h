@@ -39,6 +39,7 @@
 #include "NKAnima/Clip/NkAnimation.h"
 #include "NKAnima/Clip/NkClipRegistry.h"
 #include "NKAnima/Blend/NkAnimMix.h" // (01/10 soir) le melange : poses, masques, arbres, couches, NLA
+#include "NKAnima/Blend/NkPoseMirror.h" // (13/10) le miroir gauche / droite d'une pose
 #include "NKAnima/Retarget/NkAnimRetarget.h"
 #include "NKAnima/Motion/NkMotionPath.h"
 #include "NKAnima/Physics/NkPoseMass.h"

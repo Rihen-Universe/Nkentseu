@@ -103,6 +103,14 @@ namespace nkentseu {
 				NK_RT_MUT_GETUP_SNAP = 1u << 5,		   ///< relevement : la fin saute (pas de recalage)
 				NK_RT_MUT_COST = 1u << 6,			   ///< cout : ressort a 20 000 sous-pas par seconde de plus
 				NK_RT_MUT_BALANCE_OFF = 1u << 7,	   ///< equilibre : aucun deplacement du bassin
+				NK_RT_MUT_TWIST_NO_CARRY = 1u << 8,	   ///< torsion : l'excedent borne n'est pas reporte sur le parent
+				NK_RT_MUT_TWIST_NO_SPREAD = 1u << 9,   ///< torsion : les os de torsion ne tournent pas (rien n'est reparti)
+				NK_RT_MUT_TWIST_PARENT_FRAME = 1u << 10, ///< torsion : mesuree dans le repere du parent, pas dans celui de l'os
+				NK_RT_MUT_TWOBONE_NO_ROLL = 1u << 11,   ///< IK a charniere : l'os du haut ne roule pas (le milieu n'est plus une charniere)
+				NK_RT_MUT_BEND_NO_HALF = 1u << 12,	   ///< os d'aide d'une articulation : il ne prend rien de la flexion
+				NK_RT_MUT_MIRROR_OFF = 1u << 13,	   ///< miroir d'une pose (Blend/NkPoseMirror.h) : la rotation est rendue telle quelle
+				NK_RT_MUT_TURN_NO_SPREAD = 1u << 14,   ///< rotation repartie sur une chaine (NkRtChainTurn.h) : le dernier os prend tout
+				NK_RT_MUT_EASE_LINEAR = 1u << 15,	   ///< lois de temps (NkRtEase.h) : la secousse minimale devient une rampe droite
 			};
 			void NkRtSetMutations(uint32 bits) noexcept;
 			[[nodiscard]] uint32 NkRtMutations() noexcept;
