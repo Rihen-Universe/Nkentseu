@@ -40,8 +40,10 @@
 #include "NKAnima/Clip/NkClipRegistry.h"
 #include "NKAnima/Blend/NkAnimMix.h" // (01/10 soir) le melange : poses, masques, arbres, couches, NLA
 #include "NKAnima/Blend/NkPoseMirror.h" // (13/10) le miroir gauche / droite d'une pose
+#include "NKAnima/Blend/NkPoseLayers.h" // (13/10 soir) la pile de couches de poses fabriquees
 #include "NKAnima/Retarget/NkAnimRetarget.h"
 #include "NKAnima/Motion/NkMotionPath.h"
+#include "NKAnima/Motion/NkGaitCycle.h" // (13/10 soir) un cycle de marche, analyse : foulee, reste, pieds plantes
 #include "NKAnima/Physics/NkPoseMass.h"
 #include "NKAnima/Physics/NkBalance.h"
 #include "NKAnima/Physics/NkPoseBalancer.h"

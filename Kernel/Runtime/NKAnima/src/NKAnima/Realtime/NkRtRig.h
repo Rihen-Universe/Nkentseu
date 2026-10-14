@@ -111,6 +111,8 @@ namespace nkentseu {
 				NK_RT_MUT_MIRROR_OFF = 1u << 13,	   ///< miroir d'une pose (Blend/NkPoseMirror.h) : la rotation est rendue telle quelle
 				NK_RT_MUT_TURN_NO_SPREAD = 1u << 14,   ///< rotation repartie sur une chaine (NkRtChainTurn.h) : le dernier os prend tout
 				NK_RT_MUT_EASE_LINEAR = 1u << 15,	   ///< lois de temps (NkRtEase.h) : la secousse minimale devient une rampe droite
+				NK_RT_MUT_LAYERS_NO_WEIGHT = 1u << 16, ///< pile de couches de poses (Blend/NkPoseLayers.h) : le poids d'une couche est ignore (1 partout)
+				NK_RT_MUT_GAIT_NO_STRIDE = 1u << 17,   ///< cycle de marche (Motion/NkGaitCycle.h) : la foulee n'est pas retiree de la racine ni des pieds
 			};
 			void NkRtSetMutations(uint32 bits) noexcept;
 			[[nodiscard]] uint32 NkRtMutations() noexcept;
