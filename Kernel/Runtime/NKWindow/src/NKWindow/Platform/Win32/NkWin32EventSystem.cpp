@@ -18,6 +18,7 @@
 
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeycodeMap.h"
+#include "NKEvent/NkToucheDisposition.h" // (14/10) AltGr separe de Ctrl+Alt
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKWindow/Core/NkEvent.h"
@@ -185,8 +186,12 @@ namespace nkentseu {
 
 	static NkModifierState NkWin32_CurrentMods() {
 		NkModifierState m;
-		m.ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-		m.alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
+		// (14/10) AltGr arrive comme Ctrl gauche + Alt droit : lu tel quel, AltGr+0 (« @ » en
+		// AZERTY) etait Ctrl+Alt+0, et l'editeur de NKCode jetait la frappe. Les quatre touches
+		// sont lues A PART, et NkSepareAltGr (NKEvent/NkToucheDisposition.h) en fait ctrl, alt,
+		// altGr. Avant : m.ctrl = VK_CONTROL tenu ; m.alt = VK_MENU tenu.
+		NkSepareAltGr(m, (GetKeyState(VK_LCONTROL) & 0x8000) != 0, (GetKeyState(VK_RCONTROL) & 0x8000) != 0,
+					  (GetKeyState(VK_LMENU) & 0x8000) != 0, (GetKeyState(VK_RMENU) & 0x8000) != 0);
 		m.shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 		m.super = ((GetKeyState(VK_LWIN) & 0x8000) != 0) || ((GetKeyState(VK_RWIN) & 0x8000) != 0);
 		m.capLock = (GetKeyState(VK_CAPITAL) & 0x0001) != 0;
