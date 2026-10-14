@@ -3085,7 +3085,19 @@ namespace nkentseu {
 				// Enfin televersees : la loi d'attenuation choisie ET les dimensions
 				// de la surfacique (le panneau les exposait, le fichier les gardait,
 				// le GPU ne les voyait jamais — defaut n°3 du carnet).
-				lb.extra[i] = {(float32)l.attenuationMode, l.areaWidth, l.areaHeight, 0.f};
+				// .w = TAILLE DE LA SOURCE pour le lobe speculaire (T31) : rayon
+				// angulaire (rad) pour la directionnelle, rayon (m) pour la
+				// ponctuelle et le projecteur ; 0 pour la surfacique, dont le
+				// panneau elargit deja le reflet. Borne a >= 0 : une taille
+				// negative n'a pas de sens et retrecirait le lobe.
+				float32 tailleSource = 0.f;
+				if (l.type == NkLightType::NK_DIRECTIONAL)
+					tailleSource = l.sunAngularRadius;
+				else if (l.type == NkLightType::NK_POINT || l.type == NkLightType::NK_SPOT)
+					tailleSource = l.sourceRadius;
+				if (!(tailleSource > 0.f))
+					tailleSource = 0.f;
+				lb.extra[i] = {(float32)l.attenuationMode, l.areaWidth, l.areaHeight, tailleSource};
 			}
 			if (mFrameSlot < mUBOLightsRing.Size())
 				mDevice->WriteBuffer(mUBOLightsRing[mFrameSlot], &lb, sizeof(lb));
@@ -4416,6 +4428,12 @@ namespace nkentseu {
 							sob.p[5] = pbr.clearcoat;
 							sob.p[6] = pbr.clearcoatRough;
 							sob.p[7] = pbr.subsurface;
+							// (14/10/2026, etude RENDU T5) La couleur de diffusion
+							// suit le materiau, comme son intensite (p[7]) : le blanc
+							// ecrit plus haut faisait d'une peau rosee (defaut du
+							// materiau 1 ; 0,5 ; 0,3) une peau grise.
+							sob.subsurfaceColor = NkVec4f{pbr.subsurfaceColor.x, pbr.subsurfaceColor.y,
+														  pbr.subsurfaceColor.z, 1.f};
 						} else {
 							sob.p[2] = 1.f;
 							sob.p[1] = 0.5f; // ao=1, roughness=0.5 par defaut

@@ -63,7 +63,13 @@ uniform LightsUBO {
     vec4 directions[32];
     vec4 angles[32];
     int  count;
-    int  _pad[3];
+    // Trois SCALAIRES, comme pbr.frag (un `int _pad[3]` a un pas std140 de 16
+    // octets : `extras` serait lu 36 octets trop loin). extras.w = taille de la
+    // source (rad pour la directionnelle, m sinon), lue par le lobe (T31).
+    int  _pad0;
+    int  _pad1;
+    int  _pad2;
+    vec4 extras[32];
 } uLights;
 
 // ── OMBRES REÇUES (08/10/2026) ─────────────────────────────────────────────
@@ -99,16 +105,9 @@ uniform ShadowSlotsUBO {
 
 const float PI = 3.14159265358979;
 
-float D_GGX(vec3 N, vec3 H, float r) {
-    float a = r*r, a2 = a*a, NdH = max(dot(N,H), 0.0);
-    float d = NdH*NdH*(a2-1.0)+1.0;
-    return a2 / (PI*d*d + 1e-4);
-}
-float G_Schlick(float x, float k) { return x/(x*(1.0-k)+k); }
-float G_Smith(vec3 N, vec3 V, vec3 L, float r) {
-    float k = (r+1.0)*(r+1.0)/8.0;
-    return G_Schlick(max(dot(N,V),0.0),k) * G_Schlick(max(dot(N,L),0.0),k);
-}
+// Lobe speculaire commun (NkBRDF.glsli) : D GGX exacte, Smith correle, plancher
+// de rugosite, taille de la source (etude du 10/10, T3 + T31).
+#include "Include/NkBRDF.glsli"
 vec3 F_Schlick(float cosT, vec3 F0) {
     return F0 + (1.0-F0)*pow(max(1.0-cosT,0.0),5.0);
 }
@@ -141,12 +140,15 @@ void main() {
         int   lt  = int(uLights.positions[i].w);
         vec3  L;
         float att = 1.0;
+        float tanSrc = 0.0;
         if (lt == 0) {
             L = normalize(-uLights.directions[i].xyz);
+            tanSrc = uLights.extras[i].w;
         } else {
             vec3 d = uLights.positions[i].xyz - vWorldPos;
             float dist = length(d);
             L = normalize(d);
+            tanSrc = uLights.extras[i].w / max(dist, 0.001);
             att = max(1.0 - dist / max(uLights.directions[i].w, 0.001), 0.0);
             att = att * att;
             if (lt == 2) {
@@ -158,19 +160,43 @@ void main() {
         // L'ombre de CETTE lumière (angles.z = elle projette ; shadowOverrides.x =
         // la surface reçoit, .z = le multiplicateur de biais du matériau).
         float ombre = 1.0;
+        // Ombre de la part DIFFUSEE (wrap, T5) : lue sur un disque de 8 cm x
+        // subsurface autour du point (SampleLightShadowDiffuse, NkShadowAtlas) ;
+        // une prise au point laissait une frange en dents de scie au
+        // terminateur (capture du 14/10).
+        float ombreW = 1.0;
+        float sW = clamp(uObj.subsurface, 0.0, 1.0);
         if (uLights.angles[i].z > 0.5 && uObj.shadowOverrides.x > 0.5) {
             ombre = SampleLightShadowEx(i, vWorldPos, N, L, uObj.shadowOverrides.z);
+            ombreW = (sW > 0.0)
+                ? SampleLightShadowDiffuse(i, vWorldPos, N, L, uObj.shadowOverrides.z, 0.08 * sW)
+                : ombre;
         }
         vec3  H   = normalize(V + L);
         float NdL = max(dot(N, L), 0.0);
-        vec3  rad = uLights.colors[i].rgb * uLights.colors[i].w * att * ombre;
+        // Radiance SANS l'ombre : le Lambert et le reflet prennent `ombre`,
+        // la part diffusee `ombreW`.
+        vec3  rad = uLights.colors[i].rgb * uLights.colors[i].w * att;
 
-        float NDF = D_GGX(N, H, rog);
-        float G   = G_Smith(N, V, L, rog);
+        float alphaL = NkGgxAlphaSource(NkGgxAlpha(rog), tanSrc);
+        float NDF = NkGgxD(max(dot(N, H), 0.0), alphaL);
+        float Vis = NkSmithGgxVis(max(dot(N, V), 1e-4), NdL, alphaL);
         vec3  F   = F_Schlick(max(dot(H,V),0.0), F0);
-        vec3  spec = NDF*G*F / (4.0*max(dot(N,V),0.0)*NdL + 1e-4);
+        vec3  spec = NDF * Vis * F;
         vec3  kD   = (1.0-F)*(1.0-met);
-        Lo += (kD*albedo/PI + spec) * rad * NdL;
+        // ── DIFFUS DE LA PEAU (14/10/2026, etude RENDU T5) ───────────────
+        // Lambert, ou, si subsurface s > 0, un wrap CONSERVATIF teinte par
+        // subsurfaceColor qui REMPLACE une part s du Lambert :
+        //     wrap = max(N.L + s, 0) / (1 + s)^2
+        // dont l'integrale sur la sphere vaut PI pour tout s (celle de Lambert).
+        // Il porte, comme le Lambert, 1/PI, l'attenuation et l'ombre (rad).
+        // Avant : un wrap AJOUTE au Lambert, sans 1/PI, sans attenuation ni
+        // ombre -- albedo directionnel 1,27 a s = 0,5, et une peau eclairee au
+        // fond d'une ombre portee (voir la boucle conservee en commentaire
+        // plus bas).
+        float wrapN = max(dot(N, L) + sW, 0.0) / ((1.0 + sW) * (1.0 + sW));
+        vec3  diffW = mix(vec3(NdL * ombre), uObj.subsurfaceColor.rgb * (wrapN * ombreW), sW);
+        Lo += (kD*albedo/PI) * diffW * rad + spec * rad * (NdL * ombre);
     }
 
     // ── IBL ambient : DIFFUS SEUL ────────────────────────────────────────
@@ -181,22 +207,19 @@ void main() {
     vec3 irr = texture(tEnvIrradiance, N).rgb;
     vec3 amb = irr * albedo * ao * uCam.iblStrength;
 
-    // ── Subsurface (wrap) optionnel ──────────────────────────────────────
-    vec3 sss = vec3(0.0);
-    if (uObj.subsurface > 0.0) {
-        for (int i = 0; i < uLights.count && i < 32; i++) {
-            vec3 L = (int(uLights.positions[i].w) == 0)
-                ? normalize(-uLights.directions[i].xyz)
-                : normalize(uLights.positions[i].xyz - vWorldPos);
-            float wrap = max(dot(N,L)+uObj.subsurface, 0.0) / (1.0+uObj.subsurface);
-            sss += uObj.subsurfaceColor.rgb * uLights.colors[i].rgb *
-                   uLights.colors[i].w * wrap * uObj.subsurface;
-        }
-    }
+    // ── Subsurface (wrap) : ANCIENNE boucle, gardee pour memoire ─────────
+    // Retiree le 14/10/2026 (etude RENDU T5) : le wrap est desormais DANS la
+    // boucle directe, conservatif, attenue et ombre. Celle-ci l'ajoutait au
+    // Lambert sans 1/PI, sans attenuation ni ombre :
+    //   for (...) { vec3 L = ...;
+    //       float wrap = max(dot(N,L)+uObj.subsurface, 0.0) / (1.0+uObj.subsurface);
+    //       sss += uObj.subsurfaceColor.rgb * uLights.colors[i].rgb *
+    //              uLights.colors[i].w * wrap * uObj.subsurface; }
+    //   color = amb + Lo + sss*albedo + emissive;
 
     vec3 emissive = texture(tEmissive, vUV).rgb * uObj.emissiveStrength;
 
-    vec3 color = amb + Lo + sss*albedo + emissive;
+    vec3 color = amb + Lo + emissive;
     // Garde anti-NaN/Inf (normalize degenere sur certains drivers) + clamp HDR.
     if (any(isnan(color)) || any(isinf(color))) color = vec3(0.0);
     fragColor = vec4(clamp(color, vec3(0.0), vec3(64.0)), alpha);

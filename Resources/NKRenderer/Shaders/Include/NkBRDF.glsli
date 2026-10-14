@@ -1,0 +1,61 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// =============================================================================
+// NkBRDF.glsli -- le lobe speculaire GGX, ecrit UNE fois pour le PBR, la peau
+// et le differe (etude ETUDE_LIVRES/RENDU_2026-10-10.md, constats T3 et T31).
+//
+// CE QUI ETAIT FAUX (T3). `a2 / (PI*d*d + 1e-4)` : l'epsilon ecrasait le pic du
+// lobe. A la normale, d = a2 ; pour une rugosite 0,1 (a2 = 1e-4), PI*d*d vaut
+// 3e-8 et l'epsilon 1e-4 : D sortait a 1,0 au lieu de 1/(PI*a2) = 3 183. Un sol
+// cire, un inox, une cornee n'avaient donc presque plus de reflet de lampe --
+// moins qu'une surface rugueuse (D = 5 a 0,5). S'y ajoutait le masquage
+// separable remappe k = (r+1)^2/8 (Karis), qui retire de l'energie au rasant.
+// Ici : la NDF GGX exacte et la visibilite de Smith CORRELEE en hauteur, qui est
+// la forme exacte pour GGX (Heitz 2014 ; PBRT 3e ch. 8.4 ; RTR4 eq. 9.42).
+//
+// CE QUI DEVIENT POSSIBLE SANS EXPLOSER (T31). Retirer l'epsilon SEUL donnait des
+// pics de 1e5 a 1e6 sur un ou deux pixels (r -> 0 : D -> infini). Deux bornes :
+//   - un plancher de rugosite : alpha >= 0,002 (rugosite percue 0,045, celui de
+//     Filament), qui garde d > 0 donc aucune division par zero ;
+//   - la TAILLE DE LA SOURCE : une ampoule de rayon R vue a la distance d occupe
+//     un disque de demi-angle tan = R/d ; le demi-vecteur qui la renvoie vers
+//     l'oeil couvre la moitie de cet angle. Dans l'espace des pentes, la GGX de
+//     parametre alpha a un pic de densite 1/(PI alpha^2) ; un disque de pentes
+//     de rayon rho = tan/2 a la densite 1/(PI rho^2). D'ou
+//         alpha'^2 = alpha^2 + (tan/2)^2
+//     Pour un miroir (alpha -> 0) cela rend EXACTEMENT, au centre du reflet,
+//     F x radiance de l'ampoule = F x I / (PI R^2) : le reflet d'une lampe a la
+//     luminance de la lampe, pas un point infini. Le lobe elargi garde sa norme
+//     (integrale de D(m) n.m = 1) : l'energie totale du reflet ne change pas.
+// =============================================================================
+
+const float NK_BRDF_PI = 3.14159265358979;
+const float NK_GGX_ALPHA_MIN = 0.002;
+
+// Rugosite percue -> alpha GGX, avec le plancher.
+float NkGgxAlpha(float rugositePercue) {
+    return max(rugositePercue * rugositePercue, NK_GGX_ALPHA_MIN);
+}
+
+// Elargissement par la source : tanRayon = rayon angulaire de la source vu du
+// point eclaire (R/d pour une ponctuelle ou un projecteur, le rayon angulaire
+// lui-meme pour la directionnelle). 0 = source ponctuelle ideale.
+float NkGgxAlphaSource(float alpha, float tanRayon) {
+    float rho = 0.5 * max(tanRayon, 0.0);
+    return min(sqrt(alpha * alpha + rho * rho), 1.0);
+}
+
+// NDF GGX (Trowbridge-Reitz), normalisee : integrale de D(m) (n.m) dm = 1.
+float NkGgxD(float NdH, float alpha) {
+    float a2 = alpha * alpha;
+    float d = NdH * NdH * (a2 - 1.0) + 1.0;
+    return a2 / (NK_BRDF_PI * d * d);
+}
+
+// Visibilite V = G2 / (4 n.l n.v), Smith GGX correle en hauteur (forme exacte).
+// Le lobe s'ecrit alors D * V * F, SANS autre division.
+float NkSmithGgxVis(float NdV, float NdL, float alpha) {
+    float a2 = alpha * alpha;
+    float gv = NdL * sqrt(NdV * NdV * (1.0 - a2) + a2);
+    float gl = NdV * sqrt(NdL * NdL * (1.0 - a2) + a2);
+    return 0.5 / max(gv + gl, 1e-7);
+}

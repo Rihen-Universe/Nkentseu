@@ -367,6 +367,21 @@ namespace nkentseu {
 				// 10 aout (decision de Rihen) : c'est la loi correcte, l'heritee
 				// ne reste que pour relire les scenes reglees a l'oeil avant elle.
 				int32 attenuationMode = 1;
+				// ── TAILLE DE LA SOURCE (14/10/2026, etude RENDU T31) ─────────
+				// Le reflet d'une lampe sur une surface lisse a la largeur de la
+				// lampe : sans taille, le lobe GGX exact d'un miroir tend vers un
+				// point infini. Le nuanceur elargit le lobe de alpha'^2 = alpha^2
+				// + (tan/2)^2, tan = rayon angulaire de la source (NkBRDF.glsli) ;
+				// pour un miroir, le centre du reflet vaut alors F x la radiance
+				// de l'ampoule. Aucun effet sur le diffus.
+				//   sourceRadius     : rayon de l'emetteur en metres (ponctuelle,
+				//                      projecteur). 0,05 m = une ampoule.
+				//   sunAngularRadius : rayon angulaire en RADIANS (directionnelle).
+				//                      0,00465 = le soleil vu de la Terre (0,27 deg).
+				// La surfacique n'en a pas besoin : son panneau a deja ses
+				// dimensions (areaWidth, areaHeight).
+				float32 sourceRadius = 0.05f;
+				float32 sunAngularRadius = 0.00465f;
 				// ── Profondeur d'ombre LINEAIRE (omni, option — 2026-08-10) ───
 				// false = profondeur projetee des 6 faces (historique). true =
 				// l'atlas recoit dist(fragment,lumiere)/portee (LearnOpenGL
