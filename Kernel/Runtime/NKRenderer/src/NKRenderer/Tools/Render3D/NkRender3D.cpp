@@ -2465,8 +2465,12 @@ namespace nkentseu {
 				// A reprendre avec un test simple : coque sans ecriture de
 				// profondeur, puis verification du sens de cull sur ce backend.
 				// Laisse INACTIF pour ne pas livrer une regression visible.
-				if (false)
-					FlushToonOutline(cmd, currentRP, gs);
+				// (14/10/2026) ACTIVE, mais seulement pour les instances qui ont
+				// DEMANDE un contour (SetOutline : styles cartoon et « Rihen »,
+				// NkRenderStyle) -- aucune scene existante ne l'appelle, donc
+				// aucune ne change. Mesure : scene « planche » du banc
+				// NkRenduLivresProbe, sur spheres (sommets soudes).
+				FlushToonOutline(cmd, currentRP, gs);
 				if (mPBRPipeline.IsValid())
 					cmd->BindGraphicsPipeline(mPBRPipeline);
 				if (gs.IsValid())

@@ -216,7 +216,12 @@ namespace nkentseu {
 				float32 specHardness = 32.f;
 				float32 metallic = 0.f;		  // teinte spéculaire : 0=blanc, 1=albedo (effet métal cel)
 				float32 matcapStrength = 0.f; // 0=aucun, 1=full matcap (binding=4)
-				float32 _pad[1] = {};
+				// Nombre de TONS de la rampe cel (14/10/2026) : 0 a 2 = deux tons
+				// (ombre / lumiere, l'ancien comportement exact) ; n > 2 = une ombre
+				// et n-1 paliers de lumiere entre shadowThreshold et N.L = 1, chacun
+				// adouci par shadowSmooth. Occupe l'ancien bourrage : la taille du
+				// bloc (et son pas std140) ne change pas.
+				float32 bands = 0.f;
 		};
 
 		// ═════════════════════════════════════════════════════════════════════
@@ -312,6 +317,7 @@ namespace nkentseu {
 			NK_TOON_O_RIM = 1u << 5,
 			NK_TOON_O_SPEC = 1u << 6,
 			NK_TOON_O_MATCAP = 1u << 7,
+			NK_TOON_O_BANDS = 1u << 8,
 		};
 
 		// =========================================================================
@@ -346,6 +352,12 @@ namespace nkentseu {
 				NkMaterialInstance *SetSpecHardness(float32 v);
 				NkMaterialInstance *SetMatcapMap(NkTexHandle t);
 				NkMaterialInstance *SetMatcapStrength(float32 v);
+				// Contour par COQUE INVERSEE, pour tout materiau (PBR, peau, tissu,
+				// Toon) : largeur en unites du contour toon, couleur du trait.
+				// w <= 0 retire la coque.
+				NkMaterialInstance *SetHullOutline(float32 w, NkVec3f c);
+				// Rampe cel a n tons (Toon) : 2 = ombre/lumiere ; 3 a 5 = paliers.
+				NkMaterialInstance *SetToonBands(float32 n);
 				NkMaterialInstance *SetFloat(const NkString &n, float32 v);
 				NkMaterialInstance *SetVec2(const NkString &n, NkVec2f v);
 				NkMaterialInstance *SetVec3(const NkString &n, NkVec3f v);
@@ -468,6 +480,12 @@ namespace nkentseu {
 				bool mDirty = true;
 				NkPBRParams mPBR;
 				NkToonParams mToon;
+				// COQUE DEMANDEE (14/10/2026) : SetHullOutline() appele sur CETTE
+				// instance. La coque inversee (FlushToonOutline) ne se trace que
+				// sur cette demande explicite, pour tout materiau : le defaut
+				// NkToonParams::outlineWidth (2) et les SetOutline existants
+				// (NKCraft, NkMaterialLibrary) ne l'arment pas.
+				bool mOutlineDemande = false;
 				NkLayeredParams mLayered;	  // M.1 v0 : utilise si type == NK_LAYERED
 				NkLayeredV1Params mLayeredV1; // M.1 v1 : utilise si type == NK_LAYERED_V1
 				// NkVSM v1 (2026-05-23) : overrides shadow per-material.

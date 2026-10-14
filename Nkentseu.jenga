@@ -958,6 +958,12 @@ with workspace("Nkentseu", location="."):
     with include("Applications/NkTemporelProbe/NkTemporelProbe.jenga"):
         pass
 
+    # NkRenduLivresProbe -- les correctifs de l etude des livres de rendu
+    # (ETUDE_LIVRES/RENDU_2026-10-10.md) prouves a l image, sans fenetre. Meme
+    # chaine de liaison que NkTemporelProbe : enregistre juste apres lui.
+    with include("Applications/NkRenduLivresProbe/NkRenduLivresProbe.jenga"):
+        pass
+
     with includeprive("Labo/NKPA/NKPA.jenga"):
         pass
 

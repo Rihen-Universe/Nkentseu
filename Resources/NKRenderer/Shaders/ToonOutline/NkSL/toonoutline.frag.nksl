@@ -2,6 +2,7 @@
 // Couleur UNIE lue dans le push constant : un trait d'encre ne s'eclaire
 // pas. Aucun varying volontairement — le generateur GL retourne Y des qu'un
 // VS en porte, piege deja paye sur les shaders d'ombre.
+@location(0) in vec4 vOutlineColor;
 @location(0) out vec4 fragColor;
 
 layout(push_constant) uniform PC {
@@ -11,5 +12,7 @@ layout(push_constant) uniform PC {
 @stage(fragment)
 @entry
 void main() {
-    fragColor = vec4(pc.outline.yzw, 1.0);
+    // Couleur recue du vertex shader : la varying est ce qui fait de cette
+    // passe une passe de COULEUR pour le generateur GLSL (voir le .vert).
+    fragColor = vOutlineColor;
 }
