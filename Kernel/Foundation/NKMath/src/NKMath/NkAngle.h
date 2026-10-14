@@ -223,6 +223,19 @@ namespace nkentseu {
 					return FromRad(radians);
 				}
 
+				/**
+				 * @brief Crée un NkAngleT depuis une valeur en DEGRES (le pendant de FromRad)
+				 * @param degrees Angle en degrés
+				 * @return Le même angle que NkAngleT(degrees), wrappé dans (-180, 180]
+				 * @note (14/10/2026) Quarante-quatre exemples de NKMath l'employaient (NKMath.h, NkEulerAngle.h,
+				 *       NkMat.h...) alors qu'il n'existait pas : un apprenant qui les recopiait ne compilait pas.
+				 *       Signalé par la session du site. Témoin : tests/test_smoke.cpp (AngleFromDeg).
+				 */
+				NKENTSEU_MATH_API_FORCE_INLINE
+				static NkAngleT FromDeg(Precision degrees) noexcept {
+					return NkAngleT(degrees);
+				}
+
 				// ====================================================================
 				// SECTION PUBLIQUE : ACCESSEURS ET MUTATEURS
 				// ====================================================================

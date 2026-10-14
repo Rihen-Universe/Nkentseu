@@ -52,6 +52,9 @@
 
 using namespace nkentseu;
 
+/// (14/10) Les temoins de l'atlas SDF (tests/TestAtlasSdf.cpp).
+void NkTestsAtlasSdf(void (*temoin)(bool, const char *), const nkft_uint8 *octets, nkft_uint32 taille);
+
 namespace {
 
 	/// Ce qu'on lit d'un atlas construit.
@@ -193,7 +196,6 @@ int main() {
 		delete atlas;
 	}
 	Dire("repli X + une police fusionnee", fusionne);
-	NkFontEmbedded::FreeDecompressedData(octets);
 
 	std::printf("\n");
 	Temoin(reference.construit && reference.nonNuls > 0 && reference.avanceA > 0.f,
@@ -210,6 +212,9 @@ int main() {
 	Temoin(reference.repli == 0x3Fu, "la reference a pour glyphe de repli le point d'interrogation");
 	Temoin(choisi.repli == 'X', "un repli choisi (X) est honore");
 	Temoin(fusionne.repli == 'X', "une police fusionnee ne remplace pas le repli de sa base");
+
+	NkTestsAtlasSdf(&Temoin, octets, taille); // (14/10) l'atlas SDF
+	NkFontEmbedded::FreeDecompressedData(octets);
 
 	std::printf("\n===== NKFont_Tests : %d / %d — %s =====\n", gVerts, gVerts + gRouges, gRouges == 0 ? "VERT" : "ROUGE");
 	return gRouges == 0 ? 0 : 1;

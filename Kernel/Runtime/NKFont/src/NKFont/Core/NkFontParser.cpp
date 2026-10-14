@@ -1466,14 +1466,23 @@ namespace nkentseu {
 
 		void NkMakeSDFFromBitmap(const nkft_uint8 *alpha, nkft_int32 w, nkft_int32 h, nkft_uint8 *sdfOut,
 								 nkft_int32 spread) {
-			if (!alpha || !sdfOut || w <= 0 || h <= 0 || spread <= 0)
+			NkMakeSDFFromBitmapStride(alpha, w, h, w, sdfOut, w, spread); // une image contigue : le pas est sa largeur
+		}
+
+		// (14/10/2026) LE PAS. L'atlas pose chaque glyphe dans un tampon dont une ligne fait la largeur de
+		// l'ATLAS ; la fonction sans pas lisait et ecrivait des lignes de la largeur du GLYPHE : l'atlas SDF
+		// sortait corrompu (trouve par un apprenant, exercice « Le SDF, mesure »). `strideIn` et `strideOut` :
+		// le nombre d'octets d'une ligne de `alpha` et de `sdfOut`. Banc : tests/TestAtlasSdf.cpp.
+		void NkMakeSDFFromBitmapStride(const nkft_uint8 *alpha, nkft_int32 w, nkft_int32 h, nkft_int32 strideIn, nkft_uint8 *sdfOut,
+									   nkft_int32 strideOut, nkft_int32 spread) {
+			if (!alpha || !sdfOut || w <= 0 || h <= 0 || spread <= 0 || strideIn < w || strideOut < w)
 				return;
 			const nkft_float32 invSpread = 1.f / (nkft_float32)spread;
 			const nkft_float32 threshold = 127.5f;
 
 			for (nkft_int32 py = 0; py < h; ++py) {
 				for (nkft_int32 px = 0; px < w; ++px) {
-					nkft_float32 aCenter = (nkft_float32)alpha[py * w + px];
+					nkft_float32 aCenter = (nkft_float32)alpha[py * strideIn + px];
 					bool inside = aCenter >= threshold;
 
 					nkft_float32 minDistSq = (nkft_float32)(spread * spread + 1);
@@ -1493,7 +1502,7 @@ namespace nkentseu {
 
 					for (nkft_int32 qy = y0; qy <= y1; ++qy) {
 						for (nkft_int32 qx = x0; qx <= x1; ++qx) {
-							nkft_float32 aq = (nkft_float32)alpha[qy * w + qx];
+							nkft_float32 aq = (nkft_float32)alpha[qy * strideIn + qx];
 							bool qInside = aq >= threshold;
 							if (qInside != inside) {
 								nkft_float32 dx = (nkft_float32)(qx - px);
@@ -1509,7 +1518,7 @@ namespace nkentseu {
 					if (dist > 1.f)
 						dist = 1.f;
 					nkft_float32 sdfVal = inside ? (0.5f + dist * 0.5f) : (0.5f - dist * 0.5f);
-					sdfOut[py * w + px] = (nkft_uint8)(sdfVal * 255.f + 0.5f);
+					sdfOut[py * strideOut + px] = (nkft_uint8)(sdfVal * 255.f + 0.5f);
 				}
 			}
 		}

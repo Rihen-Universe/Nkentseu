@@ -540,7 +540,10 @@ namespace nkentseu {
 
 				if (sdfMode && sdfTemp) {
 					nkft_uint8 *sdfDst = sdfTemp + r.y * atlasW + r.x;
-					nkfont::NkMakeSDFFromBitmap(dst, drawW, drawH, sdfDst, sdfSpread);
+					// (14/10/2026) le glyphe est dans l'atlas : une ligne y fait atlasW octets, pas drawW. Sans le pas,
+					// la fonction lisait et ecrivait au mauvais endroit (atlas SDF corrompu, trouve par un apprenant).
+					// Banc : tests/TestAtlasSdf.cpp (s2).
+					nkfont::NkMakeSDFFromBitmapStride(dst, drawW, drawH, atlasW, sdfDst, atlasW, sdfSpread);
 					for (nkft_int32 row = 0; row < drawH; ++row) {
 						memcpy(dst + row * atlasW, sdfDst + row * atlasW, (nkft_size)drawW);
 					}

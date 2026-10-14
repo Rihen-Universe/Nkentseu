@@ -250,6 +250,15 @@ namespace nkentseu {
 		void NkMakeSDFFromBitmap(const nkft_uint8 *alpha, nkft_int32 w, nkft_int32 h, nkft_uint8 *sdfOut,
 								 nkft_int32 spread = 6);
 
+		/**
+		 * (14/10/2026) Le meme SDF pour une image posee dans un tampon PLUS LARGE qu'elle (un glyphe dans
+		 * l'atlas) : `strideIn` et `strideOut` sont le nombre d'octets d'une ligne de `alpha` et de `sdfOut`
+		 * (au moins `w`). Seul le rectangle w x h de `sdfOut` est ecrit. NkMakeSDFFromBitmap est cette
+		 * fonction avec les deux pas egaux a `w` (une image contigue).
+		 */
+		void NkMakeSDFFromBitmapStride(const nkft_uint8 *alpha, nkft_int32 w, nkft_int32 h, nkft_int32 strideIn, nkft_uint8 *sdfOut,
+									   nkft_int32 strideOut, nkft_int32 spread = 6);
+
 	} // namespace nkfont
 } // namespace nkentseu
 

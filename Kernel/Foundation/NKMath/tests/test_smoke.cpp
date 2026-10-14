@@ -251,3 +251,14 @@ TEST_CASE(NKmathmoke, QuaternionComposition) {
 		}
 	}
 }
+
+// (14/10/2026) NkAngle::FromDeg : quarante-quatre exemples de NKMath l'employaient alors qu'il n'existait pas.
+// Il rend le meme angle que le constructeur (qui prend des degres) et que FromRad de la valeur convertie, et il
+// replie dans (-180, 180] comme lui.
+TEST_CASE(NKmathmoke, AngleFromDeg) {
+	ASSERT_NEAR(90.0f, NkAngle::FromDeg(90.0f).Deg(), 0.0001f);
+	ASSERT_NEAR(NkAngle(45.0f).Deg(), NkAngle::FromDeg(45.0f).Deg(), 0.0001f);
+	ASSERT_NEAR(NkAngle::FromRad(PI_F / 2.0f).Deg(), NkAngle::FromDeg(90.0f).Deg(), 0.001f);
+	ASSERT_NEAR(-90.0f, NkAngle::FromDeg(270.0f).Deg(), 0.001f);
+	ASSERT_NEAR(PI_F / 4.0f, NkAngle::FromDeg(45.0f).Rad(), 0.0001f);
+}
