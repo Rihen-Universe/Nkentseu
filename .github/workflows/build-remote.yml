@@ -52,6 +52,36 @@ jobs:
           # Rihen-Universe, cree par Rihen -- les ouvre ; sans lui, rien ne change.
           token: ${{ secrets.NK_PRIVE || github.token }}
 
+      # (2026-10-15) LES DEPOTS PRIVES PAR CLES DE DEPLOIEMENT, EN LECTURE SEULE. Rihen a choisi
+      # les cles de deploiement (une par depot prive) ; leurs cles privees vivent dans les secrets
+      # NKCODE_DEPLOY_KEY et NKEDITORKIT_DEPLOY_KEY. Le jeton NK_PRIVE n'a jamais ete cree, et de
+      # toute facon ces deux sous-modules portent `update = none` (.gitmodules) : la recuperation
+      # ci-dessus les SAUTE. On les ouvre donc ICI, explicitement, chacun avec SA cle ; les cles sont
+      # effacees du disque du runner a la fin de l'etape, et rien de secret n'est ecrit au journal.
+      - name: Sous-modules prives (cles de deploiement, lecture)
+        if: inputs.target == 'NKCode'
+        env:
+          CLE_NKCODE: ${{ secrets.NKCODE_DEPLOY_KEY }}
+          CLE_NKEDITORKIT: ${{ secrets.NKEDITORKIT_DEPLOY_KEY }}
+        run: |
+          set -eu
+          test -n "$CLE_NKCODE" || { echo "::error::secret NKCODE_DEPLOY_KEY absent"; exit 1; }
+          test -n "$CLE_NKEDITORKIT" || { echo "::error::secret NKEDITORKIT_DEPLOY_KEY absent"; exit 1; }
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$CLE_NKCODE" > ~/.ssh/nkcode && chmod 600 ~/.ssh/nkcode
+          printf '%s\n' "$CLE_NKEDITORKIT" > ~/.ssh/nkeditorkit && chmod 600 ~/.ssh/nkeditorkit
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          ouvrir() { # ouvrir <chemin> <depot> <cle>
+            git config "submodule.$1.url" "git@github.com:Rihen-Universe/$2.git"
+            GIT_SSH_COMMAND="ssh -i $HOME/.ssh/$3 -o IdentitiesOnly=yes" \
+              git submodule update --init --checkout -- "$1"
+            echo "$1 : $(git -C "$1" log --oneline -1)"
+          }
+          git submodule init -- Applications/NKCode Engine/NKEditorKit
+          ouvrir Applications/NKCode NKCode nkcode
+          ouvrir Engine/NKEditorKit NKEditorKit nkeditorkit
+          rm -f ~/.ssh/nkcode ~/.ssh/nkeditorkit
+
       - name: Version de Jenga exigee par NKCode
         id: jenga-version
         run: |
