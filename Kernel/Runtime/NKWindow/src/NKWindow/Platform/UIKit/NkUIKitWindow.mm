@@ -12,6 +12,10 @@
 
 #include "NKWindow/Platform/UIKit/NkUIKitWindow.h"
 #include "NKWindow/Core/NkWindow.h"
+// (15/10) refus NOMME (NkWindowProp, NkWindowRefuserUneFois), comme NkCocoaWindow.mm. Sans lui, la
+// construction iOS s'arretait sur « use of undeclared identifier 'NkWindowProp' » (ligne de
+// SetBackgroundColor) depuis le commit 938c8fa5 : build-gemcrush et build-jeux-plateau rouges.
+#include "NKWindow/Core/NkWindowAudit.h"
 #include "NKLogger/NkLog.h" // SetMousePositionClient DIT ses refus : jamais un repli muet
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
