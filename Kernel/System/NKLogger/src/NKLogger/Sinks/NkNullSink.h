@@ -87,9 +87,9 @@ namespace nkentseu {
 	 * @example Désactivation conditionnelle du logging
 	 * @code
 	 * #ifdef NKENTSEU_ENABLE_LOGGING
-	 *     auto sink = nkentseu::memory::MakeShared<nkentseu::NkFileSink>("app.log");
+	 *     auto sink = nkentseu::memory::NkMakeShared<nkentseu::NkFileSink>("app.log");
 	 * #else
-	 *     auto sink = nkentseu::memory::MakeShared<nkentseu::NkNullSink>();
+	 *     auto sink = nkentseu::memory::NkMakeShared<nkentseu::NkNullSink>();
 	 * #endif
 	 *     logger.AddSink(sink);  // Même API, comportement différent
 	 * @endcode
@@ -98,7 +98,7 @@ namespace nkentseu {
 	 * @code
 	 * TEST(MyComponentTest, DoesNotCrash) {
 	 *     // Utiliser NkNullSink pour éviter l'écriture dans les logs pendant les tests
-	 *     auto nullSink = nkentseu::memory::MakeShared<nkentseu::NkNullSink>();
+	 *     auto nullSink = nkentseu::memory::NkMakeShared<nkentseu::NkNullSink>();
 	 *     testLogger.AddSink(nullSink);
 	 *
 	 *     // Exécuter le code qui logge : aucun effet observable
@@ -135,7 +135,7 @@ namespace nkentseu {
 			 * nkentseu::NkNullSink nullSink;
 			 *
 			 * // Ou via shared_ptr pour ajout à un logger
-			 * auto sink = nkentseu::memory::MakeShared<nkentseu::NkNullSink>();
+			 * auto sink = nkentseu::memory::NkMakeShared<nkentseu::NkNullSink>();
 			 * logger.AddSink(sink);
 			 * @endcode
 			 */
@@ -295,14 +295,14 @@ namespace nkentseu {
 
 		if (enableFileLogging) {
 			// Production : logging vers fichier avec rotation
-			sink = memory::MakeShared<NkRotatingFileSink>(
+			sink = memory::NkMakeShared<NkRotatingFileSink>(
 				"logs/app.log",
 				50 * 1024 * 1024,  // 50 MB
 				5                   // 5 backups
 			);
 		} else {
 			// Développement/testing : désactiver le logging fichier
-			sink = memory::MakeShared<NkNullSink>();
+			sink = memory::NkMakeShared<NkNullSink>();
 		}
 
 		NkLog::Instance().AddSink(sink);
@@ -330,7 +330,7 @@ namespace nkentseu {
 	TEST(ComponentTest, ProcessDoesNotCrash) {
 		// Setup : logger avec NkNullSink pour éviter l'écriture dans les logs
 		nkentseu::NkLogger testLogger("TestLogger");
-		auto nullSink = nkentseu::memory::MakeShared<nkentseu::NkNullSink>();
+		auto nullSink = nkentseu::memory::NkMakeShared<nkentseu::NkNullSink>();
 		testLogger.AddSink(nullSink);
 
 		// Execution : le code loggue mais aucun effet observable
@@ -353,7 +353,7 @@ namespace nkentseu {
 		using namespace nkentseu;
 
 		// Désactiver le logging pour mesurer les performances brutes
-		auto nullSink = memory::MakeShared<NkNullSink>();
+		auto nullSink = memory::NkMakeShared<NkNullSink>();
 		NkLog::Instance().ClearSinks();  // Retirer les sinks existants
 		NkLog::Instance().AddSink(nullSink);
 
@@ -385,13 +385,13 @@ namespace nkentseu {
 		static void EnableLogging() {
 			auto& logger = nkentseu::NkLog::Instance();
 			logger.ClearSinks();
-			logger.AddSink(nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>());
+			logger.AddSink(nkentseu::memory::NkMakeShared<nkentseu::NkConsoleSink>());
 		}
 
 		static void DisableLogging() {
 			auto& logger = nkentseu::NkLog::Instance();
 			logger.ClearSinks();
-			logger.AddSink(nkentseu::memory::MakeShared<nkentseu::NkNullSink>());
+			logger.AddSink(nkentseu::memory::NkMakeShared<nkentseu::NkNullSink>());
 		}
 	};
 
@@ -415,21 +415,21 @@ namespace nkentseu {
 
 		if (type == "file") {
 			NkString filepath = core::Config::GetString(section + ".filepath", "app.log");
-			return memory::MakeShared<NkFileSink>(filepath);
+			return memory::NkMakeShared<NkFileSink>(filepath);
 
 		} else if (type == "console") {
-			return memory::MakeShared<NkConsoleSink>();
+			return memory::NkMakeShared<NkConsoleSink>();
 
 		} else if (type == "rotating") {
 			usize maxSize = core::Config::GetUint64(section + ".maxSize", 50 * 1024 * 1024);
 			usize maxFiles = core::Config::GetUint64(section + ".maxFiles", 5);
 			NkString filepath = core::Config::GetString(section + ".filepath", "app.log");
-			return memory::MakeShared<NkRotatingFileSink>(filepath, maxSize, maxFiles);
+			return memory::NkMakeShared<NkRotatingFileSink>(filepath, maxSize, maxFiles);
 
 		} else {
 			// Fallback : NkNullSink pour désactivation implicite
 			// Utile si la configuration est manquante ou invalide
-			return memory::MakeShared<NkNullSink>();
+			return memory::NkMakeShared<NkNullSink>();
 		}
 	}
 */

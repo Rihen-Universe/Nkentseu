@@ -78,7 +78,7 @@ namespace nkentseu {
 	 * @example Usage basique
 	 * @code
 	 * // Rotation à 50 MB, conservation de 5 fichiers historiques
-	 * auto rotatingSink = nkentseu::memory::MakeShared<nkentseu::NkRotatingFileSink>(
+	 * auto rotatingSink = nkentseu::memory::NkMakeShared<nkentseu::NkRotatingFileSink>(
 	 *     "logs/app.log",      // Chemin de base
 	 *     50 * 1024 * 1024,    // 50 MB max par fichier
 	 *     5                    // Conserver app.log.0 à app.log.4
@@ -395,7 +395,7 @@ namespace nkentseu {
 
 	void SetupRotatingLogging() {
 		// Rotation à 100 MB, conservation de 10 fichiers historiques
-		auto rotatingSink = nkentseu::memory::MakeShared<nkentseu::NkRotatingFileSink>(
+		auto rotatingSink = nkentseu::memory::NkMakeShared<nkentseu::NkRotatingFileSink>(
 			"logs/app.log",              // Chemin de base
 			100 * 1024 * 1024,           // 100 MB max par fichier
 			10                           // Conserver .0 à .9
@@ -455,7 +455,7 @@ namespace nkentseu {
 		NkLogLevel level = NkLogLevelFromString(core::Config::GetString(section + ".level", "info"));
 
 		// Création et configuration du sink
-		auto sink = memory::MakeShared<NkRotatingFileSink>(filepath, maxSize, maxFiles);
+		auto sink = memory::NkMakeShared<NkRotatingFileSink>(filepath, maxSize, maxFiles);
 		sink->SetPattern(pattern);
 		sink->SetLevel(level);
 

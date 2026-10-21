@@ -226,12 +226,15 @@ namespace nkentseu {
 				 * @param maxV Valeur maximale de la plage de quantification.
 				 * @param prec Précision souhaitée (ex: 0.01f = 1cm pour des positions).
 				 * @note Algorithme : normalisation → quantification → encodage sur bits optimaux.
-				 * @note Économie typique : 10-16 bits au lieu de 32 bits pour un float.
+				 * @note Économie typique : 10-18 bits au lieu de 32 bits pour un float.
+				 * @note (21/10/2026) steps = arrondi((maxV - minV) / prec) ; codes 0 .. steps sur
+				 *       BitsRequired(steps) bits ; minV et maxV reviennent exacts, l'erreur ne
+				 *       dépasse pas un demi-pas (banc NKNetwork/tests/test_adresse_et_quantification.cpp).
 				 * @example
 				 * @code
 				 * // Position avec précision 1cm sur plage [-1000m, +1000m]
 				 * writer.WriteF32Q(position.x, -1000.f, 1000.f, 0.01f);
-				 * // Résultat : ~16 bits au lieu de 32 bits
+				 * // Résultat : 18 bits (200 000 marches) au lieu de 32 bits
 				 * @endcode
 				 */
 				void WriteF32Q(float32 v, float32 minV, float32 maxV, float32 prec) noexcept;

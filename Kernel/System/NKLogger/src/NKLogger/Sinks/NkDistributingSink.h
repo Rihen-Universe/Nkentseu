@@ -91,12 +91,12 @@ namespace nkentseu {
 	 * @example Configuration basique multi-destination
 	 * @code
 	 * // Création du sink distributeur
-	 * auto distributor = nkentseu::memory::MakeShared<nkentseu::NkDistributingSink>();
+	 * auto distributor = nkentseu::memory::NkMakeShared<nkentseu::NkDistributingSink>();
 	 *
 	 * // Ajout de destinations multiples
-	 * distributor->AddSink(nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>());
-	 * distributor->AddSink(nkentseu::memory::MakeShared<nkentseu::NkFileSink>("app.log"));
-	 * distributor->AddSink(nkentseu::memory::MakeShared<nkentseu::NkRotatingFileSink>(
+	 * distributor->AddSink(nkentseu::memory::NkMakeShared<nkentseu::NkConsoleSink>());
+	 * distributor->AddSink(nkentseu::memory::NkMakeShared<nkentseu::NkFileSink>("app.log"));
+	 * distributor->AddSink(nkentseu::memory::NkMakeShared<nkentseu::NkRotatingFileSink>(
 	 *     "archive.log", 100*1024*1024, 5));
 	 *
 	 * // Configuration globale propagée à tous les sous-sinks
@@ -110,7 +110,7 @@ namespace nkentseu {
 	 * @example Gestion dynamique à runtime
 	 * @code
 	 * // Ajout d'un sink de debug temporairement
-	 * auto debugSink = nkentseu::memory::MakeShared<nkentseu::NkFileSink>("debug.log");
+	 * auto debugSink = nkentseu::memory::NkMakeShared<nkentseu::NkFileSink>("debug.log");
 	 * debugSink->SetLevel(nkentseu::NkLogLevel::NK_TRACE);
 	 * distributor->AddSink(debugSink);
 	 *
@@ -144,7 +144,7 @@ namespace nkentseu {
 			 * @example
 			 * @code
 			 * // Construction vide puis ajout progressif
-			 * auto distributor = nkentseu::memory::MakeShared<nkentseu::NkDistributingSink>();
+			 * auto distributor = nkentseu::memory::NkMakeShared<nkentseu::NkDistributingSink>();
 			 * distributor->AddSink(consoleSink);
 			 * distributor->AddSink(fileSink);
 			 * @endcode
@@ -167,7 +167,7 @@ namespace nkentseu {
 			 * initialSinks.PushBack(consoleSink);
 			 * initialSinks.PushBack(fileSink);
 			 *
-			 * auto distributor = nkentseu::memory::MakeShared<nkentseu::NkDistributingSink>(initialSinks);
+			 * auto distributor = nkentseu::memory::NkMakeShared<nkentseu::NkDistributingSink>(initialSinks);
 			 * @endcode
 			 */
 			explicit NkDistributingSink(const NkVector<memory::NkSharedPtr<NkISink>> &sinks);
@@ -348,7 +348,7 @@ namespace nkentseu {
 			 * @example
 			 * @code
 			 * // Ajout dynamique d'un sink de debug pour investigation temporaire
-			 * auto debugSink = nkentseu::memory::MakeShared<nkentseu::NkFileSink>("debug.log");
+			 * auto debugSink = nkentseu::memory::NkMakeShared<nkentseu::NkFileSink>("debug.log");
 			 * debugSink->SetLevel(nkentseu::NkLogLevel::NK_TRACE);
 			 * distributor.AddSink(debugSink);
 			 *
@@ -517,22 +517,22 @@ namespace nkentseu {
 		using namespace nkentseu;
 
 		// Création du distributeur principal
-		auto distributor = memory::MakeShared<NkDistributingSink>();
+		auto distributor = memory::NkMakeShared<NkDistributingSink>();
 
 		// Destination 1 : Console pour visibilité immédiate en dev/ops
-		auto consoleSink = memory::MakeShared<NkConsoleSink>();
+		auto consoleSink = memory::NkMakeShared<NkConsoleSink>();
 		consoleSink->SetLevel(NkLogLevel::NK_WARN);  // Seulement warnings+ en console
 		consoleSink->SetColorEnabled(true);
 		distributor->AddSink(consoleSink);
 
 		// Destination 2 : Fichier courant pour persistance
-		auto fileSink = memory::MakeShared<NkFileSink>("logs/app.log");
+		auto fileSink = memory::NkMakeShared<NkFileSink>("logs/app.log");
 		fileSink->SetLevel(NkLogLevel::NK_INFO);  // Info+ en fichier
 		fileSink->SetPattern("[%Y-%m-%d %H:%M:%S] [%L] %v");
 		distributor->AddSink(fileSink);
 
 		// Destination 3 : Fichier tournant pour archivage long terme
-		auto archiveSink = memory::MakeShared<NkRotatingFileSink>(
+		auto archiveSink = memory::NkMakeShared<NkRotatingFileSink>(
 			"logs/archive.log",
 			100 * 1024 * 1024,  // 100 MB max par fichier
 			10                   // Conserver 10 backups
@@ -565,7 +565,7 @@ namespace nkentseu {
 			using namespace nkentseu;
 
 			// Création d'un sink de debug dédié
-			auto debugSink = memory::MakeShared<NkFileSink>(debugFile, true);  // truncate
+			auto debugSink = memory::NkMakeShared<NkFileSink>(debugFile, true);  // truncate
 			debugSink->SetLevel(NkLogLevel::NK_TRACE);  // Verbose maximal
 			debugSink->SetPattern("[%H:%M:%S.%e] [%f:%#] %v");  // Pattern compact avec source
 
@@ -606,19 +606,19 @@ namespace nkentseu {
 	void SetupHierarchicalLogging() {
 		using namespace nkentseu;
 
-		auto distributor = memory::MakeShared<NkDistributingSink>();
+		auto distributor = memory::NkMakeShared<NkDistributingSink>();
 
 		// Configuration globale appliquée à tous les sinks
 		distributor->SetPattern("[%Y-%m-%d %H:%M:%S] [%L] %v");
 
 		// Sink console : pattern court pour lisibilité terminal
-		auto consoleSink = memory::MakeShared<NkConsoleSink>();
+		auto consoleSink = memory::NkMakeShared<NkConsoleSink>();
 		consoleSink->SetPattern("[%L] %v");  // Override local
 		consoleSink->SetColorEnabled(true);
 		distributor->AddSink(consoleSink);
 
 		// Sink fichier : pattern détaillé pour analyse post-mortem
-		auto fileSink = memory::MakeShared<NkFileSink>("logs/app.log");
+		auto fileSink = memory::NkMakeShared<NkFileSink>("logs/app.log");
 		fileSink->SetPattern("[%Y-%m-%d %H:%M:%S.%e] [%L] [%n] [%s:%# in %f] %v");  // Override local
 		distributor->AddSink(fileSink);
 
@@ -687,9 +687,9 @@ namespace nkentseu {
 
 		// Setup : distributeur avec 3 sinks de comptage
 		NkDistributingSink distributor;
-		auto sink1 = memory::MakeShared<CountingSink>();
-		auto sink2 = memory::MakeShared<CountingSink>();
-		auto sink3 = memory::MakeShared<CountingSink>();
+		auto sink1 = memory::NkMakeShared<CountingSink>();
+		auto sink2 = memory::NkMakeShared<CountingSink>();
+		auto sink3 = memory::NkMakeShared<CountingSink>();
 
 		distributor.AddSink(sink1);
 		distributor.AddSink(sink2);
@@ -717,7 +717,7 @@ namespace nkentseu {
 		using namespace nkentseu;
 
 		// Création du distributeur principal
-		auto distributor = memory::MakeShared<NkDistributingSink>();
+		auto distributor = memory::NkMakeShared<NkDistributingSink>();
 
 		// Lecture de la liste des sous-sinks depuis configuration
 		auto sinkConfigs = core::Config::GetArray(section + ".sinks");
@@ -732,14 +732,14 @@ namespace nkentseu {
 			memory::NkSharedPtr<NkISink> sink;
 
 			if (type == "console") {
-				sink = memory::MakeShared<NkConsoleSink>();
+				sink = memory::NkMakeShared<NkConsoleSink>();
 			} else if (type == "file" && !filepath.Empty()) {
-				sink = memory::MakeShared<NkFileSink>(filepath);
+				sink = memory::NkMakeShared<NkFileSink>(filepath);
 			} else if (type == "rotating" && !filepath.Empty() && maxSize > 0) {
-				sink = memory::MakeShared<NkRotatingFileSink>(filepath, maxSize, maxFiles);
+				sink = memory::NkMakeShared<NkRotatingFileSink>(filepath, maxSize, maxFiles);
 			} else {
 				// Fallback robuste : NkNullSink pour configuration invalide
-				sink = memory::MakeShared<NkNullSink>();
+				sink = memory::NkMakeShared<NkNullSink>();
 			}
 
 			// Configuration individuelle du sink

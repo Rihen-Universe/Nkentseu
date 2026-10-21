@@ -255,6 +255,19 @@ namespace nkentseu {
 		 * @note Pour éviter l'allocation séparée, envisager NkMakeShared (optimisation future)
 		 * @note Thread-safe pour les opérations de référence counting, pas pour l'accès à l'objet
 		 */
+		/**
+		 * @brief Vrai si un U* se convertit IMPLICITEMENT en T* (Derivee -> Base, T -> const T)
+		 * @note Sans <type_traits> : la surcharge (T*) n'est choisie que si la conversion existe.
+		 */
+		template <typename U, typename T> struct NkPointeurConvertible {
+			private:
+				static char Essai(T *) noexcept;
+				static long Essai(...) noexcept;
+
+			public:
+				static constexpr nk_bool value = sizeof(Essai(static_cast<U *>(nullptr))) == sizeof(char);
+		};
+
 		template <typename T> class NkSharedPtr {
 			public:
 				using element_type = T; ///< Type de l'élément géré (pour compatibilité générique)
@@ -321,6 +334,30 @@ namespace nkentseu {
 				NkSharedPtr(NkSharedPtr &&other) noexcept : mPtr(other.mPtr), mControl(other.mControl) {
 					other.mPtr = nullptr;
 					other.mControl = nullptr; // L'autre instance devient vide
+				}
+
+				/**
+				 * @brief Conversion vers une base (copie), comme std::shared_ptr (21/10/2026)
+				 * @note N'existe que si U* se convertit implicitement en T* (Derivee -> Base,
+				 *       T -> const T). Le bloc de controle garde le type REEL : la destruction
+				 *       passe par NkSharedControlBlock<U>, meme sans destructeur virtuel.
+				 * @note Pourquoi : NkLogger::AddSink attend NkSharedPtr<NkISink> ; sans cette
+				 *       conversion, AddSink(NkMakeShared<NkConsoleSink>()) (l'exemple de la
+				 *       documentation, recopie par des apprenants) ne compilait pas.
+				 *       Banc : NKMemory/tests/test_sharedptr_conversion.cpp.
+				 */
+				template <typename U, typename = traits::NkEnableIf_t<NkPointeurConvertible<U, T>::value>>
+				NkSharedPtr(const NkSharedPtr<U> &other) noexcept : mPtr(other.mPtr), mControl(other.mControl) {
+					if (mControl) {
+						mControl->AddStrongRef();
+					}
+				}
+
+				/** @brief Conversion vers une base (deplacement) : la source devient vide */
+				template <typename U, typename = traits::NkEnableIf_t<NkPointeurConvertible<U, T>::value>>
+				NkSharedPtr(NkSharedPtr<U> &&other) noexcept : mPtr(other.mPtr), mControl(other.mControl) {
+					other.mPtr = nullptr;
+					other.mControl = nullptr;
 				}
 
 				/**
@@ -478,6 +515,7 @@ namespace nkentseu {
 
 				// Amitié pour accès aux membres privés
 				friend class NkWeakPtr<T>;
+				template <typename U> friend class NkSharedPtr; // conversion vers une base (21/10/2026)
 		};
 
 		// -------------------------------------------------------------------------

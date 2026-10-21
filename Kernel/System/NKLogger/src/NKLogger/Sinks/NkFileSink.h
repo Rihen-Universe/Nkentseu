@@ -92,7 +92,7 @@ namespace nkentseu {
 	 * fileSink.SetPattern("[%Y-%m-%d %H:%M:%S] [%L] %v");
 	 *
 	 * // Ajout à un logger
-	 * logger.AddSink(nkentseu::memory::MakeShared<nkentseu::NkFileSink>("debug.log"));
+	 * logger.AddSink(nkentseu::memory::NkMakeShared<nkentseu::NkFileSink>("debug.log"));
 	 * @endcode
 	 *
 	 * @example Rotation de fichier via héritage
@@ -656,7 +656,7 @@ namespace nkentseu {
 
 	void SetupFileLogging() {
 		// Création avec append mode (défaut)
-		auto fileSink = nkentseu::memory::MakeShared<nkentseu::NkFileSink>("logs/app.log");
+		auto fileSink = nkentseu::memory::NkMakeShared<nkentseu::NkFileSink>("logs/app.log");
 
 		// Configuration optionnelle
 		fileSink->SetLevel(nkentseu::NkLogLevel::NK_INFO);  // Filtrage par niveau
@@ -731,7 +731,7 @@ namespace nkentseu {
 	};
 
 	// Usage :
-	// auto rotatingSink = nkentseu::memory::MakeShared<SizeRotatingFileSink>(
+	// auto rotatingSink = nkentseu::memory::NkMakeShared<SizeRotatingFileSink>(
 	//     "logs/app.log",
 	//     50 * 1024 * 1024  // 50 MB max
 	// );
@@ -823,7 +823,7 @@ namespace nkentseu {
 		NkLogLevel level = NkLogLevelFromString(core::Config::GetString(section + ".level", "info"));
 
 		// Création et configuration du sink
-		auto sink = memory::MakeShared<NkFileSink>(filepath, truncate);
+		auto sink = memory::NkMakeShared<NkFileSink>(filepath, truncate);
 		sink->SetPattern(pattern);
 		sink->SetLevel(level);
 

@@ -517,7 +517,7 @@ namespace nkentseu {
 	 * @example
 	 * @code
 	 * // Création d'un sink partagé entre plusieurs loggers
-	 * auto sharedFileSink = memory::MakeShared<NkFileSink>("app.log");
+	 * auto sharedFileSink = memory::NkMakeShared<NkFileSink>("app.log");
 	 *
 	 * // Ajout à plusieurs loggers (module A et module B)
 	 * loggerA.AddSink(sharedFileSink);
@@ -625,7 +625,7 @@ namespace nkentseu {
 	};
 
 	// Usage :
-	// auto sink = nkentseu::memory::MakeShared<ConsoleSink>();
+	// auto sink = nkentseu::memory::NkMakeShared<ConsoleSink>();
 	// sink->SetPattern("[%^%L%$] %v");  // Pattern avec couleurs
 	// logger.AddSink(sink);
 */
@@ -746,7 +746,7 @@ namespace nkentseu {
 
 	// Usage dans un test unitaire :
 	// TEST(LoggerTest, InfoLevelLogs) {
-	//     auto sink = nkentseu::memory::MakeShared<MemorySink>();
+	//     auto sink = nkentseu::memory::NkMakeShared<MemorySink>();
 	//     logger.AddSink(sink);
 	//
 	//     Logger::Log(nkentseu::NkLogLevel::NK_INFO, "Test message");
@@ -772,7 +772,7 @@ namespace nkentseu {
 		NkString type = core::Config::GetString(configSection + ".type", "console");
 
 		if (type == "console") {
-			auto sink = memory::MakeShared<ConsoleSink>();
+			auto sink = memory::NkMakeShared<ConsoleSink>();
 			sink->SetLevel(NkLogLevelFromString(
 				core::Config::GetString(configSection + ".level", "info")));
 			sink->SetPattern(core::Config::GetString(
@@ -782,7 +782,7 @@ namespace nkentseu {
 		} else if (type == "file") {
 			NkString filepath = core::Config::GetString(
 				configSection + ".filepath", "app.log");
-			auto sink = memory::MakeShared<FileSink>(filepath);
+			auto sink = memory::NkMakeShared<FileSink>(filepath);
 			sink->SetLevel(NkLogLevelFromString(
 				core::Config::GetString(configSection + ".level", "trace")));
 			sink->SetPattern(core::Config::GetString(
@@ -791,11 +791,11 @@ namespace nkentseu {
 
 		} else if (type == "null") {
 			// Sink nul pour désactiver le logging sans retirer le sink
-			return memory::MakeShared<NullSink>();
+			return memory::NkMakeShared<NullSink>();
 		}
 
 		// Fallback : sink console par défaut
-		return memory::MakeShared<ConsoleSink>();
+		return memory::NkMakeShared<ConsoleSink>();
 	}
 
 	// Usage au startup de l'application :
@@ -906,8 +906,8 @@ namespace nkentseu {
 	};
 
 	// Usage :
-	// auto baseSink = nkentseu::memory::MakeShared<ConsoleSink>();
-	// auto prefixed = nkentseu::memory::MakeShared<PrefixedSink>(baseSink, "[MYAPP] ");
+	// auto baseSink = nkentseu::memory::NkMakeShared<ConsoleSink>();
+	// auto prefixed = nkentseu::memory::NkMakeShared<PrefixedSink>(baseSink, "[MYAPP] ");
 	// logger.AddSink(prefixed);
 */
 

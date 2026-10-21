@@ -176,8 +176,8 @@ namespace nkentseu {
 						mutable NkMutex mMutex;			   ///< Mutex pour protéger l'accès concurrent
 						mutable NkConditionVariable mCond; ///< Condition pour l'attente efficace
 						T mValue;						   ///< Valeur stockée (si T != void)
-						NkExceptionHandle mException;	   ///< Handle d'exception (nullptr si succès)
-						nk_bool mReady;					   ///< Flag de complétion : true si satisfait
+						NkExceptionHandle mException = nullptr; ///< Handle d'exception (nullptr si succès)
+						nk_bool mReady = false;				   ///< Flag de complétion : true si satisfait
 
 					private:
 						// Amis pour accès direct à l'état interne
@@ -340,8 +340,8 @@ namespace nkentseu {
 
 						mutable NkMutex mMutex;
 						mutable NkConditionVariable mCond;
-						NkExceptionHandle mException;
-						nk_bool mReady;
+						NkExceptionHandle mException = nullptr;
+						nk_bool mReady = false;
 
 					private:
 						friend class NkFuture<void>;
@@ -359,10 +359,44 @@ namespace nkentseu {
 				friend class NkPromise<void>;
 		};
 
+		// =====================================================================
+		// SPÉCIALISATION : NkPromise<void> (21/10/2026)
+		// =====================================================================
+		// Le modèle général déclarait SetValue(const T &) : avec T = void, ce
+		// « const void & » ne compile pas, donc NkPromise<void> n'existait pas,
+		// alors que l'exemple 2 plus bas (et NkFuture<void>) l'utilisent :
+		// « promise.SetValue(); ». Même contrat que NkPromise<T>, sans valeur.
+		// =====================================================================
+		template <> class NKENTSEU_THREADING_CLASS_EXPORT NkPromise<void> {
+			public:
+				/// @brief Constructeur : crée l'état partagé associé.
+				NkPromise() noexcept;
+
+				NkPromise(const NkPromise &) = delete;
+				NkPromise &operator=(const NkPromise &) = delete;
+				NkPromise(NkPromise &&) noexcept = default;
+				NkPromise &operator=(NkPromise &&) noexcept = default;
+				~NkPromise() = default;
+
+				/// @brief Récupère le futur associé (même état partagé).
+				[[nodiscard]] NkFuture<void> GetFuture() const noexcept;
+
+				/// @brief Signale la fin de l'opération ; ignoré si déjà satisfaite.
+				void SetValue() noexcept;
+
+				/// @brief Signale une erreur (handle opaque) ; ignoré si déjà satisfaite.
+				void SetException(NkExceptionHandle ex) noexcept;
+
+			private:
+				memory::NkSharedPtr<NkFuture<void>::State> mState;
+		};
+
 	} // namespace threading
 } // namespace nkentseu
 
-#endif
+// (21/10/2026) Le « #endif » de la garde d'inclusion était ici, AVANT les
+// implémentations : sans « #pragma once », une seconde inclusion les aurait
+// redéfinies. Il ferme maintenant le fichier.
 
 // =============================================================================
 // IMPLÉMENTATIONS TEMPLATE (dans le header car templates)
@@ -404,7 +438,7 @@ namespace nkentseu {
 			if (!mState) {
 				return false;
 			}
-			NkScopedLock lock(mState->mMutex);
+			NkScopedLockMutex lock(mState->mMutex);
 			return mState->mReady;
 		}
 
@@ -418,7 +452,7 @@ namespace nkentseu {
 			if (!mState) {
 				return;
 			}
-			NkScopedLock lock(mState->mMutex);
+			NkScopedLockMutex lock(mState->mMutex);
 			mState->mCond.WaitUntil(lock, [this]() { return mState->mReady; });
 		}
 
@@ -433,7 +467,7 @@ namespace nkentseu {
 				return false;
 			}
 			const nk_uint64 deadline = NkConditionVariable::GetMonotonicTimeMs() + static_cast<nk_uint64>(milliseconds);
-			NkScopedLock lock(mState->mMutex);
+			NkScopedLockMutex lock(mState->mMutex);
 			return mState->mCond.WaitUntil(lock, deadline, [this]() { return mState->mReady; });
 		}
 
@@ -445,9 +479,13 @@ namespace nkentseu {
 		// Constructeur : création de l'état partagé
 		// ---------------------------------------------------------------------
 		template <typename T>
-		inline NkPromise<T>::NkPromise() noexcept : mState(memory::MakeSharedPtr<typename NkFuture<T>::State>()) {
-			// Initialisation des membres de State via constructeur par défaut :
-			// mReady = false, mException = nullptr, mValue default-construct
+		inline NkPromise<T>::NkPromise() noexcept : mState(memory::NkMakeShared<typename NkFuture<T>::State>()) {
+			// (21/10/2026) L'ancien appel (dans memory::, « MakeShared » suivi de
+			// « Ptr ») n'existe pas : seul memory::NkMakeShared existe
+			// (NKMemory/NkSharedPtr.h).
+			// Initialisation des membres de State : mReady = false et
+			// mException = nullptr (initialiseurs de membres), mValue construit
+			// par défaut.
 		}
 
 		// ---------------------------------------------------------------------
@@ -472,7 +510,7 @@ namespace nkentseu {
 			if (!mState) {
 				return;
 			}
-			NkScopedLock lock(mState->mMutex);
+			NkScopedLockMutex lock(mState->mMutex);
 			if (mState->mReady) {
 				return; // Déjà satisfait : ignorer pour éviter UB
 			}
@@ -491,7 +529,7 @@ namespace nkentseu {
 			if (!mState) {
 				return;
 			}
-			NkScopedLock lock(mState->mMutex);
+			NkScopedLockMutex lock(mState->mMutex);
 			if (mState->mReady) {
 				return;
 			}
@@ -510,7 +548,7 @@ namespace nkentseu {
 			if (!mState) {
 				return;
 			}
-			NkScopedLock lock(mState->mMutex);
+			NkScopedLockMutex lock(mState->mMutex);
 			if (mState->mReady) {
 				return;
 			}
@@ -530,7 +568,7 @@ namespace nkentseu {
 			if (!mState) {
 				return false;
 			}
-			NkScopedLock lock(mState->mMutex);
+			NkScopedLockMutex lock(mState->mMutex);
 			return mState->mReady;
 		}
 
@@ -541,7 +579,7 @@ namespace nkentseu {
 			if (!mState) {
 				return;
 			}
-			NkScopedLock lock(mState->mMutex);
+			NkScopedLockMutex lock(mState->mMutex);
 			mState->mCond.WaitUntil(lock, [this]() { return mState->mReady; });
 		}
 
@@ -553,8 +591,46 @@ namespace nkentseu {
 				return false;
 			}
 			const nk_uint64 deadline = NkConditionVariable::GetMonotonicTimeMs() + static_cast<nk_uint64>(milliseconds);
-			NkScopedLock lock(mState->mMutex);
+			NkScopedLockMutex lock(mState->mMutex);
 			return mState->mCond.WaitUntil(lock, deadline, [this]() { return mState->mReady; });
+		}
+
+		// =====================================================================
+		// IMPLÉMENTATION : NkPromise<void> (spécialisation, 21/10/2026)
+		// =====================================================================
+
+		inline NkPromise<void>::NkPromise() noexcept : mState(memory::NkMakeShared<NkFuture<void>::State>()) {
+		}
+
+		inline NkFuture<void> NkPromise<void>::GetFuture() const noexcept {
+			NkFuture<void> future;
+			future.mState = mState;
+			return future;
+		}
+
+		inline void NkPromise<void>::SetValue() noexcept {
+			if (!mState) {
+				return;
+			}
+			NkScopedLockMutex lock(mState->mMutex);
+			if (mState->mReady) {
+				return;
+			}
+			mState->mReady = true;
+			mState->mCond.NotifyAll();
+		}
+
+		inline void NkPromise<void>::SetException(NkExceptionHandle ex) noexcept {
+			if (!mState) {
+				return;
+			}
+			NkScopedLockMutex lock(mState->mMutex);
+			if (mState->mReady) {
+				return;
+			}
+			mState->mException = ex;
+			mState->mReady = true;
+			mState->mCond.NotifyAll();
 		}
 
 	} // namespace threading
@@ -856,3 +932,5 @@ namespace nkentseu {
 // Copyright © 2024-2026 Rihen. All rights reserved.
 // Proprietary License - All Rights Reserved (see LICENSE)
 // ============================================================
+
+#endif // __NKENTSEU_THREADING_FUTURE_H__

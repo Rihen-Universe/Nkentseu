@@ -133,6 +133,11 @@ namespace nkentseu {
 		while (XPending(display) > 0) {
 			XEvent xev{};
 			XNextEvent(display, &xev);
+			// (21/10) LA METHODE DE SAISIE D'ABORD (NkXLibSaisie.h) : une touche morte (« ^ ») ou la
+			// touche Compose est gardee par elle et compose le caractere de la frappe suivante (« ê »).
+			// Ce qu'elle garde n'est ni une touche ni du texte pour l'application.
+			if (XFilterEvent(&xev, None))
+				continue;
 
 			// ------------------------------------------------------------
 			// XRandR : changement de configuration d'affichage (hot-plug,
@@ -187,16 +192,22 @@ namespace nkentseu {
 						}
 					}
 
-					// Texte UTF-8 (base ASCII single-byte here)
+					// (21/10) LE TEXTE DE LA FRAPPE, en UTF-8 par le contexte de saisie de la fenetre
+					// (NkXLibSaisie.h) : un NkTextInputEvent par point de code (« é », « ê » compose, « œ »,
+					// « € »). Avant : XLookupString, du Latin-1, et seul son PREMIER octet partait.
 					if (xev.type == KeyPress) {
-						char buf[32] = {};
-						KeySym dummy;
-						int n = XLookupString(&xev.xkey, buf, static_cast<int>(sizeof(buf)) - 1, &dummy, nullptr);
-						if (n > 0 && static_cast<unsigned char>(buf[0]) >= 0x20 &&
-							static_cast<unsigned char>(buf[0]) != 0x7F) {
-							NkTextInputEvent e(static_cast<uint32>(static_cast<unsigned char>(buf[0])));
-							Enqueue(e, winId);
-						}
+						struct Cible {
+								NkEventSystem *es;
+								NkWindowId id;
+						} cible{this, winId};
+						(void)xlibsaisie::NkXsTexte(
+							window ? window->mData.mXic : nullptr, &xev.xkey,
+							[](void *ctx, unsigned int cp) {
+								Cible &c = *static_cast<Cible *>(ctx);
+								NkTextInputEvent e(static_cast<uint32>(cp));
+								c.es->Enqueue(e, c.id);
+							},
+							&cible);
 					}
 					break;
 				}
@@ -305,11 +316,15 @@ namespace nkentseu {
 				// Focus
 				// ------------------------------------------------------------
 				case FocusIn: {
+					if (window && window->mData.mXic) // (21/10) la methode de saisie suit le focus
+						XSetICFocus(window->mData.mXic);
 					NkWindowFocusGainedEvent e;
 					Enqueue(e, winId);
 					break;
 				}
 				case FocusOut: {
+					if (window && window->mData.mXic)
+						XUnsetICFocus(window->mData.mXic);
 					NkWindowFocusLostEvent e;
 					Enqueue(e, winId);
 					break;
@@ -401,6 +416,20 @@ namespace nkentseu {
 					}
 					break;
 				}
+
+				// (21/10) LE PRESSE-PAPIERS : une autre application (ou XWayland, pour Wayland) demande le
+				// texte copie dans NKWindow (NkWindow::SetClipboardText nous a rendus proprietaires de
+				// CLIPBOARD). Voir NkXLibPressePapiers.h. SelectionClear : un autre a copie, on n'est plus
+				// proprietaire ; GetClipboardText le voit par XGetSelectionOwner, rien a faire ici.
+				case SelectionRequest: {
+					const NkString &t = NkXLibTextePossede();
+					(void)xlibpp::NkPpRepondre(xev.xselectionrequest.display, xev.xselectionrequest,
+											   NkXLibAtomesPp(xev.xselectionrequest.display), t.CStr(),
+											   static_cast<unsigned long>(t.Length()));
+					break;
+				}
+				case SelectionClear:
+					break;
 
 				case DestroyNotify: {
 					NkWindowDestroyEvent e;

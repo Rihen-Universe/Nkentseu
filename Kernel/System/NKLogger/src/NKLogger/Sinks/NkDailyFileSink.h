@@ -83,7 +83,7 @@ namespace nkentseu {
 	 * @example Usage basique
 	 * @code
 	 * // Rotation quotidienne à minuit, conservation de 7 jours
-	 * auto dailySink = nkentseu::memory::MakeShared<nkentseu::NkDailyFileSink>(
+	 * auto dailySink = nkentseu::memory::NkMakeShared<nkentseu::NkDailyFileSink>(
 	 *     "logs/app.log",   // Chemin de base
 	 *     0,                // Heure de rotation: 00:00 (minuit)
 	 *     0,                // Minute de rotation
@@ -494,7 +494,7 @@ namespace nkentseu {
 
 	void SetupDailyRotatingLogging() {
 		// Rotation quotidienne à minuit, conservation de 7 jours
-		auto dailySink = nkentseu::memory::MakeShared<nkentseu::NkDailyFileSink>(
+		auto dailySink = nkentseu::memory::NkMakeShared<nkentseu::NkDailyFileSink>(
 			"logs/app.log",              // Chemin de base
 			0,                           // Heure de rotation: 00:00 (minuit)
 			0,                           // Minute de rotation
@@ -560,7 +560,7 @@ namespace nkentseu {
 		if (rotationMinute < 0 || rotationMinute > 59) rotationMinute = 0;
 
 		// Création et configuration du sink
-		auto sink = memory::MakeShared<NkDailyFileSink>(filepath, rotationHour, rotationMinute, maxDays);
+		auto sink = memory::NkMakeShared<NkDailyFileSink>(filepath, rotationHour, rotationMinute, maxDays);
 		sink->SetPattern(pattern);
 		sink->SetLevel(level);
 
@@ -640,7 +640,7 @@ namespace nkentseu {
 		using namespace nkentseu;
 
 		// Rotation à 4h du matin pendant la fenêtre de maintenance
-		auto dailySink = memory::MakeShared<NkDailyFileSink>(
+		auto dailySink = memory::NkMakeShared<NkDailyFileSink>(
 			"logs/app.log",
 			4,   // Heure: 04:00
 			0,   // Minute: 00

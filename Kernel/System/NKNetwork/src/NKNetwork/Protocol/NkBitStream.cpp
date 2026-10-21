@@ -38,6 +38,29 @@ namespace nkentseu {
 
 	namespace net {
 
+		namespace {
+
+			// Nombre de marches de WriteF32Q / ReadF32Q, UN SEUL calcul pour les
+			// deux cotes (21/10/2026). Codes valides : 0 .. marches, soit
+			// marches + 1 valeurs ; le code k vaut min + k * (max - min) / marches.
+			// Inchange pour une plage normale : arrondi de (max - min) / prec. Deux
+			// cas autrefois faux sont bornes : moins d'une marche (plage plus
+			// petite qu'un demi-pas : 0 marche, puis division par zero a la
+			// lecture) donne 1 marche, le minimum et le maximum ; plus de 2^32
+			// marches (conversion float -> uint32 indefinie) est plafonne.
+			uint32 NkMarchesQuantification(float32 range, float32 prec) noexcept {
+				const float32 marches = (range / prec) + 0.5f;
+				if (!(marches >= 1.f)) {
+					return 1u;
+				}
+				if (marches >= 4294967040.f) { // plus grand float32 sous 2^32
+					return 4294967040u;
+				}
+				return static_cast<uint32>(marches);
+			}
+
+		} // namespace
+
 		// =====================================================================
 		// IMPLÉMENTATION : NkBitWriter — Constructeur
 		// =====================================================================
@@ -118,17 +141,28 @@ namespace nkentseu {
 				return;
 			}
 
-			const uint32 steps = static_cast<uint32>((range / prec) + 0.5f);
+			const uint32 steps = NkMarchesQuantification(range, prec);
 			const uint32 bits = BitsRequired(steps);
 
-			// Normalisation et quantification
+			// Normalisation et quantification : code 0 = minV, code steps = maxV.
 			const float32 norm = (v - minV) / range;
-			uint32 quant = static_cast<uint32>(norm * static_cast<float32>(steps) + 0.5f);
-
-			// Clamp final pour sécurité
-			if (quant >= steps) {
-				quant = steps - 1;
+			const float32 q = norm * static_cast<float32>(steps) + 0.5f;
+			uint32 quant = 0u; // aussi pour une valeur NaN (aucune comparaison vraie)
+			if (q >= static_cast<float32>(steps)) {
+				quant = steps;
+			} else if (q >= 0.f) {
+				quant = static_cast<uint32>(q);
 			}
+
+			// (21/10/2026, retour d'apprenants) Ancien clamp, faux : il bornait le
+			// code a steps - 1, la derniere marche n'etait jamais codee (500 m sur
+			// (-500, 500, 0,01) revenait 499,99 ; 360 sur (0, 360, 0,5) revenait
+			// 359,5). Le code steps tient pourtant dans BitsRequired(steps) bits :
+			// le format sur le fil ne change pas, ce code n'etait simplement jamais
+			// emis. Garde ici pour memoire :
+			//   if (quant >= steps) {
+			//       quant = steps - 1;
+			//   }
 
 			WriteBits(quant, bits);
 		}
@@ -392,14 +426,24 @@ namespace nkentseu {
 		float32 NkBitReader::ReadF32Q(float32 minV, float32 maxV, float32 prec) noexcept {
 			const float32 range = maxV - minV;
 			if (range <= 0.f || prec <= 0.f) {
-				return minV; // Paramètres invalides → retour valeur minimale
+				// Paramètres invalides : l'écriture a posé UN bit (WriteF32Q) ; la
+				// lecture le consomme aussi (21/10/2026), sinon tout ce qui suit
+				// était lu décalé d'un bit. Retour : la valeur minimale.
+				(void)ReadBits(1);
+				return minV;
 			}
 
-			const uint32 steps = static_cast<uint32>((range / prec) + 0.5f);
+			const uint32 steps = NkMarchesQuantification(range, prec);
 			const uint32 bits = BitsRequired(steps);
 			const uint32 quant = ReadBits(bits);
 
-			// Déquantification : interpolation linéaire
+			// Déquantification (21/10/2026) : les deux bouts sont rendus EXACTS.
+			// minV + (quant / steps) * range ne rendait pas toujours maxV au
+			// dernier code (minV + (maxV - minV) s'arrondit en float32), et un
+			// code corrompu au-delà de steps rendait une valeur hors plage.
+			if (quant >= steps) {
+				return maxV;
+			}
 			return minV + (static_cast<float32>(quant) / static_cast<float32>(steps)) * range;
 		}
 

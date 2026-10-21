@@ -82,19 +82,19 @@ logger.SetPattern("[%^%L%$] %v");  // %^ = début couleur, %$ = fin
 
 ```cpp
 // Console avec couleurs
-auto console = memory::MakeShared<NkConsoleSink>();
+auto console = memory::NkMakeShared<NkConsoleSink>();
 console->SetPattern("[%^%L%$] %v");
 
 // Fichier avec rotation par taille
-auto rotating = memory::MakeShared<NkRotatingFileSink>(
+auto rotating = memory::NkMakeShared<NkRotatingFileSink>(
     "logs/app.log", 50*1024*1024, 5);  // 50MB, 5 backups
 
 // Fichier avec rotation quotidienne
-auto daily = memory::MakeShared<NkDailyFileSink>(
+auto daily = memory::NkMakeShared<NkDailyFileSink>(
     "logs/archive.log", 0, 0, 30);  // Rotation à minuit, 30 jours
 
 // Distribution vers multiples destinations
-auto distributor = memory::MakeShared<NkDistributingSink>();
+auto distributor = memory::NkMakeShared<NkDistributingSink>();
 distributor->AddSink(console);
 distributor->AddSink(rotating);
 distributor->AddSink(daily);
@@ -106,7 +106,7 @@ logger.AddSink(distributor);
 
 ```cpp
 // Création avec file de 8192 messages et flush toutes les 1000ms
-auto asyncLogger = memory::MakeShared<NkAsyncLogger>(
+auto asyncLogger = memory::NkMakeShared<NkAsyncLogger>(
     "HighFreqApp", 8192, 1000);
 
 // Gestion de débordement : drop oldest pour privilégier les logs récents
@@ -276,7 +276,7 @@ VotreProjet/
 int main() {
     // 1. Ajouter un sink console au logger global
     nkentseu::NkLog::Instance().AddSink(
-        nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>());
+        nkentseu::memory::NkMakeShared<nkentseu::NkConsoleSink>());
   
     // 2. Logger avec la macro de convenance
     logger.Info("Application started");
@@ -298,17 +298,17 @@ int main() {
     using namespace nkentseu;
   
     // 1. Créer un logger asynchrone
-    auto logger = memory::MakeShared<NkAsyncLogger>(
+    auto logger = memory::NkMakeShared<NkAsyncLogger>(
         "MyApp",           // Nom
         16384,             // Taille de file
         2000               // Flush toutes les 2s
     );
   
     // 2. Configurer les sinks
-    auto console = memory::MakeShared<NkConsoleSink>();
+    auto console = memory::NkMakeShared<NkConsoleSink>();
     console->SetPattern("[%^%L%$] %v");  // Couleurs activées
   
-    auto file = memory::MakeShared<NkRotatingFileSink>(
+    auto file = memory::NkMakeShared<NkRotatingFileSink>(
         "logs/app.log",    // Chemin de base
         100*1024*1024,     // 100MB max par fichier
         5                  // Conserver 5 backups
@@ -464,7 +464,7 @@ private:
 };
 
 // Usage
-auto filtered = nkentseu::memory::MakeShared<FilteredSink>("nkentseu.network");
+auto filtered = nkentseu::memory::NkMakeShared<FilteredSink>("nkentseu.network");
 logger.AddSink(filtered);  // Ne loggue que les loggers commençant par "nkentseu.network"
 ```
 
@@ -539,8 +539,8 @@ private:
 };
 
 // Usage : envelopper un sink existant avec sécurisation
-auto fileSink = nkentseu::memory::MakeShared<nkentseu::NkFileSink>("secure.log");
-auto secureSink = nkentseu::memory::MakeShared<SecureSink>(fileSink);
+auto fileSink = nkentseu::memory::NkMakeShared<nkentseu::NkFileSink>("secure.log");
+auto secureSink = nkentseu::memory::NkMakeShared<SecureSink>(fileSink);
 logger.AddSink(secureSink);
 ```
 
@@ -612,7 +612,7 @@ private:
 
 ```cpp
 // Configuration programmatique complète
-auto logger = nkentseu::memory::MakeShared<nkentseu::NkAsyncLogger>(
+auto logger = nkentseu::memory::NkMakeShared<nkentseu::NkAsyncLogger>(
     "ProductionApp", 32768, 5000);
 
 // Niveaux et formatage
@@ -620,8 +620,8 @@ logger->SetLevel(nkentseu::NkLogLevel::NK_INFO);
 logger->SetPattern("[%Y-%m-%d %H:%M:%S.%e] [%^%L%$] [%n] %v");
 
 // Sinks multiples
-logger->AddSink(nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>());
-logger->AddSink(nkentseu::memory::MakeShared<nkentseu::NkRotatingFileSink>(
+logger->AddSink(nkentseu::memory::NkMakeShared<nkentseu::NkConsoleSink>());
+logger->AddSink(nkentseu::memory::NkMakeShared<nkentseu::NkRotatingFileSink>(
     "logs/app.log", 100*1024*1024, 10));
 
 // Démarrage
@@ -893,8 +893,8 @@ TEST(NkAsyncLoggerTest, BasicAsyncProcessing) {
     using namespace nkentseu;
   
     // Setup
-    auto logger = memory::MakeShared<NkAsyncLogger>("Test", 1024, 100);
-    auto memorySink = memory::MakeShared<NkMemorySink>();
+    auto logger = memory::NkMakeShared<NkAsyncLogger>("Test", 1024, 100);
+    auto memorySink = memory::NkMakeShared<NkMemorySink>();
     logger->AddSink(memorySink);
     logger->Start();
   
@@ -916,10 +916,10 @@ TEST(NkAsyncLoggerTest, BasicAsyncProcessing) {
 TEST(NkAsyncLoggerTest, OverflowPolicyDropOldest) {
     using namespace nkentseu;
   
-    auto logger = memory::MakeShared<NkAsyncLogger>("Test", 5, 0);  // File de 5
+    auto logger = memory::NkMakeShared<NkAsyncLogger>("Test", 5, 0);  // File de 5
     logger->SetOverflowPolicy(NkAsyncOverflowPolicy::NK_DROP_OLDEST);
   
-    auto memorySink = memory::MakeShared<NkMemorySink>();
+    auto memorySink = memory::NkMakeShared<NkMemorySink>();
     logger->AddSink(memorySink);
     logger->Start();
   
@@ -951,7 +951,7 @@ TEST(NkAsyncLoggerTest, OverflowPolicyDropOldest) {
 
 static void BM_SyncLogger(benchmark::State& state) {
     nkentseu::NkLogger logger("Benchmark");
-    logger.AddSink(nkentseu::memory::MakeShared<nkentseu::NkNullSink>());
+    logger.AddSink(nkentseu::memory::NkMakeShared<nkentseu::NkNullSink>());
   
     for (auto _ : state) {
         logger.Info("Benchmark message {0}", state.range(0));
@@ -960,9 +960,9 @@ static void BM_SyncLogger(benchmark::State& state) {
 BENCHMARK(BM_SyncLogger)->Arg(42);
 
 static void BM_AsyncLoggerEnqueue(benchmark::State& state) {
-    auto logger = nkentseu::memory::MakeShared<nkentseu::NkAsyncLogger>(
+    auto logger = nkentseu::memory::NkMakeShared<nkentseu::NkAsyncLogger>(
         "Benchmark", 8192, 0);
-    logger->AddSink(nkentseu::memory::MakeShared<nkentseu::NkNullSink>());
+    logger->AddSink(nkentseu::memory::NkMakeShared<nkentseu::NkNullSink>());
     logger->Start();
   
     for (auto _ : state) {

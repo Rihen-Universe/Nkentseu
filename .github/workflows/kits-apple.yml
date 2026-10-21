@@ -1,0 +1,127 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# =============================================================================
+# kits-apple.yml : LES KITS DES BIBLIOTHEQUES PUBLIQUES POUR macOS ET iOS (21/10/2026, BROUILLON)
+#
+# Rodolf, 21/10 : « generer le kit en fonction de plusieurs compilateurs [...], des plateformes et des
+# architectures [...] comme ca l'utilisateur telecharge le bon » ; « n'oublie pas Windows, Linux, macOS, iOS,
+# le Web, Android » ; « les kits que je veux, c'est NKCanvas, NKMedia, NKAudio, NKRenderer, NKECS, etc. :
+# donc uniquement le kit des elements publics ». macOS et iOS ne se construisent pas sans un Mac : ce flux le
+# fait sur les machines macOS de GitHub. Windows, Linux (WSL), Android et le Web se font sur le PC de Rihen.
+#
+# NE SE DECLENCHE QU'A LA MAIN (workflow_dispatch) : aucune poussee ne le lance. La CI construit ce qui est
+# sur GitHub : il faut d'abord integrer et pousser les corrections du 21/10 (NkFormat, WriteF32Q,
+# NkFuture.h, NkSharedPtr, SendSome...). C'est Rodolf qui lance.
+#
+#   gh workflow run kits-apple.yml -f bibliotheques="NKCanvas NKAudio" -f plateformes=macos
+#
+# Ce qu'il fait, par plateforme : construit chaque bibliotheque demandee en Debug et en Release, en extrait
+# le kit (scripts/MakeKit.py), l'EPROUVE comme un apprenant (macOS : un workspace qui charge le kit,
+# Debug et Release, le programme lance), et le depose en artefact.
+#
+# CE QUI MANQUE POUR iOS (ecrit le 21/10, rien n'a encore tourne) :
+#   1. scripts/MakeKit.py nomme et extrait le kit du SYSTEME HOTE (platform.system()) : il ne transmet pas
+#      --platform a `jenga kit`. Sur le Mac de la CI il ferait un kit macOS meme apres une construction iOS.
+#      Il faut une option --plateforme (iOS) passee a `jenga kit --platform iOS`.
+#   2. L'epreuve : un programme iOS ne se lance pas sur la machine de la CI ; il faudrait le simulateur
+#      (xcrun simctl) et une construction pour lui (arm64-simulator), que Jenga n'a jamais faite ici.
+#   3. Statique seulement : une bibliotheque dynamique iOS est un framework SIGNE (equipe Apple, profil).
+#   4. Dorsal : sur iOS, Metal (ou Vulkan par MoltenVK) ; aucun des deux n'a ete construit pour iOS.
+# Le job iOS est donc la, mais marque « a eprouver » : il construit et extrait, il n'eprouve pas.
+# =============================================================================
+name: kits-apple
+
+on:
+  workflow_dispatch:
+    inputs:
+      bibliotheques:
+        description: "Bibliotheques publiques (separees par des espaces)"
+        required: true
+        default: "NKPlatform NKCore NKMemory NKContainers NKMath NKThreading NKLogger NKTime NKFileSystem NKStream NKReflection NKSerialization NKNetwork NKConverse NKImage NKFont NKAudio NKMedia NKEvent NKWindow NKSL NKRHI NKCanvas NKRenderer NKVFX NKECS NKUI NKGui NKCamera NKCollision NKPhysics NKAnima NKNavigation NKXR NKImGuiIntegration NKUIIntegration NKGuiIntegration"
+      plateformes:
+        description: "macos, ios, ou les deux"
+        required: true
+        type: choice
+        options: [macos, ios, macos-et-ios]
+        default: macos
+
+jobs:
+  kits:
+    strategy:
+      fail-fast: false
+      matrix:
+        plateforme: ${{ fromJSON(inputs.plateformes == 'macos-et-ios' && '["macos","ios"]' || format('["{0}"]', inputs.plateformes)) }}
+    runs-on: macos-latest
+    timeout-minutes: 300
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: ${{ steps.jenga-version.outputs.ref }}
+          path: jenga-src
+
+      - name: En-tetes Vulkan (Homebrew), comme un SDK installe
+        run: |
+          brew install vulkan-headers
+          echo "VULKAN_SDK=$(brew --prefix vulkan-headers)" >> "$GITHUB_ENV"
+
+      - name: Construire et extraire chaque kit (${{ matrix.plateforme }})
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          set -u
+          PF=""
+          [ "${{ matrix.plateforme }}" = ios ] && PF="--platform iOS"
+          mkdir -p kits journaux
+          echo "| bibliotheque | Debug | Release | kit |" > journaux/resume.md
+          for B in ${{ inputs.bibliotheques }}; do
+            d=ok; r=ok; k=ok
+            python3 -m Jenga build --target "$B" --config Debug $PF --no-daemon > "journaux/$B-Debug.log" 2>&1 || d=ECHEC
+            python3 -m Jenga build --target "$B" --config Release $PF --no-daemon > "journaux/$B-Release.log" 2>&1 || r=ECHEC
+            # iOS : voir l'en-tete, point 1 (MakeKit extrait le systeme hote)
+            python3 scripts/MakeKit.py --name "$B" --target "$B" --sortie kits > "journaux/$B-kit.log" 2>&1 || k=ECHEC
+            echo "| $B | $d | $r | $k |" >> journaux/resume.md
+          done
+          cat journaux/resume.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Eprouver chaque kit comme un apprenant (macOS seulement)
+        if: matrix.plateforme == 'macos'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: |
+          set -u
+          for Z in kits/Kits/*; do
+            B=$(basename "$Z"); W="essai_$B"; mkdir -p "$W"
+            printf '%s\n' "#include <cstdio>" "int main() { std::printf(\"kit $B : lie et lance\\n\"); return 0; }" > "$W/main.cpp"
+            printf '%s\n' 'from Jenga import *' "useconfig(\"$PWD/$Z/$B.jenga\")" '' 'with workspace("Essai"):' \
+              '    RegisterJengaGlobalToolchains()' '    configurations(["Debug", "Release"])' \
+              '    with project("App"):' '        consoleapp()' '        language("C++")' '        cppdialect("C++17")' \
+              '        files(["main.cpp"])' "        use$(echo "$B" | tr '[:upper:]' '[:lower:]')()" > "$W/Essai.jenga"
+            for C in Debug Release; do
+              (cd "$W" && python3 -m Jenga build --config $C --no-daemon > "build_$C.log" 2>&1 && find Build/Bin -name App -type f -exec {} \;) \
+                || echo "::warning::kit $B $C : l'essai a echoue (journal dans l'artefact)"
+            done
+          done
+
+      - name: Artefact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kits-${{ matrix.plateforme }}
+          path: |
+            kits/*.zip
+            journaux/

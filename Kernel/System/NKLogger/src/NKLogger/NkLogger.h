@@ -104,7 +104,7 @@
 		 * @example Usage basique
 		 * @code
 		 * nkentseu::NkLogger appLogger("MyApp");
-		 * appLogger.AddSink(nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>());
+		 * appLogger.AddSink(nkentseu::memory::NkMakeShared<nkentseu::NkConsoleSink>());
 		 * appLogger.SetLevel(nkentseu::NkLogLevel::NK_INFO);
 		 *
 		 * appLogger.Info("Application started");
@@ -178,12 +178,12 @@
 			 * @example
 			 * @code
 			 * // Ajout d'un sink console pour développement
-			 * auto consoleSink = nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>();
+			 * auto consoleSink = nkentseu::memory::NkMakeShared<nkentseu::NkConsoleSink>();
 			 * consoleSink->SetLevel(nkentseu::NkLogLevel::NK_DEBUG);
 			 * logger.AddSink(consoleSink);
 			 *
 			 * // Ajout d'un sink fichier pour production
-			 * auto fileSink = nkentseu::memory::MakeShared<nkentseu::NkFileSink>("app.log");
+			 * auto fileSink = nkentseu::memory::NkMakeShared<nkentseu::NkFileSink>("app.log");
 			 * fileSink->SetLevel(nkentseu::NkLogLevel::NK_INFO);
 			 * logger.AddSink(fileSink);
 			 * @endcode
@@ -1387,13 +1387,13 @@
 		nkentseu::NkLogger appLogger("MyApp.Main");
 
 		// Ajout d'un sink console pour développement (debug et plus)
-		auto consoleSink = nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>();
+		auto consoleSink = nkentseu::memory::NkMakeShared<nkentseu::NkConsoleSink>();
 		consoleSink->SetLevel(nkentseu::NkLogLevel::NK_DEBUG);
 		consoleSink->SetPattern("[%^%L%$] %v");  // Avec couleurs
 		appLogger.AddSink(consoleSink);
 
 		// Ajout d'un sink fichier pour production (info et plus)
-		auto fileSink = nkentseu::memory::MakeShared<nkentseu::NkFileSink>("app.log");
+		auto fileSink = nkentseu::memory::NkMakeShared<nkentseu::NkFileSink>("app.log");
 		fileSink->SetLevel(nkentseu::NkLogLevel::NK_INFO);
 		fileSink->SetPattern("[%Y-%m-%d %H:%M:%S.%e] [%L] [%n] %v");
 		appLogger.AddSink(fileSink);
@@ -1572,7 +1572,7 @@
 
 			if (!initialized) {
 				// Configuration initiale du logger global
-				auto consoleSink = memory::MakeShared<NkConsoleSink>();
+				auto consoleSink = memory::NkMakeShared<NkConsoleSink>();
 				consoleSink->SetLevel(NkLogLevel::NK_INFO);
 				instance.AddSink(consoleSink);
 

@@ -2,6 +2,7 @@
 // NkGuiFont.cpp — chargement police + atlas (Phase 3).
 // =============================================================================
 #include "NKGui/Core/NkGuiFont.h"
+#include "NKPlatform/NkEnv.h" // (21/10) env::GetEnvVar : la contre-epreuve des cadres
 #include <cstdio>
 #include <cstring>
 
@@ -103,6 +104,30 @@ namespace nkentseu {
 		static void NkMergeFallback(NkFontAtlas &atlas, float32 sizePx, bool ext) noexcept {
 			if (!ext)
 				return;
+			// (21/10) LES CADRES ET LES BLOCS (U+2500-U+259F) : « ╔═╗ », « █ ». Rodolf : « l'affichage dans
+			// l'assistant n'est pas correct » -- la banniere de `jenga build --verbose`, collee dans
+			// l'Assistant IA de NKCode, s'y dessinait en « ? » : ni la police d'interface (Karla, Inter)
+			// ni le repli « broad » (Noto Sans) n'ont ces glyphes, et le glyphe de repli de NKFont est
+			// « ? ». La police monospace embarquee (DejaVu Sans Mono, celle du code et du terminal) les a
+			// tous : elle les PRETE, en fusion, AVANT les replis externes (le premier glyphe gagne, et
+			// l'atlas a un plafond de glyphes que les ideogrammes atteignent). Ses traits occupent toute
+			// la hauteur de la ligne : les cadres se joignent. Contre-epreuve du banc de NKCode
+			// (tools/banc_cadres.sh) : NK_POLICE_MUTATION=sans-cadres, l'etat d'avant.
+			{
+				const char *mut = env::GetEnvVar("NK_POLICE_MUTATION");
+				const char *nom = "sans-cadres";
+				bool sans = mut != nullptr;
+				for (usize k = 0; sans && (mut[k] || nom[k]); ++k)
+					sans = mut[k] == nom[k];
+				if (!sans) {
+					static const uint32 kCadres[] = {0x2500, 0x259F, 0};
+					NkFontConfig cadres;
+					cadres.glyphRanges = kCadres;
+					cadres.mergeMode = true;
+					(void)NkFontEmbedded::AddToAtlas(atlas, NkEmbeddedFontId::DejaVuSansMono, sizePx > 0.f ? sizePx : 16.f,
+													 &cadres);
+				}
+			}
 			auto add = [&](const char *path, const uint32 *ranges) {
 				const bool present = path && path[0] && NkFileExists(path);
 				if (!present) {

@@ -63,6 +63,70 @@ namespace nkentseu {
 		return win ? *win : nullptr;
 	}
 
+	// ── (21/10) LA METHODE DE SAISIE (accents, touches mortes) : une par connexion, voir NkXLibSaisie.h ──
+	XIM NkXLibIm(::Display *d) {
+		static XIM sIm = nullptr;
+		static ::Display *sPour = nullptr;
+		if (d && sPour != d) {
+			sIm = xlibsaisie::NkXsOuvrir(d);
+			sPour = d;
+		}
+		return sIm;
+	}
+
+	// ── (21/10) LE PRESSE-PAPIERS SYSTEME (CLIPBOARD) : voir NkXLibPressePapiers.h ───────────────
+	NkString &NkXLibTextePossede() {
+		static NkString sTexte;
+		return sTexte;
+	}
+
+	const xlibpp::NkPpAtomes &NkXLibAtomesPp(::Display *d) {
+		static xlibpp::NkPpAtomes sAtomes;
+		static ::Display *sPour = nullptr;
+		if (d && sPour != d) {
+			xlibpp::NkPpInit(d, sAtomes);
+			sPour = d;
+		}
+		return sAtomes;
+	}
+
+	// Copier : NKWindow garde le texte et devient PROPRIETAIRE de CLIPBOARD ; les autres
+	// applications le demandent ensuite par SelectionRequest (NkXLibEventSystem.cpp). Avant :
+	// une chaine interne au processus (Core/NkWindowClipboard.cpp), que personne d'autre ne voyait.
+	void NkWindow::SetClipboardText(const NkString &text) {
+		NkXLibTextePossede() = text;
+		::Display *d = mData.mDisplay;
+		if (d && mData.mXid)
+			(void)xlibpp::NkPpPrendre(d, mData.mXid, NkXLibAtomesPp(d));
+	}
+
+	// Coller : si une fenetre de CE processus possede CLIPBOARD, son texte ; sinon on le demande au
+	// proprietaire (500 ms au plus). Personne, un refus, un silence : vide, comme un presse-papiers vide.
+	NkString NkWindow::GetClipboardText() const {
+		::Display *d = mData.mDisplay;
+		if (!d || !mData.mXid)
+			return NkXLibTextePossede();
+		const xlibpp::NkPpAtomes &a = NkXLibAtomesPp(d);
+		const ::Window proprio = XGetSelectionOwner(d, a.clipboard);
+		if (proprio != None && NkXLibFindWindow(proprio))
+			return NkXLibTextePossede();
+		NkString lu;
+		const bool ok = xlibpp::NkPpLire(
+			d, mData.mXid, a, 500,
+			[](void *ctx, const unsigned char *octets, unsigned long n) {
+				static_cast<NkString *>(ctx)->Append(reinterpret_cast<const char *>(octets), static_cast<NkString::SizeType>(n));
+			},
+			&lu);
+		return ok ? lu : NkString();
+	}
+
+	// L'image du presse-papiers : non lue sous X11 (deplace de Core/NkWindowClipboard.cpp, inchange).
+	bool NkWindow::GetClipboardImage(NkVector<uint8> &, int32 &w, int32 &h, NkString &motif) const {
+		w = h = 0;
+		motif = NkString("presse-papiers image non pris en charge sur cette plateforme (seul Win32 le lit)");
+		return false;
+	}
+
 	void NkXLibRegisterWindow(::Window xid, NkWindow *win) {
 		XLibWindowMap()[xid] = win;
 		sXLibLastWindow = win;
@@ -445,6 +509,9 @@ namespace nkentseu {
 		NkXLibRegisterWindow(mData.mXid, this);
 		mId = NkWESystem::Instance().RegisterWindow(this);
 
+		// (21/10) le contexte de saisie : accents, touches mortes, Compose (NkXLibSaisie.h)
+		mData.mXic = xlibsaisie::NkXsContexte(NkXLibIm(mData.mDisplay), mData.mXid);
+
 		// XDND drop target integration (events are forwarded to NkEventSystem queue).
 		mData.mDropTarget = memory::NkGetDefaultAllocator().New<NkXLibDropTarget>(mData.mDisplay, mData.mXid);
 		if (mData.mDropTarget) {
@@ -503,6 +570,10 @@ namespace nkentseu {
 		if (mData.mDropTarget) {
 			memory::NkGetDefaultAllocator().Delete(mData.mDropTarget);
 			mData.mDropTarget = nullptr;
+		}
+		if (mData.mXic) { // (21/10) le contexte de saisie, avant la fenetre qu'il sert
+			XDestroyIC(mData.mXic);
+			mData.mXic = nullptr;
 		}
 
 		if (mData.mXid && mData.mDisplay) {

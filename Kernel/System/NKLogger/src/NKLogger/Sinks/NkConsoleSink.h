@@ -119,7 +119,7 @@ namespace nkentseu {
 	 * @example Usage basique avec couleurs
 	 * @code
 	 * // Sink console avec couleurs activées (détection automatique)
-	 * auto consoleSink = nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>();
+	 * auto consoleSink = nkentseu::memory::NkMakeShared<nkentseu::NkConsoleSink>();
 	 * consoleSink->SetPattern("[%^%L%$] %v");  // Pattern avec marqueurs couleur
 	 *
 	 * // Ajout au logger global
@@ -134,7 +134,7 @@ namespace nkentseu {
 	 * @example Routage stderr pour erreurs
 	 * @code
 	 * // Séparer flux normaux et erreurs pour scripting/shell
-	 * auto consoleSink = nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>(
+	 * auto consoleSink = nkentseu::memory::NkMakeShared<nkentseu::NkConsoleSink>(
 	 *     nkentseu::NkConsoleStream::NK_STD_OUT,  // Flux principal : stdout
 	 *     true                                     // Couleurs activées
 	 * );
@@ -169,7 +169,7 @@ namespace nkentseu {
 			 * @example
 			 * @code
 			 * // Construction par défaut pour usage standard
-			 * auto consoleSink = nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>();
+			 * auto consoleSink = nkentseu::memory::NkMakeShared<nkentseu::NkConsoleSink>();
 			 * logger.AddSink(consoleSink);
 			 * @endcode
 			 */
@@ -189,7 +189,7 @@ namespace nkentseu {
 			 * @example
 			 * @code
 			 * // Sink vers stderr sans couleurs (pour logs parsables)
-			 * auto errorSink = nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>(
+			 * auto errorSink = nkentseu::memory::NkMakeShared<nkentseu::NkConsoleSink>(
 			 *     nkentseu::NkConsoleStream::NK_STD_ERR,
 			 *     false  // Pas de couleurs pour parsing facile
 			 * );
@@ -645,7 +645,7 @@ namespace nkentseu {
 
 	void SetupConsoleLogging() {
 		// Sink console avec détection automatique des couleurs
-		auto consoleSink = nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>();
+		auto consoleSink = nkentseu::memory::NkMakeShared<nkentseu::NkConsoleSink>();
 
 		// Pattern avec marqueurs de couleur pour niveaux
 		consoleSink->SetPattern("[%^%L%$] %v");
@@ -670,7 +670,7 @@ namespace nkentseu {
 		using namespace nkentseu;
 
 		// Sink principal vers stdout avec couleurs
-		auto consoleSink = memory::MakeShared<NkConsoleSink>(
+		auto consoleSink = memory::NkMakeShared<NkConsoleSink>(
 			NkConsoleStream::NK_STD_OUT,  // Flux principal : stdout
 			true                           // Couleurs activées
 		);
@@ -699,7 +699,7 @@ namespace nkentseu {
 		using namespace nkentseu;
 
 		// Sink sans couleurs pour output machine-parsable
-		auto consoleSink = memory::MakeShared<NkConsoleSink>(
+		auto consoleSink = memory::NkMakeShared<NkConsoleSink>(
 			NkConsoleStream::NK_STD_OUT,
 			false  // Désactiver les couleurs pour parsing facile
 		);
@@ -732,7 +732,7 @@ namespace nkentseu {
 			: NkConsoleStream::NK_STD_OUT;
 
 		// Création avec configuration lue
-		auto consoleSink = memory::MakeShared<NkConsoleSink>(stream, enableColors);
+		auto consoleSink = memory::NkMakeShared<NkConsoleSink>(stream, enableColors);
 		consoleSink->SetUseStderrForErrors(stderrForErrors);
 		consoleSink->SetPattern(core::Config::GetString("logging.console.pattern", "[%^%L%$] %v"));
 

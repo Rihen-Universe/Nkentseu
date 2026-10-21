@@ -956,6 +956,28 @@ namespace nkentseu {
 			return NkNetResult::NK_NET_OK;
 		}
 
+		// (21/10/2026) Envoi partiel DIT : voir NkSocket.h. Le fil de l'hote de la session de NKCode
+		// garde une file par invite et ne bloque plus jamais sur un invite lent.
+		NkNetResult NkSocket::SendSome(const void *data, uint32 size, uint32 &outSent) noexcept {
+			outSent = 0;
+			if (!IsValid() || data == nullptr || size == 0) {
+				return NkNetResult::NK_NET_INVALID_ARG;
+			}
+
+			const int sentBytes = ::send(mHandle, reinterpret_cast<const char *>(data), static_cast<int>(size), 0);
+
+			if (sentBytes == NK_NET_SOCKET_ERROR_CODE) {
+				const int errorCode = NkGetLastSocketError();
+				if (mNonBlocking && NkIsWouldBlockError(errorCode)) {
+					return NkNetResult::NK_NET_BUFFER_FULL;
+				}
+				return NkNetResult::NK_NET_SOCKET_ERROR;
+			}
+
+			outSent = static_cast<uint32>(sentBytes);
+			return NkNetResult::NK_NET_OK;
+		}
+
 		NkNetResult NkSocket::Recv(void *buffer, uint32 bufferSize, uint32 &outSize) noexcept {
 			if (!IsValid() || buffer == nullptr) {
 				return NkNetResult::NK_NET_INVALID_ARG;

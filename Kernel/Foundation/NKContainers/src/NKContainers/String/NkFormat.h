@@ -589,12 +589,26 @@ namespace nkentseu {
 
 		// ── Moteur d'exécution pour accolades ───────────────────────────────
 
+		// Champs (21/10/2026, retour d'apprenants : NkAddress::ToString rendait
+		// « 172.172.172.172:172 ») :
+		//   « {} » ou « {:spec} » : index AUTOMATIQUE, l'argument suivant ;
+		//   « {N} » ou « {N:spec} » : index explicite, autant de fois qu'on veut ;
+		//   « {{ » et « }} » : accolades litterales, n'avancent pas l'index ;
+		//   melanger « {} » et « {N} » dans un meme format est INTERDIT (comme
+		//   std::format et Python) : le champ fautif est signale dans le texte.
+		// Avant : l'index etait lu en tete du champ et valait 0 s'il n'y en avait
+		// pas, donc chaque « {} » relisait l'argument 0. Releve du 21/10 : 172
+		// chaines du depot ont deux « {} » ou plus (toutes fausses), aucune ne
+		// melange les deux formes.
 		inline NkString NkRunBrace(NkStringView fmt, const NkVector<NkAnyArg> &args) {
 			NkString out;
 			out.Reserve(fmt.Size() * 2);
 
 			const char *s = fmt.Data();
 			const char *end = s + fmt.Size();
+			int prochainAuto = 0;		 // index du prochain « {} »
+			bool vuAuto = false;		 // un « {} » a deja ete lu
+			bool vuExplicite = false; // un « {N} » a deja ete lu
 
 			while (s < end) {
 				if (*s == '{') {
@@ -621,21 +635,57 @@ namespace nkentseu {
 
 					NkStringView inner(s + 1, static_cast<size_t>(close - s - 1));
 
-					// Index obligatoire
+					// Index : explicite (chiffres en tete) ou automatique (aucun chiffre).
+					// L'ancienne lecture (« Index obligatoire », 0 par defaut) faisait
+					// relire l'argument 0 a chaque « {} » ; voir l'en-tete de la fonction.
 					int idx = 0;
 					const char *ip = inner.Data();
 					const char *ie = ip + inner.Size();
-					while (ip < ie && *ip >= '0' && *ip <= '9')
-						idx = idx * 10 + (*ip++ - '0');
+					const bool explicite = (ip < ie && *ip >= '0' && *ip <= '9');
+					while (ip < ie && *ip >= '0' && *ip <= '9') {
+						if (idx <= 100000)
+							idx = idx * 10 + (*ip - '0'); // borne : pas de debordement d'int
+						++ip;
+					}
 
-					// Spécification optionnelle après ':'
+					// Après l'index : rien, ou ':' suivi de la spécification.
+					if (ip < ie && *ip != ':') {
+						out.Append("{!format: champ '");
+						out.Append(inner);
+						out.Append("' invalide}");
+						s = close + 1;
+						continue;
+					}
 					NkStringView spec;
 					if (ip < ie && *ip == ':')
 						spec = NkStringView(ip + 1, static_cast<size_t>(ie - (ip + 1)));
 
+					if ((explicite && vuAuto) || (!explicite && vuExplicite)) {
+						out.Append("{!format: {} et {N} melanges}");
+						s = close + 1;
+						continue;
+					}
+					if (explicite) {
+						vuExplicite = true;
+					} else {
+						vuAuto = true;
+						idx = prochainAuto++;
+					}
+
 					if (idx < 0 || idx >= static_cast<int>(args.Size())) {
+						// Le numero de l'argument manquant (aussi pour « {} », dont le
+						// texte du champ est vide). Chiffres ecrits a la main : les
+						// specialisations NkFormatter sont declarees plus bas.
+						char chiffres[12];
+						int n = 0;
+						int reste = idx;
+						do {
+							chiffres[n++] = static_cast<char>('0' + reste % 10);
+							reste /= 10;
+						} while (reste > 0 && n < 11);
 						out.Append("{!format: argument ");
-						out.Append(NkStringView(s + 1, static_cast<size_t>(close - s - 1)));
+						while (n > 0)
+							out.Append(chiffres[--n]);
 						out.Append(" absent}");
 						s = close + 1;
 						continue;

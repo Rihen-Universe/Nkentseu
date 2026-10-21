@@ -15,7 +15,10 @@
 // qui n'ont pas l'implementation desktop de NkWin32Window.cpp -> symboles
 // manquants au link. Meme expression que NkWindowCursor.cpp : seul le desktop
 // Win32 a sa vraie implementation OS, tout le reste recoit ce fallback.
-#if !(defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX))
+// (21/10) le dorsal XLib (le defaut sous Linux) a maintenant le VRAI presse-papiers d'X11
+// (Platform/XLib/NkXLibWindow.cpp, NkXLibPressePapiers.h) : ce repli ne le concerne plus.
+#if !(defined(NKENTSEU_PLATFORM_WINDOWS) && !defined(NKENTSEU_PLATFORM_UWP) && !defined(NKENTSEU_PLATFORM_XBOX)) && \
+	!(defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_XLIB))
 
 namespace nkentseu {
 

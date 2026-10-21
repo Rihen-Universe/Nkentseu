@@ -641,7 +641,7 @@
 
 	TEST(LoggerTest, InfoLevelLogs) {
 		// Setup : sink mémoire pour capture des outputs
-		auto memorySink = nkentseu::memory::MakeShared<nkentseu::NkMemorySink>();
+		auto memorySink = nkentseu::memory::NkMakeShared<nkentseu::NkMemorySink>();
 		auto& globalLogger = nkentseu::NkLog::Instance();
 		globalLogger.AddSink(memorySink);
 		globalLogger.SetLevel(nkentseu::NkLogLevel::NK_INFO);

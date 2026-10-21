@@ -127,15 +127,15 @@ namespace nkentseu {
 	 * @example Usage basique
 	 * @code
 	 * // Création avec file de 8192 messages et flush toutes les 1000ms
-	 * auto asyncLogger = nkentseu::memory::MakeShared<nkentseu::NkAsyncLogger>(
+	 * auto asyncLogger = nkentseu::memory::NkMakeShared<nkentseu::NkAsyncLogger>(
 	 *     "AsyncApp",      // Nom du logger
 	 *     8192,            // Taille max de la file
 	 *     1000             // Intervalle de flush en ms
 	 * );
 	 *
 	 * // Ajout de sinks comme pour un logger normal
-	 * asyncLogger->AddSink(nkentseu::memory::MakeShared<nkentseu::NkConsoleSink>());
-	 * asyncLogger->AddSink(nkentseu::memory::MakeShared<nkentseu::NkFileSink>("app.log"));
+	 * asyncLogger->AddSink(nkentseu::memory::NkMakeShared<nkentseu::NkConsoleSink>());
+	 * asyncLogger->AddSink(nkentseu::memory::NkMakeShared<nkentseu::NkFileSink>("app.log"));
 	 *
 	 * // Démarrage du thread worker
 	 * asyncLogger->Start();
@@ -657,15 +657,15 @@ namespace nkentseu {
 		using namespace nkentseu;
 
 		// Logger asynchrone avec file de 4096 messages et flush toutes les 500ms
-		auto asyncLogger = memory::MakeShared<NkAsyncLogger>(
+		auto asyncLogger = memory::NkMakeShared<NkAsyncLogger>(
 			"InteractiveApp",  // Nom du logger
 			4096,              // Taille de file modérée
 			500                // Flush toutes les 500ms pour réactivité
 		);
 
 		// Ajout de sinks comme pour un logger normal
-		asyncLogger->AddSink(memory::MakeShared<NkConsoleSink>());
-		asyncLogger->AddSink(memory::MakeShared<NkFileSink>("logs/app.log"));
+		asyncLogger->AddSink(memory::NkMakeShared<NkConsoleSink>());
+		asyncLogger->AddSink(memory::NkMakeShared<NkFileSink>("logs/app.log"));
 
 		// Configuration optionnelle
 		asyncLogger->SetLevel(NkLogLevel::NK_DEBUG);
@@ -689,7 +689,7 @@ namespace nkentseu {
 		using namespace nkentseu;
 
 		// Logger asynchrone optimisé pour métriques : file grande, drop oldest
-		auto metricsLogger = memory::MakeShared<NkAsyncLogger>(
+		auto metricsLogger = memory::NkMakeShared<NkAsyncLogger>(
 			"MetricsCollector",
 			65536,  // File très grande pour absorber les pics de métriques
 			5000    // Flush toutes les 5s : compromis persistance/performance
@@ -699,7 +699,7 @@ namespace nkentseu {
 		metricsLogger->SetOverflowPolicy(NkAsyncOverflowPolicy::NK_DROP_OLDEST);
 
 		// Sink vers système de métriques externe (ex: Prometheus, StatsD)
-		metricsLogger->AddSink(memory::MakeShared<NkMetricsSink>("udp://metrics-server:8125"));
+		metricsLogger->AddSink(memory::NkMakeShared<NkMetricsSink>("udp://metrics-server:8125"));
 
 		metricsLogger->Start();
 
@@ -783,8 +783,8 @@ namespace nkentseu {
 		using namespace nkentseu;
 
 		// Setup : logger asynchrone avec sink mémoire pour capture
-		auto asyncLogger = memory::MakeShared<NkAsyncLogger>("TestLogger", 1024, 100);
-		auto memorySink = memory::MakeShared<NkMemorySink>();
+		auto asyncLogger = memory::NkMakeShared<NkAsyncLogger>("TestLogger", 1024, 100);
+		auto memorySink = memory::NkMakeShared<NkMemorySink>();
 		asyncLogger->AddSink(memorySink);
 		asyncLogger->Start();
 
@@ -826,7 +826,7 @@ namespace nkentseu {
 		else if (overflowStr == "block") overflowPolicy = NkAsyncOverflowPolicy::NK_BLOCK;
 
 		// Création du logger asynchrone
-		auto logger = memory::MakeShared<NkAsyncLogger>(name, queueSize, flushInterval);
+		auto logger = memory::NkMakeShared<NkAsyncLogger>(name, queueSize, flushInterval);
 		logger->SetOverflowPolicy(overflowPolicy);
 
 		// Ajout des sinks configurés (délégation à fonction helper)

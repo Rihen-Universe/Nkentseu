@@ -695,6 +695,20 @@ namespace nkentseu {
 				[[nodiscard]] NkNetResult Send(const void *data, uint32 size) noexcept;
 
 				/**
+				 * @brief Envoie ce que le système accepte MAINTENANT, et dit combien (21/10/2026).
+				 * @param data Pointeur vers les données à envoyer.
+				 * @param size Nombre d'octets à envoyer.
+				 * @param outSent [OUT] Nombre d'octets réellement pris par le système (0 à size).
+				 * @return NK_NET_OK si au moins un octet est parti (outSent peut être < size) ;
+				 *         NK_NET_BUFFER_FULL si rien ne part (socket non bloquant, tampon plein) ;
+				 *         une erreur sinon (outSent = 0).
+				 * @note Pourquoi : Send() rend NK_NET_OK même quand un socket non bloquant n'a pris
+				 *       qu'une partie des octets ; la fin était perdue sans que l'appelant le sache.
+				 *       Avec SendSome, l'appelant garde le reste et le renvoie plus tard (file d'envoi).
+				 */
+				[[nodiscard]] NkNetResult SendSome(const void *data, uint32 size, uint32 &outSent) noexcept;
+
+				/**
 				 * @brief Reçoit des données sur un socket TCP connecté.
 				 * @param buf Buffer de réception pour les données.
 				 * @param bufSize Taille maximale du buffer en octets.
