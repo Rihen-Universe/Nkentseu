@@ -1,3 +1,6 @@
+# (22/10/2026) DEPLACE ICI depuis .github/workflows/ (hors des flux actifs) : sa partie macOS est devenue le job
+# kits-macos de build-macos.yml (decision de Rodolf du 14/10 : les kits macOS dans CE flux). Garde pour sa partie
+# iOS (ce qui manque pour iOS, en tete) : un futur job kits-ios du meme flux partira d'ici.
 # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # =============================================================================
 # kits-apple.yml : LES KITS DES BIBLIOTHEQUES PUBLIQUES POUR macOS ET iOS (21/10/2026, BROUILLON)
