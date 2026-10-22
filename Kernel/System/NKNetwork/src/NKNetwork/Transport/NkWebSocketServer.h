@@ -92,6 +92,18 @@ namespace nkentseu {
 					return mRefusAuth;
 				}
 
+				// (22/10) ACCEPTER UN SOUS-PROTOCOLE (RFC 6455 §4.2.2) : quand le client en demande une liste
+				// (« Sec-WebSocket-Protocol: mcp »), le serveur doit en RENVOYER un, sinon le client refuse la
+				// connexion. Le CLI de Claude Code ouvre son pont IDE avec `protocols:["mcp"]` : sans cette reponse,
+				// « Failed to connect to NKCode » (retour de Rodolf, 22/10, claude 2.1.306). FACULTATIF : tant que
+				// personne ne l'appelle, la poignee de main reste celle d'avant. Un nom vide retire l'acceptation.
+				void AccepterSousProtocole(const char *nom) noexcept;
+
+				// Le sous-protocole retenu pour le client courant (vide : aucun).
+				const NkString &SousProtocole() const noexcept {
+					return mProtocoleRetenu;
+				}
+
 			private:
 				bool AcceptPending() noexcept;
 				bool TryHandshake() noexcept;	  // consomme mRxRaw jusqu'a la fin des en-tetes
@@ -112,6 +124,8 @@ namespace nkentseu {
 				NkString mEnTeteExige;			 // (22/10) vide : aucune exigence (le comportement d'avant)
 				NkString mValeurExigee;
 				uint32 mRefusAuth = 0;
+				NkString mProtocoleAccepte; // (22/10) vide : aucun sous-protocole renvoye (le comportement d'avant)
+				NkString mProtocoleRetenu;
 		};
 
 	} // namespace net

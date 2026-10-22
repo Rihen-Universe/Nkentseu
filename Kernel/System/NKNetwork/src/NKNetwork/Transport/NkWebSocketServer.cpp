@@ -32,6 +32,10 @@ namespace nkentseu {
 			Stop();
 		}
 
+		void NkWebSocketServer::AccepterSousProtocole(const char *nom) noexcept {
+			mProtocoleAccepte = (nom && *nom) ? NkString(nom) : NkString();
+		}
+
 		void NkWebSocketServer::ExigerEnTete(const char *nom, const NkString &valeur) noexcept {
 			mEnTeteExige = (nom && *nom) ? NkString(nom) : NkString();
 			mValeurExigee = mEnTeteExige.Empty() ? NkString() : valeur;
@@ -154,7 +158,31 @@ namespace nkentseu {
 							"Connection: Upgrade\r\n"
 							"Sec-WebSocket-Accept: ";
 			resp += accept;
-			resp += "\r\n\r\n";
+			resp += "\r\n";
+			// (22/10) le sous-protocole demande, s'il est accepte (AccepterSousProtocole) : on le RENVOIE.
+			mProtocoleRetenu.Clear();
+			if (!mProtocoleAccepte.Empty()) {
+				const NkString demandes = RequestHeader("Sec-WebSocket-Protocol");
+				// « mcp » ou « a, mcp, b » : une liste separee par des virgules (espaces autour toleres).
+				const char *p = demandes.CStr();
+				while (*p && mProtocoleRetenu.Empty()) {
+					while (*p == ' ' || *p == '\t' || *p == ',')
+						++p;
+					NkString jeton;
+					while (*p && *p != ',')
+						jeton += *p++;
+					while (!jeton.Empty() && (jeton.CStr()[jeton.Length() - 1] == ' ' || jeton.CStr()[jeton.Length() - 1] == '\t'))
+						jeton = jeton.SubStr(0, jeton.Length() - 1);
+					if (jeton == mProtocoleAccepte)
+						mProtocoleRetenu = jeton;
+				}
+				if (!mProtocoleRetenu.Empty()) {
+					resp += "Sec-WebSocket-Protocol: ";
+					resp += mProtocoleRetenu;
+					resp += "\r\n";
+				}
+			}
+			resp += "\r\n";
 			uint32 sent = 0;
 			(void)sent;
 			if (mClient.Send(resp.CStr(), static_cast<uint32>(resp.Length())) != NkNetResult::NK_NET_OK) {

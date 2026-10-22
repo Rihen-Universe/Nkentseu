@@ -15,6 +15,10 @@
 //   (w4) le jeton ABSENT : 401, HasClient() faux ;
 //   (w5) le NOM de l'en-tete sans tenir compte de la casse (comme HTTP) : « X-Claude-Code-Ide-Authorization »
 //        au bon jeton est accepte.
+//   (w6) (22/10) AccepterSousProtocole("mcp") : un client qui demande « mcp » (seul, ou dans une liste) le recoit
+//        dans « Sec-WebSocket-Protocol » -- le CLI de Claude Code (Bun, `protocols:["mcp"]`) refuse sinon ;
+//   (w7) sans AccepterSousProtocole : la reponse ne porte AUCUN sous-protocole (rien ne change pour les autres).
+// Contre-epreuve (w6) : sans la reponse du sous-protocole dans TryHandshake, (w6) ROUGIT.
 // Contre-epreuve (faite a la main le 22/10, voir Tests/agents_14-10/ETAT_nkcode-analyse.md) : sans le test de
 // l'en-tete dans TryHandshake, (w3) et (w4) ROUGISSENT ; (w1), (w2), (w5) restent verts.
 // =============================================================================
@@ -165,6 +169,40 @@ TEST_CASE(NKNetworkWebSocketEnTete, W5_NomSansCasse) {
 	const Reponse r = Ouvrir(srv, c, ligne.CStr());
 	ASSERT_TRUE_MSG(Accepte(r), r.texte.CStr());
 	ASSERT_TRUE(srv.HasClient());
+	c.Close();
+	srv.Stop();
+}
+
+TEST_CASE(NKNetworkWebSocketEnTete, W6_SousProtocoleMcpRenvoye) {
+	NkWebSocketServer srv;
+	ASSERT_TRUE(srv.Start(0));
+	srv.ExigerEnTete(kEnTete, NkString(kJeton));
+	srv.AccepterSousProtocole("mcp");
+	// comme le CLI : le jeton (casse du CLI) ET le sous-protocole demande
+	NkSocket c;
+	const NkString lignes = NkString("X-Claude-Code-Ide-Authorization: ") + kJeton + "\r\nSec-WebSocket-Protocol: mcp";
+	const Reponse r = Ouvrir(srv, c, lignes.CStr());
+	ASSERT_TRUE_MSG(Accepte(r), r.texte.CStr());
+	ASSERT_TRUE_MSG(Contient(r.texte, "Sec-WebSocket-Protocol: mcp\r\n"), r.texte.CStr());
+	ASSERT_TRUE(srv.SousProtocole() == NkString("mcp"));
+	c.Close();
+	// dans une liste
+	NkSocket c2;
+	const NkString liste = NkString("X-Claude-Code-Ide-Authorization: ") + kJeton + "\r\nSec-WebSocket-Protocol: chat, mcp";
+	const Reponse r2 = Ouvrir(srv, c2, liste.CStr());
+	ASSERT_TRUE_MSG(Contient(r2.texte, "Sec-WebSocket-Protocol: mcp\r\n"), r2.texte.CStr());
+	c2.Close();
+	srv.Stop();
+}
+
+TEST_CASE(NKNetworkWebSocketEnTete, W7_SansAcceptationAucunSousProtocole) {
+	NkWebSocketServer srv;
+	ASSERT_TRUE(srv.Start(0));
+	NkSocket c;
+	const Reponse r = Ouvrir(srv, c, "Sec-WebSocket-Protocol: mcp");
+	ASSERT_TRUE_MSG(Accepte(r), r.texte.CStr());
+	ASSERT_FALSE(Contient(r.texte, "Sec-WebSocket-Protocol"));
+	ASSERT_TRUE(srv.SousProtocole().Empty());
 	c.Close();
 	srv.Stop();
 }
