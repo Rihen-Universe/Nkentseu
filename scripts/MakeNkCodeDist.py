@@ -455,6 +455,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"; Flags: unchecked
 Name: "contextmenu"; Description: "Ajouter « Ouvrir avec NKCode » au menu contextuel des dossiers"; GroupDescription: "Integration a l'explorateur"
+Name: "contextfichiers"; Description: "Ajouter « Ouvrir avec NKCode » au menu contextuel des fichiers"; GroupDescription: "Integration a l'explorateur"
+Name: "assocjenga"; Description: "Ouvrir les fichiers .jenga avec NKCode (double-clic : le dossier du workspace)"; GroupDescription: "Integration a l'explorateur"
 
 [Files]
 Source: "{distDir.as_posix()}\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -505,6 +507,18 @@ Root: HKCU; Subkey: "Software\\Classes\\Directory\\Background\\shell\\NKCode"; V
 Root: HKCU; Subkey: "Software\\Classes\\Directory\\Background\\shell\\NKCode\\command"; ValueType: string; ValueData: {_Q3}{{app}}\\NKCode.exe{_Q2} {_Q2}%V{_Q3}; Flags: uninsdeletekey; Tasks: contextmenu
 Root: HKCU; Subkey: "Software\\Classes\\Drive\\shell\\NKCode"; ValueType: string; ValueData: "Ouvrir avec NKCode"; Flags: uninsdeletekey; Tasks: contextmenu
 Root: HKCU; Subkey: "Software\\Classes\\Drive\\shell\\NKCode\\command"; ValueType: string; ValueData: {_Q3}{{app}}\\NKCode.exe{_Q2} {_Q2}%V{_Q3}; Flags: uninsdeletekey; Tasks: contextmenu
+; (22/10, point 7b) LES MEMES CLES que le reglage « Integrer a l'explorateur de Windows » du zip
+; (Applications/NKCode/src/NKCode/Project/NkIntegrationSysteme.h, NkClesIntegration : la source ; banc :
+; tools/banc_integration.sh, dans une ruche de test). « Ouvrir avec NKCode » sur un FICHIER (*), et le type .jenga :
+; le double-clic ouvre le dossier de son workspace (NKCode lit son argument, Shell/NkOuvrirArgument.h).
+Root: HKCU; Subkey: "Software\\Classes\\*\\shell\\NKCode"; ValueType: string; ValueData: "Ouvrir avec NKCode"; Flags: uninsdeletekey; Tasks: contextfichiers
+Root: HKCU; Subkey: "Software\\Classes\\*\\shell\\NKCode"; ValueType: string; ValueName: "Icon"; ValueData: "{{app}}\\NKCode.exe,0"; Tasks: contextfichiers
+Root: HKCU; Subkey: "Software\\Classes\\*\\shell\\NKCode\\command"; ValueType: string; ValueData: {_Q3}{{app}}\\NKCode.exe{_Q2} {_Q2}%1{_Q3}; Flags: uninsdeletekey; Tasks: contextfichiers
+Root: HKCU; Subkey: "Software\\Classes\\NKCode.jenga"; ValueType: string; ValueData: "Workspace Jenga"; Flags: uninsdeletekey; Tasks: assocjenga
+Root: HKCU; Subkey: "Software\\Classes\\NKCode.jenga\\DefaultIcon"; ValueType: string; ValueData: "{{app}}\\NKCode.exe,0"; Tasks: assocjenga
+Root: HKCU; Subkey: "Software\\Classes\\NKCode.jenga\\shell\\open\\command"; ValueType: string; ValueData: {_Q3}{{app}}\\NKCode.exe{_Q2} {_Q2}%1{_Q3}; Tasks: assocjenga
+Root: HKCU; Subkey: "Software\\Classes\\.jenga"; ValueType: string; ValueData: "NKCode.jenga"; Flags: uninsdeletevalue; Tasks: assocjenga
+Root: HKCU; Subkey: "Software\\Classes\\.jenga\\OpenWithProgids"; ValueType: string; ValueName: "NKCode.jenga"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocjenga
 
 [Run]
 ; WorkingDir explicite : les ressources data/ et tools/ sont resolues a cote de
