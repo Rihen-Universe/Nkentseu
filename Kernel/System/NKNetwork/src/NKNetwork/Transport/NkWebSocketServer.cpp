@@ -32,8 +32,14 @@ namespace nkentseu {
 			Stop();
 		}
 
+		void NkWebSocketServer::ExigerEnTete(const char *nom, const NkString &valeur) noexcept {
+			mEnTeteExige = (nom && *nom) ? NkString(nom) : NkString();
+			mValeurExigee = mEnTeteExige.Empty() ? NkString() : valeur;
+		}
+
 		bool NkWebSocketServer::Start(uint16 port) noexcept {
 			Stop();
+			mRefusAuth = 0;
 			// Winsock EXIGE WSAStartup avant tout appel socket ; sans lui, socket()
 			// echoue en boucle. PlatformInit() s'en charge et est idempotent : on
 			// l'appelle ici plutot que d'exiger de l'appelant qu'il y pense — un
@@ -124,6 +130,17 @@ namespace nkentseu {
 			if (key.Empty()) { // pas une ouverture WebSocket : on ferme sans ceremonie
 				mClient.Close();
 				mHasClient = false;
+				return false;
+			}
+			// (22/10) L'EN-TETE EXIGE (ExigerEnTete) : absent ou faux -> 401, fermeture, et la place reste libre.
+			if (!mEnTeteExige.Empty() && !(RequestHeader(mEnTeteExige.CStr()) == mValeurExigee)) {
+				static const char kRefus[] = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+				(void)mClient.Send(kRefus, static_cast<uint32>(sizeof(kRefus) - 1));
+				mClient.Close();
+				mHasClient = false;
+				mHandshakeRequest.Clear();
+				mRxRaw.Clear();
+				++mRefusAuth;
 				return false;
 			}
 			// Accept = base64( SHA1( cle + GUID ) ) — RFC 6455 §4.2.2.

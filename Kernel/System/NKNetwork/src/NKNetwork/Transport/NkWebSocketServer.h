@@ -79,6 +79,19 @@ namespace nkentseu {
 				// Vide si absent. Sert a verifier un jeton d'authentification.
 				NkString RequestHeader(const char *name) const noexcept;
 
+				// (22/10) EXIGER un en-tete de la requete d'ouverture, a cette valeur EXACTE (le nom ne
+				// tient pas compte de la casse, comme en HTTP). FACULTATIF : tant que personne ne l'appelle,
+				// rien ne change. Un client qui ne le porte pas, ou pas a la bonne valeur, recoit
+				// « HTTP/1.1 401 Unauthorized » puis la fermeture, et ne devient jamais LE client : la place
+				// reste libre pour celui qui a le jeton. Usage : le pont IDE de NKCode, jeton de Claude Code
+				// (en-tete « x-claude-code-ide-authorization »). Un nom vide retire l'exigence.
+				void ExigerEnTete(const char *nom, const NkString &valeur) noexcept;
+
+				// Combien de clients ont ete refuses par ExigerEnTete depuis Start (bancs, journal).
+				uint32 RefusAuthentification() const noexcept {
+					return mRefusAuth;
+				}
+
 			private:
 				bool AcceptPending() noexcept;
 				bool TryHandshake() noexcept;	  // consomme mRxRaw jusqu'a la fin des en-tetes
@@ -96,6 +109,9 @@ namespace nkentseu {
 				NkVector<uint8> mFragment;		 // message en cours (trames fragmentees)
 				NkVector<NkString> mMessages;	 // messages complets, prets a etre depiles
 				NkString mHandshakeRequest;		 // requete HTTP d'ouverture (pour RequestHeader)
+				NkString mEnTeteExige;			 // (22/10) vide : aucune exigence (le comportement d'avant)
+				NkString mValeurExigee;
+				uint32 mRefusAuth = 0;
 		};
 
 	} // namespace net
