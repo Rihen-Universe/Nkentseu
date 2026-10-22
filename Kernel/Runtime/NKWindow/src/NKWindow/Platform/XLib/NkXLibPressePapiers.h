@@ -29,6 +29,15 @@
 namespace nkentseu {
 	namespace xlibpp {
 
+		// (22/10) LE « None » D'X11, SOUS UN NOM A NOUS. X.h le definit en macro (#define None 0L) ;
+		// NKPlatform/NkX11Clean.h la RETIRE (#undef None : collision avec NkGuiInteract::None...). Inclus
+		// par NkXLibWindow.h apres lui, ce fichier ne voyait plus None : son second #include <X11/Xlib.h>
+		// ne redefinit rien (garde d'inclusion). La construction Linux de NKCode 1.5.3 s'arretait sur
+		// 15 erreurs « use of undeclared identifier 'None' » (NKEditorKit, 3 fichiers). Le banc isole
+		// (banc_presse_papiers_x11.sh) incluait Xlib seule : il ne pouvait pas le voir.
+		// Atom et Window sont des unsigned long (XID) : la constante a leur type, valeur 0L comme None.
+		constexpr unsigned long NkPpAucun = 0L;
+
 		struct NkPpAtomes {
 				::Atom clipboard = 0, utf8 = 0, targets = 0, text = 0, chaine = 0, propriete = 0, incr = 0;
 		};
@@ -64,8 +73,8 @@ namespace nkentseu {
 			rep.target = req.target;
 			rep.time = req.time;
 			// un demandeur d'avant l'ICCCM met None : on ecrit alors dans la propriete du nom de la cible
-			const ::Atom prop = req.property != None ? req.property : req.target;
-			rep.property = None; // refus, sauf si une cible connue est servie
+			const ::Atom prop = req.property != NkPpAucun ? req.property : req.target;
+			rep.property = NkPpAucun; // refus, sauf si une cible connue est servie
 			if (req.target == a.targets) {
 				const ::Atom cibles[4] = {a.targets, a.utf8, a.chaine, a.text};
 				XChangeProperty(d, req.requestor, prop, XA_ATOM, 32, PropModeReplace,
@@ -119,7 +128,7 @@ namespace nkentseu {
 		/// par INCR (non pris en charge, voir l'en-tete).
 		inline bool NkPpLire(::Display *d, ::Window w, const NkPpAtomes &a, int delaiMs,
 							 void (*recevoir)(void *ctx, const unsigned char *octets, unsigned long n), void *ctx) {
-			if (XGetSelectionOwner(d, a.clipboard) == None)
+			if (XGetSelectionOwner(d, a.clipboard) == NkPpAucun)
 				return false;
 			const ::Atom cibles[2] = {a.utf8, a.chaine};
 			for (int k = 0; k < 2; ++k) {
@@ -129,9 +138,9 @@ namespace nkentseu {
 				XSelectionEvent rep;
 				if (!NkPpAttendre(d, w, a, delaiMs, rep))
 					return false;
-				if (rep.property == None)
+				if (rep.property == NkPpAucun)
 					continue; // cible refusee : la suivante
-				::Atom type = None;
+				::Atom type = NkPpAucun;
 				int format = 0;
 				unsigned long nb = 0, apres = 0;
 				unsigned char *donnees = nullptr;
