@@ -132,23 +132,20 @@
 namespace nkentseu {
 
 	/**
-	 * @namespace serial
-	 * @brief Alias de convenance pour nkentseu::serialization
-	 *
-	 * Permet d'abbrevier les references au namespace de serialisation
-	 * dans le code client pour plus de concision.
-	 *
-	 * @note Cet alias est optionnel : vous pouvez utiliser le namespace
-	 *       complet nkentseu::serialization si vous preferez l'explicite
+	 * (22/10/2026) Les types de NKSerialization (NkArchive, NkISerializable...) vivent DIRECTEMENT dans
+	 * nkentseu : il n'y a pas d'espace nkentseu::serialization. L'alias de convenance qui suit le visait
+	 * (« namespace serial = serialization; ») : l'en-tete parapluie ne compilait donc nulle part (« expected
+	 * namespace name », releve par l'epreuve des kits du 21/10). Personne ne l'employait ; il est garde en
+	 * commentaire. Banc : NKSerialization/tests/test_entete_parapluie.cpp.
 	 *
 	 * @example
 	 * @code
-	 * using namespace nkentseu::serial;
-	 * auto archive = NkArchive();
-	 * archive.SetInt("score", 42);
+	 * using namespace nkentseu;
+	 * NkArchive archive;
+	 * archive.SetInt32("score", 42);
 	 * @endcode
 	 */
-	namespace serial = serialization;
+	// namespace serial = serialization;
 
 } // namespace nkentseu
 
@@ -268,12 +265,12 @@ namespace nkentseu {
 /*
 	#include <NKSerialization/NKSerialization.h>
 
-	// Optionnel : utiliser l'alias pour plus de concision
-	namespace serial = nkentseu::serial;
+	// (22/10/2026) l'alias nkentseu::serial n'existe plus (il visait un espace absent) : les types sont dans nkentseu
+	using namespace nkentseu;
 
 	void ConciseUsageExample() {
 		// Creation et manipulation d'une archive
-		serial::NkArchive archive;
+		NkArchive archive;
 		archive.SetInt64("score", 42);
 		archive.SetString("player", "Alice");
 		archive.SetBool("active", true);

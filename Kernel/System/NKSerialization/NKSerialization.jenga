@@ -80,6 +80,9 @@ with project("NKSerialization"):
         with test("Smoke"):
             testfiles(["tests/test_smoke.cpp"])
             testownmain()
+        # (22/10/2026) l'en-tete parapluie compile SEUL (releve par l'epreuve des kits) ; main de Unitest
+        with test("EnteteParapluie"):
+            testfiles(["tests/test_entete_parapluie.cpp"])
         # Jenga 2.6.1 : test() rend le projet -> une sous-suite par fichier a main() (2026-09-04).
         with test("ReflectSerializer"):
             testfiles(["tests/test_reflect_serializer.cpp"])

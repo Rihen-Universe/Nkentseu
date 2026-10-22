@@ -61,3 +61,8 @@ with project("NKVFX"):
 
     with filter("system:Linux"):
         links(["pthread"])
+
+    # (22/10/2026) Le premier banc du module : NkVfxLiveness.h compile SEUL (releve par l'epreuve des kits).
+    with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS || system:Web"):
+        with test():
+            testfiles(["tests/**.cpp"])

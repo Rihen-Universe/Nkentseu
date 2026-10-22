@@ -115,6 +115,19 @@
 #include "NKThreading/NkSharedMutex.h"	  // Alias entseu::NkSharedMutex/Lock
 #include "NKThreading/NkThreadLocal.h"	  // Alias entseu::NkThreadLocal
 
+// (22/10/2026) L'EN-TETE PARAPLUIE ETAIT PERIME : il ne compilait sur AUCUNE plateforme (releve par l'epreuve
+// des kits du 21/10 ; personne dans le depot ne l'incluait). Trois causes, corrigees ici et plus bas :
+//   - GetHardwareConcurrency() appelle platform::NkGetLogicalCoreCount(), defini par NKPlatform/NkCPUFeatures.h,
+//     qui n'etait pas inclus ;
+//   - l'alias global NkSpinLock visait threading::NkSpinLock, alors que la classe vit dans nkentseu::memory ;
+//   - sous Windows, winbase.h definit la macro obsolete « Yield() » (vide, heritee de Win16) : elle effacait
+//     la declaration de threading::Yield() et de son alias global.
+// Banc : NKThreading/tests/test_entete_parapluie.cpp (n'inclut que cet en-tete et s'en sert).
+#include "NKPlatform/NkCPUFeatures.h"
+#if defined(Yield)
+	#undef Yield
+#endif
+
 // -------------------------------------------------------------------------
 // SECTION 10 : NAMESPACE PRINCIPAL ET DOCUMENTATION
 // -------------------------------------------------------------------------
@@ -329,7 +342,10 @@ namespace nkentseu {
 
 	/// @brief Alias global pour NkSpinLock (compatibilité legacy).
 	/// @deprecated Utiliser nkentseu::threading::NkSpinLock directement.
-	using NkSpinLock = threading::NkSpinLock;
+	// (22/10/2026) Alias retire, garde ici : il visait threading::NkSpinLock, qui n'existe pas ; et le nom
+	// nkentseu::NkSpinLock est DEJA pris par une autre classe (NKCore/NkAtomic.h). Le verrou tournant de ce
+	// module s'ecrit nkentseu::memory::NkSpinLock (NKThreading/NkSpinLock.h).
+	// using NkSpinLock = threading::NkSpinLock;
 
 	/// @brief Alias global pour NkConditionVariable (compatibilité legacy).
 	/// @deprecated Utiliser nkentseu::threading::NkConditionVariable directement.
@@ -652,7 +668,7 @@ namespace nkentseu {
 	// Exemple 7 : Migration depuis l'ancien namespace legacy
 	// ---------------------------------------------------------------------
 	// AVANT (code utilisant les aliases legacy) :
-	/*
+	// (22/10/2026 : un second « slash etoile » s'ouvrait ici, dans le commentaire des exemples : -Wcomment)
 	#include <NKThreading/NKThreading.h>
 	using namespace nkentseu;  // ❌ Ancien namespace (déprécié)
 

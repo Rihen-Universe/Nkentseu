@@ -310,7 +310,8 @@ namespace nkentseu {
 	// ---------------------------------------------------------------------
 	// Exemple 10 : Documentation de migration pour les utilisateurs
 	// ---------------------------------------------------------------------
-	/*
+	// (22/10/2026) ici s'ouvrait un second commentaire « slash etoile » DANS celui des exemples (l. 72) :
+	// avertissement -Wcomment chez quiconque incluait NKThreading.h. Le guide reste dans le meme commentaire.
 	============================================================================
 	GUIDE DE MIGRATION : nkentseu → nkentseu::threading
 	============================================================================

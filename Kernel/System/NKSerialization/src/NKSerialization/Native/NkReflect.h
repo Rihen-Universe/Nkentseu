@@ -188,27 +188,29 @@ namespace nkentseu {
 		 */
 		template <typename T> void DeserializeField(NkStringView key, T &v, const NkArchive &arc) noexcept {
 			if constexpr (traits::NkIsSame_v<T, nk_bool> || traits::NkIsSame_v<T, bool>) {
+				// (22/10/2026) (void) : une cle absente laisse la valeur par defaut, voulu ; sans le (void),
+				// quatre avertissements [[nodiscard]] chez quiconque incluait NKSerialization.h.
 				nk_bool b = false;
-				arc.GetBool(key, b);
+				(void)arc.GetBool(key, b);
 				v = static_cast<T>(b);
 			} else if constexpr (traits::NkIsSame_v<T, nk_int8> || traits::NkIsSame_v<T, nk_int16> ||
 								 traits::NkIsSame_v<T, nk_int32> || traits::NkIsSame_v<T, nk_int64>) {
 				nk_int64 i = 0;
-				arc.GetInt64(key, i);
+				(void)arc.GetInt64(key, i);
 				v = static_cast<T>(i);
 			} else if constexpr (traits::NkIsSame_v<T, nk_uint8> || traits::NkIsSame_v<T, nk_uint16> ||
 								 traits::NkIsSame_v<T, nk_uint32> || traits::NkIsSame_v<T, nk_uint64>) {
 				nk_uint64 u = 0;
-				arc.GetUInt64(key, u);
+				(void)arc.GetUInt64(key, u);
 				v = static_cast<T>(u);
 			} else if constexpr (traits::NkIsSame_v<T, nk_float32>) {
 				nk_float64 f = 0.0;
-				arc.GetFloat64(key, f);
+				(void)arc.GetFloat64(key, f);
 				v = static_cast<nk_float32>(f);
 			} else if constexpr (traits::NkIsSame_v<T, nk_float64>) {
-				arc.GetFloat64(key, v);
+				(void)arc.GetFloat64(key, v);
 			} else if constexpr (traits::NkIsSame_v<T, NkString>) {
-				arc.GetString(key, v);
+				(void)arc.GetString(key, v);
 			} else if constexpr (HasReflect<T>::value) {
 				NkArchive childArc;
 				if (arc.GetObject(key, childArc)) {

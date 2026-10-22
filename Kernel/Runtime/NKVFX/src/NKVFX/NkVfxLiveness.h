@@ -32,6 +32,10 @@
 // jugement appartient à l'appelant, qui connaît sa complexité.
 // =============================================================================
 #include "NKTime/NkChrono.h"
+// (22/10/2026) L'en-tete emploie NK_FORCE_INLINE, defini par NKMath/NkFunctions.h : sans cette inclusion, un
+// programme qui n'incluait QUE NkVfxLiveness.h ne compilait pas (« unknown type name 'NK_FORCE_INLINE' » ;
+// releve par l'epreuve des kits du 21/10). Banc : NKVFX/tests/test_entete_liveness.cpp.
+#include "NKMath/NkFunctions.h"
 
 namespace nkentseu {
 	namespace vfx {
