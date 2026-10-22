@@ -205,6 +205,25 @@ Date   : 2026
 import os
 import sys
 import shutil
+
+# (22/10/2026) La version de Jenga, verifiee AVANT tout le reste. Depuis le 08/10, ce fichier declare la fiche
+# d'identite des executables au niveau du workspace (apppublisher, appcopyright) : il faut Jenga 2.8.16 au moins.
+# Un Jenga plus ancien s'arretait sur la ligne d'apppublisher avec « used outside any project block », sans dire
+# qu'il fallait le mettre a jour (photo d'un apprenant, 22/10 : Jenga 2.8.0). Le message reste en ASCII : une
+# vieille console Windows abimerait les accents.
+try:
+    from Jenga import __version__ as _VERSION_JENGA
+    _VERSION_JENGA_NOMBRES = tuple(int(x) for x in str(_VERSION_JENGA).split('.')[:3])
+except Exception:
+    _VERSION_JENGA, _VERSION_JENGA_NOMBRES = None, None
+_VERSION_JENGA_MINIMALE = (2, 8, 16)
+if _VERSION_JENGA_NOMBRES is not None and _VERSION_JENGA_NOMBRES < _VERSION_JENGA_MINIMALE:
+    raise RuntimeError(
+        "Nkentseu demande Jenga %s ou plus ; celui-ci est le %s. Mets Jenga a jour, puis relance :\n"
+        "    pip install -U https://github.com/Rihen-Universe/Jenga/releases/download/v2.9.0/jenga-2.9.0-py3-none-any.whl\n"
+        "(ou le .whl le plus recent de https://github.com/Rihen-Universe/Jenga/releases/latest)"
+        % ('.'.join(str(n) for n in _VERSION_JENGA_MINIMALE), _VERSION_JENGA))
+
 from Jenga import *
 from jengaconfig import *
 
