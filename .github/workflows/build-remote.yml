@@ -24,7 +24,9 @@ on:
         description: "Plateforme"
         required: true
         type: choice
-        options: [macos, linux, ios]
+        # macos = Apple Silicon (arm64) ; macos-intel = Mac Intel (x86_64), ajoute le 22/10/2026 :
+        # un apprenant a un Mac Intel de 2015 (macOS 12 au plus), un paquet arm64 ne lui sert pas.
+        options: [macos, macos-intel, linux, ios]
         default: "macos"
       config:
         description: "Configuration"
@@ -38,8 +40,14 @@ jobs:
     # ubuntu-22.04 et PAS ubuntu-latest (24.04) : la glibc du runner devient le
     # MINIMUM requis chez les testeurs (le paquet 24.04 exigeait GLIBC_2.38 et
     # refusait de se charger sur Ubuntu 22.04/Debian 12 — vu au test WSL2).
-    runs-on: ${{ inputs.platform == 'linux' && 'ubuntu-22.04' || 'macos-latest' }}
+    runs-on: ${{ inputs.platform == 'linux' && 'ubuntu-22.04' || (inputs.platform == 'macos-intel' && 'macos-15-intel' || 'macos-latest') }}
     timeout-minutes: 60
+    env:
+      # (22/10/2026) Meme raison que ubuntu-22.04 : sans version minimale, clang prend celle du
+      # RUNNER (macOS 15 ou plus) et le binaire refuse de demarrer sur un Mac plus ancien. 12.0 =
+      # le Mac Intel de 2015 d'un apprenant (Monterey, le dernier systeme qu'il accepte). Clang lit
+      # cette variable quand aucune option -mmacosx-version-min n'est donnee (Jenga n'en donne pas).
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
     steps:
       - name: Depot Nkentseu (+ sous-modules)
         uses: actions/checkout@v4
@@ -128,6 +136,9 @@ jobs:
           if [ "${{ inputs.platform }}" = "macos" ]; then
             TRIPLE=aarch64-apple-darwin
             DEST=Externals/Libs/PythonEmbed/macos
+          elif [ "${{ inputs.platform }}" = "macos-intel" ]; then
+            TRIPLE=x86_64-apple-darwin
+            DEST=Externals/Libs/PythonEmbed/macos
           else
             TRIPLE=x86_64-unknown-linux-gnu
             DEST=Externals/Libs/PythonEmbed/linux
@@ -193,7 +204,7 @@ jobs:
           # NKCode.jenga dans Build/_jenga-embed).
           if [ "${{ inputs.target }}" = "NKCode" ] && [ "${{ inputs.platform }}" != "ios" ]; then
             [ -d "$APP/data" ] || cp -R Applications/NKCode/data "$APP/data"
-            if [ "${{ inputs.platform }}" = "macos" ]; then
+            if [ "${{ inputs.platform }}" != "linux" ]; then
               PYSRC=Externals/Libs/PythonEmbed/macos
             else
               PYSRC=Externals/Libs/PythonEmbed/linux
@@ -224,7 +235,7 @@ jobs:
             # NKCode.jenga), puis on RE-SIGNE ad hoc : install_name_tool
             # invalide la signature, et arm64 refuse de LANCER un binaire non
             # signe.
-            if [ "${{ inputs.platform }}" = "macos" ]; then
+            if [ "${{ inputs.platform }}" != "linux" ]; then
               BIN="$APP/NKCode"
               PYDEP=$(otool -L "$BIN" | awk '/libpython/{print $1; exit}')
               echo "libpython liee : ${PYDEP:-aucune}"
