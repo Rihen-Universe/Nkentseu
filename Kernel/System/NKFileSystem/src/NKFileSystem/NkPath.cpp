@@ -34,6 +34,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <direct.h>
+#include "NKFileSystem/NkFsLarge.h" // (22/10) chemins UTF-8 <-> API larges (UTF-16)
 // Alias pour compatibilité : getcwd sur Windows est _getcwd
 #define getcwd _getcwd
 // Undef des macros Windows qui pourraient entrer en conflit
@@ -477,8 +478,18 @@ namespace nkentseu {
 	NkPath NkPath::GetCurrentDirectory() {
 		// Buffer temporaire pour recevoir le chemin du répertoire courant
 		// Taille généreuse (4096) pour couvrir la plupart des chemins réels
-		char buffer[4096];
+		char buffer[4096 * 3];
 
+#ifdef _WIN32
+		// (22/10) API LARGE : le dossier courant revient en UTF-8 (_getcwd le rendait dans la page de code locale ;
+		// NkFsLarge.h)
+		{
+			wchar_t wbuffer[4096];
+			const DWORD n = GetCurrentDirectoryW(4096, wbuffer);
+			if (n > 0 && n < 4096 && NkFsVersUtf8(wbuffer, buffer, static_cast<int>(sizeof(buffer))))
+				return NkPath(buffer);
+		}
+#endif
 		// Appel système pour obtenir le cwd
 		// getcwd sur POSIX, _getcwd sur Windows (via #define plus haut)
 		if (getcwd(buffer, sizeof(buffer))) {
@@ -498,9 +509,12 @@ namespace nkentseu {
 
 	NkPath NkPath::GetExecutableDirectory() {
 #if defined(_WIN32)
-		char buffer[MAX_PATH];
-		DWORD len = GetModuleFileNameA(nullptr, buffer, MAX_PATH);
-		if (len == 0)
+		// (22/10) API LARGE : un NKCode installe sous un profil accentue (« C:\Users\Élodie\... ») ne trouvait plus
+		// ses ressources ; le chemin revient en UTF-8 (NkFsLarge.h)
+		wchar_t wbuffer[4096];
+		char buffer[4096 * 3];
+		const DWORD len = GetModuleFileNameW(nullptr, wbuffer, 4096);
+		if (len == 0 || len >= 4096 || !NkFsVersUtf8(wbuffer, buffer, static_cast<int>(sizeof(buffer))))
 			return GetCurrentDirectory();
 		return NkPath(NkPath(buffer).GetDirectory());
 #elif defined(__APPLE__)
@@ -523,10 +537,12 @@ namespace nkentseu {
 
 	NkPath NkPath::GetTempDirectory() {
 #ifdef _WIN32
-		// Windows : utilisation de GetTempPathA pour obtenir le répertoire temp
-		char buffer[MAX_PATH];
+		// Windows : GetTempPath en API LARGE (22/10, NkFsLarge.h) : un nom d'utilisateur accentue reste juste
+		wchar_t wbuffer[MAX_PATH + 1];
+		char buffer[(MAX_PATH + 1) * 3];
 
-		if (GetTempPathA(MAX_PATH, buffer)) {
+		const DWORD n = GetTempPathW(MAX_PATH + 1, wbuffer);
+		if (n > 0 && n <= MAX_PATH && NkFsVersUtf8(wbuffer, buffer, static_cast<int>(sizeof(buffer)))) {
 			// Succès : retour du chemin obtenu
 			return NkPath(buffer);
 		}

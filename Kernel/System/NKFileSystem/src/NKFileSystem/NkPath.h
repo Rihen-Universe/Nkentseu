@@ -671,7 +671,7 @@ namespace nkentseu {
 	#ifdef NKENTSEU_PLATFORM_WINDOWS
 		// Convertir vers format Windows avant appel système
 		NkString nativePath = config.ToNative();  // "/app/..." → "\\app\\..."
-		::CreateFileA(nativePath.CStr(), ...);
+		::CreateFileW(nativePath en UTF-16, voir NkFsLarge.h, ...);
 	#else
 		// Sur Unix, ToString() suffit (déjà au format natif)
 		::open(config.ToString().CStr(), ...);

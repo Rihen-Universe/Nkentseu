@@ -32,6 +32,7 @@
 // En-têtes plateforme pour les opérations système (stat, GetFileAttributes, etc.)
 #ifdef _WIN32
 #include <windows.h>
+#include "NKFileSystem/NkFsLarge.h" // (22/10) NkFsMutationAnsi : la contre-epreuve commune
 #else
 #include <sys/stat.h>
 #endif
@@ -350,8 +351,12 @@ namespace nkentseu {
 	static bool NkPathToWide(const char *path, wchar_t *out, int cap) {
 		if (!path || !*path || !out || cap <= 1)
 			return false;
-		const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, out, cap);
-		return n > 0;
+		// (22/10) La regle commune de NKFileSystem (NkFsLarge.h) : UTF-8 strict, sinon la page de code locale --
+		// ce que l'API ANSI faisait de ces octets ; les replis ANSI ci-dessous n'ont donc plus de raison d'etre sous
+		// Windows. Contre-epreuve : NK_FS_MUTATION=ansi (tout par la page de code locale).
+		if (!NkFsMutationAnsi() && MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, out, cap) > 0)
+			return true;
+		return MultiByteToWideChar(CP_ACP, 0, path, -1, out, cap) > 0;
 	}
 
 	// Taille confortable : NTFS accepte des chemins bien au-dela de MAX_PATH
@@ -393,9 +398,10 @@ namespace nkentseu {
 				MultiByteToWideChar(CP_UTF8, 0, modeStr, -1, wmode, 16) > 0)
 				file = _wfopen(wpath, wmode);
 		}
-#endif
+#else
 		if (!file)
 			file = fopen(path, modeStr);
+#endif
 		if (file) {
 			mHandle = file;
 			mIsOpen = true;
@@ -800,8 +806,7 @@ namespace nkentseu {
 			if (NkPathToWide(path, wpath, kNkWidePathMax))
 				attrs = GetFileAttributesW(wpath);
 		}
-		if (attrs == INVALID_FILE_ATTRIBUTES)
-			attrs = GetFileAttributesA(path);
+		// (22/10) plus de repli ANSI : NkPathToWide convertit deja par la page de code locale ce qui n'est pas UTF-8
 		return (attrs != INVALID_FILE_ATTRIBUTES) && !(attrs & FILE_ATTRIBUTE_DIRECTORY); // Exclure les répertoires
 #else
 		// POSIX : stat remplit une structure avec les métadonnées du fichier
@@ -852,13 +857,13 @@ namespace nkentseu {
 		// NkPathToWide). Repli sur remove() si le chemin n'est pas de l'UTF-8.
 		{
 			wchar_t wpath[kNkWidePathMax];
-			if (NkPathToWide(path, wpath, kNkWidePathMax) && _wremove(wpath) == 0)
-				return true;
+			return NkPathToWide(path, wpath, kNkWidePathMax) && _wremove(wpath) == 0;
 		}
-#endif
+#else
 		// remove() supprime le fichier du système
 		// Retourne 0 en cas de succès, non-zéro en cas d'erreur
 		return remove(path) == 0;
+#endif
 	}
 
 	bool NkFile::MoveToTrash(const char *path) {
@@ -935,14 +940,14 @@ namespace nkentseu {
 		// touche directement le renommage depuis l'explorateur de NKCode.
 		{
 			wchar_t wsrc[kNkWidePathMax], wdst[kNkWidePathMax];
-			if (NkPathToWide(source, wsrc, kNkWidePathMax) && NkPathToWide(dest, wdst, kNkWidePathMax) &&
-				_wrename(wsrc, wdst) == 0)
-				return true;
+			return NkPathToWide(source, wsrc, kNkWidePathMax) && NkPathToWide(dest, wdst, kNkWidePathMax) &&
+				   _wrename(wsrc, wdst) == 0;
 		}
-#endif
+#else
 		// rename() déplace/renomme le fichier au niveau système
 		// Comportement : échoue si source et dest sur volumes différents (selon OS)
 		return rename(source, dest) == 0;
+#endif
 	}
 
 	bool NkFile::Move(const NkPath &source, const NkPath &dest) {
@@ -1129,7 +1134,7 @@ namespace nkentseu {
 
 	Compatibilité multiplateforme :
 	------------------------------
-	- Windows : GetFileAttributesA pour Exists(), fopen avec modes "rb"/"wb"
+	- Windows : GetFileAttributesW pour Exists(), _wfopen (chemins UTF-8 convertis en UTF-16, NkFsLarge.h)
 	- POSIX : stat() pour Exists(), fopen standard
 	- Newlines : en mode texte, fopen gère automatiquement \r\n ↔ \n sur Windows
 

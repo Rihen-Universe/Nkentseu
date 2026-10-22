@@ -38,6 +38,13 @@
 #include <windows.h>
 #include <direct.h>
 #include <shlobj.h>
+#include "NKFileSystem/NkFsLarge.h" // (22/10) chemins UTF-8 -> API larges (UTF-16)
+// (22/10) Un dossier du systeme (profil, Documents, AppData...) en UTF-8 : l'API ANSI rendait le nom dans la page de
+// code locale (« C:\Users\Élodie » devenait illisible pour le reste du moteur, qui parle UTF-8).
+static bool NkDossierSpecialUtf8(int csidl, char *out, int cap) {
+	wchar_t w[MAX_PATH];
+	return SHGetFolderPathW(NULL, csidl, NULL, 0, w) == S_OK && nkentseu::NkFsVersUtf8(w, out, cap);
+}
 // Alias pour compatibilité : mkdir/rmdir sur Windows
 #define mkdir(path, mode) _mkdir(path)
 #define rmdir(path) _rmdir(path)
@@ -87,7 +94,11 @@ namespace nkentseu {
 #ifdef _WIN32
 		// Windows : CreateDirectoryA retourne non-zero en cas de succès
 		// Gestion du cas ERROR_ALREADY_EXISTS pour idempotence
-		return CreateDirectoryA(path, NULL) != 0 || GetLastError() == ERROR_ALREADY_EXISTS;
+		// (22/10) API LARGE : un chemin accentue (NkFsLarge.h ; repli page de code locale DANS la conversion)
+		const NkFsLarge l(path);
+		if (!l.ok)
+			return false;
+		return CreateDirectoryW(l.w, NULL) != 0 || GetLastError() == ERROR_ALREADY_EXISTS;
 #else
 		// POSIX : mkdir retourne 0 en cas de succès
 		// Mode 0755 : rwxr-xr-x (lecture/exécution pour tous, écriture pour propriétaire)
@@ -154,7 +165,8 @@ namespace nkentseu {
 
 #ifdef _WIN32
 		// Windows : RemoveDirectoryA pour supprimer un répertoire vide
-		return RemoveDirectoryA(path) != 0;
+		const NkFsLarge l(path); // (22/10) API large d'abord (NkFsLarge.h)
+		return l.ok && RemoveDirectoryW(l.w) != 0;
 #else
 		// POSIX : rmdir pour supprimer un répertoire vide
 		return rmdir(path) == 0;
@@ -175,7 +187,9 @@ namespace nkentseu {
 #ifdef _WIN32
 		// Windows : GetFileAttributesA retourne INVALID_FILE_ATTRIBUTES si inexistant
 		// Vérification du flag FILE_ATTRIBUTE_DIRECTORY pour confirmer que c'est un répertoire
-		const DWORD attrs = GetFileAttributesA(path);
+		// (22/10) API LARGE : un dossier accentue (« Été 2026 ») etait introuvable par GetFileAttributesA (NkFsLarge.h)
+		const NkFsLarge l(path);
+		const DWORD attrs = l.ok ? GetFileAttributesW(l.w) : INVALID_FILE_ATTRIBUTES;
 		return (attrs != INVALID_FILE_ATTRIBUTES) && (attrs & FILE_ATTRIBUTE_DIRECTORY);
 #else
 		// POSIX : stat() remplit une structure avec les métadonnées
@@ -426,10 +440,15 @@ namespace nkentseu {
 		}
 
 #ifdef _WIN32
-		// Windows : utilisation de FindFirstFile/FindNextFile API
-		WIN32_FIND_DATAA findData;
+		// Windows : FindFirstFile/FindNextFile, en API LARGE (22/10, NkFsLarge.h) : les noms accentues reviennent en
+		// UTF-8 (l'API ANSI les mutilait en « ? »), et un dossier accentue se parcourt
 		NkString searchPath = NkString(path) + "\\*";
-		HANDLE hFind = FindFirstFileA(searchPath.CStr(), &findData);
+		const NkFsLarge l(searchPath.CStr());
+		if (!l.ok) {
+			return results;
+		}
+		WIN32_FIND_DATAW findData;
+		HANDLE hFind = FindFirstFileW(l.w, &findData);
 
 		// Échec d'ouverture du handle : retour résultats vides
 		if (hFind == INVALID_HANDLE_VALUE) {
@@ -439,20 +458,24 @@ namespace nkentseu {
 		// Parcours de toutes les entrées du répertoire
 		do {
 			// Ignorer les entrées spéciales "." et ".."
-			if (strcmp(findData.cFileName, ".") == 0 || strcmp(findData.cFileName, "..") == 0) {
+			if (NkFsPointOuPoints(findData.cFileName)) {
+				continue;
+			}
+			char nom[1024];
+			if (!NkFsVersUtf8(findData.cFileName, nom, static_cast<int>(sizeof(nom)))) {
 				continue;
 			}
 
 			// Filtrer : ne garder que les fichiers (pas les répertoires)
 			if (!(findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
 				// Appliquer le pattern de filtrage
-				if (MatchesPattern(findData.cFileName, pattern)) {
+				if (MatchesPattern(nom, pattern)) {
 					// Construction du chemin complet normalisé
-					NkPath fullPath = NkPath(path) / findData.cFileName;
+					NkPath fullPath = NkPath(path) / nom;
 					results.PushBack(fullPath.ToString());
 				}
 			}
-		} while (FindNextFileA(hFind, &findData));
+		} while (FindNextFileW(hFind, &findData));
 
 		// Libération du handle de recherche
 		FindClose(hFind);
@@ -513,28 +536,36 @@ namespace nkentseu {
 		}
 
 #ifdef _WIN32
-		// Windows : utilisation de FindFirstFile/FindNextFile API
-		WIN32_FIND_DATAA findData;
+		// Windows : FindFirstFile/FindNextFile en API LARGE (22/10, NkFsLarge.h), noms rendus en UTF-8
 		NkString searchPath = NkString(path) + "\\*";
-		HANDLE hFind = FindFirstFileA(searchPath.CStr(), &findData);
+		const NkFsLarge l(searchPath.CStr());
+		if (!l.ok) {
+			return results;
+		}
+		WIN32_FIND_DATAW findData;
+		HANDLE hFind = FindFirstFileW(l.w, &findData);
 
 		if (hFind == INVALID_HANDLE_VALUE) {
 			return results;
 		}
 
 		do {
-			if (strcmp(findData.cFileName, ".") == 0 || strcmp(findData.cFileName, "..") == 0) {
+			if (NkFsPointOuPoints(findData.cFileName)) {
+				continue;
+			}
+			char nom[1024];
+			if (!NkFsVersUtf8(findData.cFileName, nom, static_cast<int>(sizeof(nom)))) {
 				continue;
 			}
 
 			// Filtrer : ne garder que les répertoires
 			if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-				if (MatchesPattern(findData.cFileName, pattern)) {
-					NkPath fullPath = NkPath(path) / findData.cFileName;
+				if (MatchesPattern(nom, pattern)) {
+					NkPath fullPath = NkPath(path) / nom;
 					results.PushBack(fullPath.ToString());
 				}
 			}
-		} while (FindNextFileA(hFind, &findData));
+		} while (FindNextFileW(hFind, &findData));
 
 		FindClose(hFind);
 
@@ -854,7 +885,8 @@ namespace nkentseu {
 
 #ifdef _WIN32
 		// Windows : SetCurrentDirectoryA retourne non-zero en cas de succès
-		return SetCurrentDirectoryA(path) != 0;
+		const NkFsLarge l(path); // (22/10) API large (NkFsLarge.h)
+		return l.ok && SetCurrentDirectoryW(l.w) != 0;
 #else
 		// POSIX : chdir retourne 0 en cas de succès
 		return chdir(path) == 0;
@@ -874,8 +906,8 @@ namespace nkentseu {
 	NkPath NkDirectory::GetHomeDirectory() {
 #ifdef _WIN32
 		// Windows : tentative via SHGetFolderPathA (API shell)
-		char path[MAX_PATH];
-		if (SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, path) == S_OK) {
+		char path[MAX_PATH * 3];
+		if (NkDossierSpecialUtf8(CSIDL_PROFILE, path, static_cast<int>(sizeof(path)))) {
 			return NkPath(path);
 		}
 
@@ -917,15 +949,15 @@ NkPath NkDirectory::GetUserFolder(NkUserFolder which) {
 		case NkUserFolder::Videos: csidl = CSIDL_MYVIDEO; break;
 		default: break; // Downloads : pas de CSIDL, voir plus bas
 	}
-	char path[MAX_PATH];
-	if (csidl >= 0 && SHGetFolderPathA(NULL, csidl, NULL, 0, path) == S_OK && Exists(path))
+	char path[MAX_PATH * 3];
+	if (csidl >= 0 && NkDossierSpecialUtf8(csidl, path, static_cast<int>(sizeof(path))) && Exists(path))
 		return NkPath(path);
 	if (which == NkUserFolder::Downloads) {
 		// ⚠️ Windows n'a pas de CSIDL pour « Telechargements » (il n'existe que sous
 		//    la forme d'un KNOWNFOLDERID, qui demanderait ole32 pour liberer le
 		//    resultat). On le cherche sous le profil : un dossier DEPLACE ne sera
 		//    donc pas trouve, et on rend vide plutot qu'un chemin faux.
-		if (SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, path) == S_OK) {
+		if (NkDossierSpecialUtf8(CSIDL_PROFILE, path, static_cast<int>(sizeof(path)))) {
 			const NkPath p = NkPath(path) / "Downloads";
 			if (Exists(p))
 				return p;
@@ -972,8 +1004,8 @@ NkPath NkDirectory::GetUserFolder(NkUserFolder which) {
 NkPath NkDirectory::GetAppDataDirectory() {
 #ifdef _WIN32
 		// Windows : CSIDL_APPDATA pointe vers %APPDATA% (Roaming)
-		char path[MAX_PATH];
-		if (SHGetFolderPathA(NULL, CSIDL_APPDATA, NULL, 0, path) == S_OK) {
+		char path[MAX_PATH * 3];
+		if (NkDossierSpecialUtf8(CSIDL_APPDATA, path, static_cast<int>(sizeof(path)))) {
 			return NkPath(path);
 		}
 #else

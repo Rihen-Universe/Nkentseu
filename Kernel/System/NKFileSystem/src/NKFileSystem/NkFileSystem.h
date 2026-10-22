@@ -678,7 +678,7 @@ namespace nkentseu {
 	Liens symboliques :
 	------------------
 	- Unix : support complet via readlink()/symlink()/lstat()
-	- Windows : CreateSymbolicLinkA() nécessite privilèges élevés ou mode développeur
+	- Windows : CreateSymbolicLinkW() nécessite privilèges élevés ou mode développeur
 	- GetSymbolicLinkTarget() retourne chaîne vide sur Windows (non implémenté)
 
 	Performance des énumérations :

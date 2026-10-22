@@ -32,6 +32,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <process.h>
+#include "NKFileSystem/NkFsLarge.h" // (22/10) chemins UTF-8 -> API larges (UTF-16)
 // Undef des macros Windows qui pourraient entrer en conflit
 #ifdef CreateFile
 #undef CreateFile
@@ -135,9 +136,12 @@ namespace nkentseu {
 		// Ouverture du handle sur le répertoire à surveiller
 		// FILE_FLAG_BACKUP_SEMANTICS requis pour ouvrir un répertoire
 		// FILE_FLAG_OVERLAPPED pour opérations asynchrones
-		HANDLE hDir =
-			CreateFileA(mPath.CStr(), FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
-						OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, NULL);
+		// (22/10) API LARGE (NkFsLarge.h) : un dossier accentue (« Été 2026 ») ne s'ouvrait pas en ANSI, et rien
+		// n'etait surveille, sans un mot
+		const NkFsLarge l(mPath.CStr());
+		HANDLE hDir = l.ok ? CreateFileW(l.w, FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+										 OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, NULL)
+						   : INVALID_HANDLE_VALUE;
 
 		// Gestion d'erreur : retour silencieux si ouverture échoue
 		if (hDir == INVALID_HANDLE_VALUE) {

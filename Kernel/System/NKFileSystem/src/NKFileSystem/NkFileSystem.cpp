@@ -31,6 +31,7 @@
 // En-têtes plateforme pour les APIs système de fichiers
 #ifdef _WIN32
 #include <windows.h>
+#include "NKFileSystem/NkFsLarge.h" // (22/10) chemins UTF-8 -> API larges (UTF-16)
 // Undef des macros Windows qui pourraient entrer en conflit avec nos méthodes
 #ifdef GetFreeSpace
 #undef GetFreeSpace
@@ -98,17 +99,22 @@ namespace nkentseu {
 				NkDriveInfo info;
 				info.Name = driveLetter;
 
-				// Vérification du type et de l'état du lecteur
-				const UINT driveType = GetDriveTypeA(driveLetter);
+				// Vérification du type et de l'état du lecteur. (22/10) API LARGES (NkFsLarge.h) : l'etiquette d'un
+				// volume (« Données ») revenait dans la page de code locale, illisible pour le moteur qui parle UTF-8.
+				const wchar_t wracine[4] = {static_cast<wchar_t>(L'A' + i), L':', L'\\', L'\0'};
+				const UINT driveType = GetDriveTypeW(wracine);
 				info.IsReady = (driveType != DRIVE_NO_ROOT_DIR);
 
 				if (info.IsReady) {
 					// Récupération des métadonnées du volume
-					char volumeName[MAX_PATH];
-					char fileSystemName[MAX_PATH];
+					wchar_t wVolume[MAX_PATH];
+					wchar_t wSysteme[MAX_PATH];
+					char volumeName[MAX_PATH * 3];
+					char fileSystemName[MAX_PATH * 3];
 
-					if (GetVolumeInformationA(driveLetter, volumeName, MAX_PATH, NULL, NULL, NULL, fileSystemName,
-											  MAX_PATH)) {
+					if (GetVolumeInformationW(wracine, wVolume, MAX_PATH, NULL, NULL, NULL, wSysteme, MAX_PATH) &&
+						NkFsVersUtf8(wVolume, volumeName, static_cast<int>(sizeof(volumeName))) &&
+						NkFsVersUtf8(wSysteme, fileSystemName, static_cast<int>(sizeof(fileSystemName)))) {
 						// Stockage de l'étiquette volumique
 						info.Label = volumeName;
 
@@ -128,7 +134,7 @@ namespace nkentseu {
 					ULARGE_INTEGER totalBytes;
 					ULARGE_INTEGER availBytes;
 
-					if (GetDiskFreeSpaceExA(driveLetter, &availBytes, &totalBytes, &freeBytes)) {
+					if (GetDiskFreeSpaceExW(wracine, &availBytes, &totalBytes, &freeBytes)) {
 						info.TotalSize = static_cast<nk_int64>(totalBytes.QuadPart);
 						info.FreeSpace = static_cast<nk_int64>(freeBytes.QuadPart);
 						info.AvailableSpace = static_cast<nk_int64>(availBytes.QuadPart);
@@ -242,8 +248,9 @@ namespace nkentseu {
 		}
 
 #ifdef _WIN32
-		// Lecture des attributs Windows via GetFileAttributesA
-		const DWORD winAttrs = GetFileAttributesA(path);
+		// Lecture des attributs Windows (22/10 : API LARGE, un chemin accentue ; NkFsLarge.h)
+		const NkFsLarge l(path);
+		const DWORD winAttrs = l.ok ? GetFileAttributesW(l.w) : INVALID_FILE_ATTRIBUTES;
 
 		if (winAttrs != INVALID_FILE_ATTRIBUTES) {
 			// Mapping des flags Windows vers notre structure
@@ -256,8 +263,8 @@ namespace nkentseu {
 		}
 
 		// Lecture des timestamps via GetFileTime (nécessite handle de fichier)
-		HANDLE hFile =
-			CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		HANDLE hFile = l.ok ? CreateFileW(l.w, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)
+							: INVALID_HANDLE_VALUE;
 
 		if (hFile != INVALID_HANDLE_VALUE) {
 			FILETIME creation;
@@ -322,8 +329,9 @@ namespace nkentseu {
 			winAttrs |= FILE_ATTRIBUTE_ARCHIVE;
 		}
 
-		// Application via SetFileAttributesA
-		return SetFileAttributesA(path, winAttrs) != 0;
+		// Application via SetFileAttributes (22/10 : API LARGE ; NkFsLarge.h)
+		const NkFsLarge l(path);
+		return l.ok && SetFileAttributesW(l.w, winAttrs) != 0;
 #else
 		// POSIX : modification des permissions via chmod
 		struct stat st;
@@ -415,9 +423,11 @@ namespace nkentseu {
 
 	bool NkFileSystem::SetCreationTime(const char *path, nk_int64 time) {
 #ifdef _WIN32
-		// Windows : modification via SetFileTime avec handle en écriture d'attributs
-		HANDLE hFile = CreateFileA(path, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
-								   FILE_ATTRIBUTE_NORMAL, NULL);
+		// Windows : modification via SetFileTime avec handle en écriture d'attributs (22/10 : API LARGE)
+		const NkFsLarge l(path);
+		HANDLE hFile = l.ok ? CreateFileW(l.w, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+										  FILE_ATTRIBUTE_NORMAL, NULL)
+							: INVALID_HANDLE_VALUE;
 
 		if (hFile == INVALID_HANDLE_VALUE) {
 			return false;
@@ -450,9 +460,11 @@ namespace nkentseu {
 
 	bool NkFileSystem::SetLastAccessTime(const char *path, nk_int64 time) {
 #ifdef _WIN32
-		// Windows : même pattern que SetCreationTime, mais pour le champ d'accès
-		HANDLE hFile = CreateFileA(path, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
-								   FILE_ATTRIBUTE_NORMAL, NULL);
+		// Windows : même pattern que SetCreationTime, mais pour le champ d'accès (22/10 : API LARGE)
+		const NkFsLarge l(path);
+		HANDLE hFile = l.ok ? CreateFileW(l.w, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+										  FILE_ATTRIBUTE_NORMAL, NULL)
+							: INVALID_HANDLE_VALUE;
 
 		if (hFile == INVALID_HANDLE_VALUE) {
 			return false;
@@ -491,9 +503,11 @@ namespace nkentseu {
 
 	bool NkFileSystem::SetLastWriteTime(const char *path, nk_int64 time) {
 #ifdef _WIN32
-		// Windows : même pattern, application sur le champ de dernière écriture
-		HANDLE hFile = CreateFileA(path, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
-								   FILE_ATTRIBUTE_NORMAL, NULL);
+		// Windows : même pattern, application sur le champ de dernière écriture (22/10 : API LARGE)
+		const NkFsLarge l(path);
+		HANDLE hFile = l.ok ? CreateFileW(l.w, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+										  FILE_ATTRIBUTE_NORMAL, NULL)
+							: INVALID_HANDLE_VALUE;
 
 		if (hFile == INVALID_HANDLE_VALUE) {
 			return false;
@@ -587,8 +601,12 @@ namespace nkentseu {
 
 #ifdef _WIN32
 		// Windows : résolution via GetFullPathNameA
-		char buffer[MAX_PATH];
-		if (GetFullPathNameA(path, MAX_PATH, buffer, NULL)) {
+		// (22/10) API LARGE : le chemin complet revient en UTF-8 (NkFsLarge.h)
+		const NkFsLarge l(path);
+		wchar_t wbuffer[NkFsLarge::kMax];
+		char buffer[NkFsLarge::kMax * 3];
+		if (l.ok && GetFullPathNameW(l.w, NkFsLarge::kMax, wbuffer, NULL) &&
+			NkFsVersUtf8(wbuffer, buffer, static_cast<int>(sizeof(buffer)))) {
 			return NkString(buffer);
 		}
 #else
@@ -662,8 +680,9 @@ namespace nkentseu {
 		}
 
 #ifdef _WIN32
-		// Windows : détection via flag REPARSE_POINT dans les attributs
-		const DWORD attrs = GetFileAttributesA(path);
+		// Windows : détection via flag REPARSE_POINT dans les attributs (22/10 : API LARGE)
+		const NkFsLarge l(path);
+		const DWORD attrs = l.ok ? GetFileAttributesW(l.w) : INVALID_FILE_ATTRIBUTES;
 		return (attrs != INVALID_FILE_ATTRIBUTES) && (attrs & FILE_ATTRIBUTE_REPARSE_POINT);
 #else
 		// POSIX : utilisation de lstat() pour ne pas suivre le symlink, puis test S_ISLNK
@@ -718,7 +737,8 @@ namespace nkentseu {
 		// Windows : création via CreateSymbolicLinkA
 		// Paramètre 0 = symlink de fichier, utiliser SYMBOLIC_LINK_FLAG_DIRECTORY pour répertoire
 		// Nécessite privilèges administrateur ou mode développeur activé
-		return CreateSymbolicLinkA(link, target, 0) != 0;
+		const NkFsLarge wl(link), wc(target); // (22/10) API LARGE (NkFsLarge.h)
+		return wl.ok && wc.ok && CreateSymbolicLinkW(wl.w, wc.w, 0) != 0;
 #else
 		// POSIX : création via symlink() avec ordre cible->lien (convention Unix)
 		return symlink(target, link) == 0;
@@ -757,7 +777,7 @@ namespace nkentseu {
 
 	Liens symboliques Windows :
 	--------------------------
-	- CreateSymbolicLinkA() nécessite :
+	- CreateSymbolicLinkW() nécessite :
 	  * Soit les privilèges SeCreateSymbolicLinkPrivilege (administrateur par défaut)
 	  * Soit le "Developer Mode" activé sur Windows 10 1703+
 	- Les symlinks Windows peuvent pointer vers fichiers OU répertoires (flag requis)
