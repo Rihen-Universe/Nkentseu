@@ -66,7 +66,52 @@ namespace nkentseu {
 				// et que le round-trip prédiction+résidu reconstruit l'image à un PSNR élevé.
 				static bool SelfTest();
 
+				/// (23/10) OU PART LE TEMPS : des chronos par phase, cumules sur toutes les trames, poses
+				/// seulement si ActiverProfil(true) (sinon aucun appel d'horloge). Lus par NKMediaTest --mesure-h264.
+				struct Profil {
+						float64 conversionMs = 0.0; ///< RGB -> YUV
+						float64 intraMs = 0.0;		///< macroblocs des images IDR
+						float64 sautMs = 0.0;		///< essais P_Skip (TryInterSkip)
+						float64 mouvementMs = 0.0;	///< recherche de mouvement (entiere + demi + quart)
+						float64 residuMs = 0.0;		///< P code : compensation, residu, CAVLC, reconstruction
+						float64 deblocageMs = 0.0;	///< filtre de deblocage
+						float64 plansMs = 0.0;		///< plans demi-pel de la reference (une fois par image P)
+						float64 totalIMs = 0.0, totalPMs = 0.0;
+						int32 imagesI = 0, imagesP = 0;
+						int64 mbSautes = 0, mbCodes = 0;
+						int64 positionsEntieres = 0; ///< positions entieres evaluees par la recherche
+				};
+
+				void ActiverProfil(bool oui) {
+					mProfilActif = oui;
+				}
+
+				const Profil &LireProfil() const {
+					return mProfil;
+				}
+
+				/// (23/10) La recherche de mouvement EXHAUSTIVE +-16 d'avant (1 089 positions par macrobloc) : la
+				/// reference de qualite des bancs. Faux (le defaut) : la recherche rapide, qui tient le temps reel.
+				bool rechercheExhaustive = false;
+				/// Contre-epreuve h264-recherche-zero : la recherche rapide n'essaie que le vecteur nul (la taille du
+				/// flux explose).
+				bool mutationRechercheZero = false;
+				/// (23/10) Tranches par image, encodees en parallele (une par coeur) : 0 = auto (8 au plus, 4 rangees
+				/// de macroblocs au moins chacune), 1 = une seule tranche (le flux d'avant, au bit pres).
+				int32 tranches = 0;
+				/// Contre-epreuve h264-plans-arrondi : le plan « j » (centre demi-pel) arrondi d'une unite de trop ;
+				/// la reconstruction de l'encodeur s'ecarte alors de celle d'un decodeur standard.
+				bool mutationPlansArrondi = false;
+
 			private:
+				Profil mProfil;
+				bool mProfilActif = false;
+				float64 ProfilMaintenantMs() const;
+				Profil &ProfilCourant(); ///< (23/10) celui de la tranche de ce fil, sinon le commun
+				int32 TranchesEffectives() const;
+				void EcrireEnteteTranche(NkH264BitWriter &bs, int32 premierMb, bool idr);
+				void EncoderTrancheP(int32 r0, int32 r1, NkVector<uint8> &nal);
+				void EncoderTrancheI(int32 r0, int32 r1, NkVector<uint8> &nal);
 				NkFile mFile;
 				NkMp4H264Writer mMp4Writer; // muxer MP4 si le chemin est .mp4/.mov
 				bool mMp4 = false;
@@ -117,6 +162,20 @@ namespace nkentseu {
 				void EncodeMbInter(NkH264BitWriter &bs, int32 mbX, int32 mbY); // P_L0_16×16 codé
 				// Compensation de mouvement depuis la référence (quart-pel luma / 1-8-pel chroma bilinéaire).
 				void McLuma(int32 px, int32 py, int32 mvx, int32 mvy, uint8 out[256]);
+				// (23/10) LES PLANS DEMI-PEL DE LA REFERENCE, calcules une fois par image P : la compensation et la
+				// recherche y LISENT au lieu de refiltrer chaque pixel (jusqu'a 36 lectures bornees pour un « j »).
+				// Memes valeurs, au bit pres, que McLumaBorne (la formule de la norme, lecture bornee).
+				void McLumaBorne(int32 px, int32 py, int32 mvx, int32 mvy, uint8 out[256]);
+				bool McLumaPlans(int32 px, int32 py, int32 mvx, int32 mvy, uint8 out[256]) const; // faux : hors plans
+				void PreparerPlans();
+				int32 RechercheRapide(int32 mbX, int32 mbY, int32 pmx, int32 pmy, int32 &bix,
+									  int32 &biy);		// rend les positions vues
+				static constexpr int32 kPlanMarge = 32; ///< pixels de reference hors image couverts par les plans
+				uint8 *mPlanF = nullptr, *mPlanB = nullptr, *mPlanH = nullptr, *mPlanJ = nullptr; ///< plein, b, h, j
+				int16 *mPlanHor = nullptr; ///< le filtre horizontal brut (avant arrondi), source de « j »
+				int32 mPlanPas = 0, mPlanLignes = 0;
+				bool mPlansPrets = false;
+				int32 *mMvPrecX = nullptr, *mMvPrecY = nullptr; ///< les vecteurs de l'image P precedente
 				void McChroma(int32 comp, int32 cpx, int32 cpy, int32 mvx, int32 mvy, uint8 out[64]);
 				void PredictMv(int32 mbX, int32 mbY, int32 &pmx, int32 &pmy); // prédicteur médian (MVD)
 				void SkipMv(int32 mbX, int32 mbY, int32 &smx, int32 &smy);	 // prédicteur P_Skip

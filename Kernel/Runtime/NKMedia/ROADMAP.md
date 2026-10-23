@@ -1232,6 +1232,12 @@ zero-STL, `nkentseu::media`.
    web. Critère : le débit mesuré reste à ±10 % de la cible.
 4. **Vitesse** : recherche de mouvement en losange ou hexagone, sortie anticipée, tranches encodées en
    parallèle. Critère : au moins le temps réel en 1080p30 sur la machine de Rodolf.
+   **Fait le 2026-10-23 pour le direct (720p, 15 i/s)**, mesuré par `NKMediaTest --mesure-h264` sur une source
+   qui change en entier à chaque image : 4 s par image P avant (recherche exhaustive +-16, 96 % du temps),
+   25 ms après (plans demi-pel une fois par image, recherche par prédicteurs et losanges, tranches en parallèle,
+   déblocage en front d'onde). ffmpeg relit le flux à l'identique de la reconstruction ; PSNR égal à 0,01 dB
+   près, 13 % d'octets en moins. Banc : `Applications/NKMediaTest/tools/banc_h264_vitesse.sh`. Le 1080p30
+   n'est pas encore mesuré.
 5. **Qualité des aplats et dégradés** : quantification adaptative et réglage du déblocage. Le profil High
    (transformée 8x8, CABAC) viendra plus tard.
 6. **Encodeur AAC-LC**, partagé avec le chantier « direct complet » (son et RTMPS) que Rodolf a confirmé.

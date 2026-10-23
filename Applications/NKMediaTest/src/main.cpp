@@ -56,6 +56,7 @@
 #include "NKMedia/Video/NkImageSequenceWriter.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKMath/NkFunctions.h"
+#include "NkMesureH264.h" // (23/10) --mesure-h264
 
 #include <cstdio>
 
@@ -73,6 +74,10 @@ static const char *TrackTypeName(media::NkMediaTrackType t) {
 }
 
 int main(int argc, char **argv) {
+	// (23/10) --mesure-h264 <dossier> [images] [qp] [sorties] : le cout par image de l'encodeur, source qui
+	// change en entier (NkMesureH264.h, tools/banc_h264_vitesse.sh).
+	if (argc >= 3 && NkString(argv[1]) == NkString("--mesure-h264"))
+		return NkMesureH264(argc, argv);
 	// (10/10) Encoder des images en MP4 avec l'encodeur H.264 maison de NKMedia :
 	//   --encoder-mp4 <largeur> <hauteur> <ips> <qp> <sortie.mp4> [gop]   (gop 1 : images cles seulement)
 	// Les images arrivent sur l'ENTREE STANDARD, en RGB24 brut (largeur x hauteur x 3 octets

@@ -8,11 +8,57 @@
 #include "NKMedia/Codecs/Video/H264/NkH264Transform.h"
 #include "NKMedia/Codecs/Video/H264/NkH264Cavlc.h"
 #include "NKMemory/NKMemory.h"
+#include "NKTime/NkChrono.h" // (23/10) les chronos du profil (ActiverProfil)
+#include "NKCore/NkAtomic.h"
+#include "NKThreading/NkThreadPool.h" // (23/10) les tranches encodees en parallele
 
 namespace nkentseu {
 	namespace media {
 
 		namespace {
+			// (23/10) LES TRANCHES EN PARALLELE. Chaque fil encode UNE tranche (des rangees entieres de
+			// macroblocs) ; la norme rend indisponible tout voisin d'une AUTRE tranche (§7.4.3 et §6.4.8) :
+			// tlTrancheHaut est la premiere rangee de la tranche que CE fil encode (0 hors du parallele), et
+			// chaque test « le voisin du dessus existe » la compare au lieu de 0. tlProfil : le profil de la tranche.
+			thread_local int32 tlTrancheHaut = 0;
+			thread_local NkH264Encoder::Profil *tlProfil = nullptr;
+
+			threading::NkThreadPool &H264Pool() {
+				static threading::NkThreadPool pool(0u); // 0 = les coeurs logiques
+				return pool;
+			}
+
+			/// fn(0..count-1), sur `fils` fils au plus (le fil appelant compris), puis attend la fin de tous. Les
+			/// indices sont pris DANS L'ORDRE (un indice n'est pris qu'apres tous ceux d'avant) : un indice peut donc
+			/// attendre la progression d'un indice plus petit sans risque d'interblocage (le front d'onde du
+			/// deblocage).
+			template <typename F> void H264EnParallele(int32 count, int32 fils, F &&fn) {
+				const int32 aides = (fils < count ? fils : count) - 1;
+				if (aides <= 0) {
+					for (int32 i = 0; i < count; ++i)
+						fn(i);
+					return;
+				}
+				NkAtomic<int32> suivant(0), faits(0), sortis(0);
+				auto travail = [&]() {
+					for (;;) {
+						const int32 i = suivant.FetchAdd(1);
+						if (i >= count)
+							break;
+						fn(i);
+						faits.FetchAdd(1);
+					}
+				};
+				for (int32 h = 0; h < aides; ++h)
+					H264Pool().Enqueue([&travail, &sortis]() {
+						travail();
+						sortis.FetchAdd(1);
+					});
+				travail();
+				while (faits.Load() < count || sortis.Load() < aides)
+					NkChrono::YieldThread();
+			}
+
 			inline uint8 ClampU8(int32 v) {
 				return (uint8)(v < 0 ? 0 : (v > 255 ? 255 : v));
 			}
@@ -272,8 +318,24 @@ namespace nkentseu {
 			mMvX = (int32 *)memory::NkAlloc((usize)mMbW * mMbH * sizeof(int32));
 			mMvY = (int32 *)memory::NkAlloc((usize)mMbW * mMbH * sizeof(int32));
 			mMbInter = (int32 *)memory::NkAlloc((usize)mMbW * mMbH * sizeof(int32));
+			// (23/10) les plans demi-pel de la reference et les vecteurs de l'image precedente (recherche rapide)
+			mPlanPas = mLumaW + 2 * kPlanMarge;
+			mPlanLignes = mLumaH + 2 * kPlanMarge;
+			const usize planN = (usize)mPlanPas * mPlanLignes;
+			mPlanF = (uint8 *)memory::NkAlloc(planN);
+			mPlanB = (uint8 *)memory::NkAlloc(planN);
+			mPlanH = (uint8 *)memory::NkAlloc(planN);
+			mPlanJ = (uint8 *)memory::NkAlloc(planN);
+			mPlanHor = (int16 *)memory::NkAlloc(planN * sizeof(int16));
+			mMvPrecX = (int32 *)memory::NkAlloc((usize)mMbW * mMbH * sizeof(int32));
+			mMvPrecY = (int32 *)memory::NkAlloc((usize)mMbW * mMbH * sizeof(int32));
+			mPlansPrets = false;
+			if (mMvPrecX && mMvPrecY)
+				for (int32 i = 0; i < mMbW * mMbH; ++i)
+					mMvPrecX[i] = mMvPrecY[i] = 0;
 			if (!mY || !mCb || !mCr || !mRecY || !mRecCb || !mRecCr || !mLumaNz || !mChromaNz[0] || !mChromaNz[1] ||
-				!mI4Mode || !mRefY || !mRefCb || !mRefCr || !mMvX || !mMvY || !mMbInter) {
+				!mI4Mode || !mRefY || !mRefCb || !mRefCr || !mMvX || !mMvY || !mMbInter || !mPlanF || !mPlanB ||
+				!mPlanH || !mPlanJ || !mPlanHor || !mMvPrecX || !mMvPrecY) {
 				Free();
 				return false;
 			}
@@ -314,6 +376,20 @@ namespace nkentseu {
 			for (int32 i = 0; i < 6; ++i)
 				if (bufs[i])
 					memory::NkFree(bufs[i]);
+			uint8 *plans[4] = {mPlanF, mPlanB, mPlanH, mPlanJ}; // (23/10)
+			for (int32 i = 0; i < 4; ++i)
+				if (plans[i])
+					memory::NkFree(plans[i]);
+			if (mPlanHor)
+				memory::NkFree(mPlanHor);
+			if (mMvPrecX)
+				memory::NkFree(mMvPrecX);
+			if (mMvPrecY)
+				memory::NkFree(mMvPrecY);
+			mPlanF = mPlanB = mPlanH = mPlanJ = nullptr;
+			mPlanHor = nullptr;
+			mMvPrecX = mMvPrecY = nullptr;
+			mPlansPrets = false;
 			if (mLumaNz)
 				memory::NkFree(mLumaNz);
 			for (int32 c = 0; c < 2; ++c)
@@ -340,6 +416,31 @@ namespace nkentseu {
 		// --------------------------------------------------------------------------
 		void NkH264Encoder::ConvertToYuv(const uint8 *pixels, NkVideoInputFormat fmt) {
 			const int32 ibpp = (fmt == NkVideoInputFormat::RGBA32) ? 4 : 3;
+			// (23/10) image deja multiple de 16 (720p, 1080p a 1088 pres...) : lignes lues directement, sans borner
+			// chaque pixel ni retester le format ; memes formules, memes valeurs.
+			if (mLumaW == mWidth && mLumaH == mHeight) {
+				const int32 ir = fmt == NkVideoInputFormat::BGR24 ? 2 : 0, ib = 2 - ir;
+				H264EnParallele(mMbH, TranchesEffectives(), [&](int32 bande) { // 16 lignes luma, 8 chroma
+					for (int32 y = bande * 16; y < bande * 16 + 16; ++y) {
+						const uint8 *p = pixels + (usize)y * mWidth * ibpp;
+						uint8 *d = mY + (usize)y * mLumaW;
+						for (int32 x = 0; x < mLumaW; ++x, p += ibpp)
+							d[x] = (uint8)ClampU8((77 * p[ir] + 150 * p[1] + 29 * p[ib]) >> 8);
+					}
+					for (int32 cy = bande * 8; cy < bande * 8 + 8; ++cy) {
+						const uint8 *p0 = pixels + (usize)(cy * 2) * mWidth * ibpp, *p1 = p0 + (usize)mWidth * ibpp;
+						uint8 *db = mCb + (usize)cy * mChromaW, *dr = mCr + (usize)cy * mChromaW;
+						for (int32 cx = 0; cx < mChromaW; ++cx, p0 += 2 * ibpp, p1 += 2 * ibpp) {
+							const int32 r = (p0[ir] + p0[ibpp + ir] + p1[ir] + p1[ibpp + ir]) / 4;
+							const int32 g = (p0[1] + p0[ibpp + 1] + p1[1] + p1[ibpp + 1]) / 4;
+							const int32 b = (p0[ib] + p0[ibpp + ib] + p1[ib] + p1[ibpp + ib]) / 4;
+							db[cx] = (uint8)ClampU8(128 + ((-43 * r - 85 * g + 128 * b) >> 8));
+							dr[cx] = (uint8)ClampU8(128 + ((128 * r - 107 * g - 21 * b) >> 8));
+						}
+					}
+				});
+				return;
+			}
 			for (int32 y = 0; y < mLumaH; ++y) {
 				const int32 sy = Clamp(y, 0, mHeight - 1);
 				for (int32 x = 0; x < mLumaW; ++x) {
@@ -387,7 +488,7 @@ namespace nkentseu {
 		// CAVLC, reconstruction. Chroma en prédiction DC seule (pas de résidu).
 		void NkH264Encoder::EncodeMacroblock(NkH264BitWriter &bs, int32 mbX, int32 mbY) {
 			const int32 px = mbX * 16, py = mbY * 16;
-			const bool availTop = mbY > 0, availLeft = mbX > 0;
+			const bool availTop = mbY > tlTrancheHaut, availLeft = mbX > 0; // (23/10) pas au-dessus de la tranche
 			const int32 nzW = mMbW * 4;
 
 			// --- voisins luma reconstruits ---
@@ -526,7 +627,7 @@ namespace nkentseu {
 					// nC depuis les voisins (grille déjà remplie pour les blocs précédents)
 					const int32 nAx = bx - 1, nBy = by - 1;
 					const int32 nA = (bx > 0) ? mLumaNz[by * nzW + nAx] : -1;
-					const int32 nB = (by > 0) ? mLumaNz[nBy * nzW + bx] : -1;
+					const int32 nB = (by > tlTrancheHaut * 4) ? mLumaNz[nBy * nzW + bx] : -1;
 					const int32 nC = PredictNc(nA, nB);
 					int32 acScan[15];
 					for (int32 k = 1; k < 16; ++k)
@@ -665,7 +766,7 @@ namespace nkentseu {
 					int32 tc = 0;
 					if (c.cbp & 2) {
 						const int32 nA = (bx > 0) ? mChromaNz[comp][by * cnzW + (bx - 1)] : -1;
-						const int32 nB = (by > 0) ? mChromaNz[comp][(by - 1) * cnzW + bx] : -1;
+						const int32 nB = (by > tlTrancheHaut * 2) ? mChromaNz[comp][(by - 1) * cnzW + bx] : -1;
 						const int32 nC = PredictNc(nA, nB);
 						int32 acScan[15];
 						for (int32 k = 1; k < 16; ++k)
@@ -682,8 +783,8 @@ namespace nkentseu {
 		void NkH264Encoder::EncodeMbIntra4x4(NkH264BitWriter &bs, int32 mbX, int32 mbY) {
 			const int32 px = mbX * 16, py = mbY * 16;
 			const int32 nzW = mMbW * 4;
-			const bool availTop = mbY > 0, availLeft = mbX > 0;
-			const bool availTrMb = (mbY > 0) && (mbX < mMbW - 1);
+			const bool availTop = mbY > tlTrancheHaut, availLeft = mbX > 0; // (23/10) pas au-dessus de la tranche
+			const bool availTrMb = (mbY > tlTrancheHaut) && (mbX < mMbW - 1);
 
 			uint8 src[256];
 			for (int32 j = 0; j < 16; ++j)
@@ -766,7 +867,7 @@ namespace nkentseu {
 				// dcPredModePredictedFlag force les DEUX à DC(2) → predMode = 2 ; sinon min des deux.
 				const int32 bx = mbX * 4 + x4 / 4, by = mbY * 4 + y4 / 4;
 				int32 predMode;
-				if (bx == 0 || by == 0) {
+				if (bx == 0 || by == tlTrancheHaut * 4) { // (23/10) le bord de la tranche
 					predMode = 2;
 				} else {
 					const int32 intraA = mI4Mode[by * nzW + (bx - 1)];
@@ -830,7 +931,7 @@ namespace nkentseu {
 					LumaBlk(blk, x4, y4);
 					const int32 bx = mbX * 4 + x4 / 4, by = mbY * 4 + y4 / 4;
 					const int32 nA = (bx > 0) ? mLumaNz[by * nzW + (bx - 1)] : -1;
-					const int32 nB = (by > 0) ? mLumaNz[(by - 1) * nzW + bx] : -1;
+					const int32 nB = (by > tlTrancheHaut * 4) ? mLumaNz[(by - 1) * nzW + bx] : -1;
 					const int32 nC = PredictNc(nA, nB);
 					int32 scan[16];
 					for (int32 i = 0; i < 16; ++i)
@@ -910,74 +1011,233 @@ namespace nkentseu {
 				}
 			};
 
-			for (int32 mbY = 0; mbY < mMbH; ++mbY)
-				for (int32 mbX = 0; mbX < mMbW; ++mbX) {
-					int32 bS[4];
-					// --- luma : bords verticaux (par segment de 4 lignes) ---
-					for (int32 e = 0; e < 4; ++e) {
-						if (e == 0 && mbX == 0)
+			auto deblocMb = [&](int32 mbX, int32 mbY) {
+				int32 bS[4];
+				// --- luma : bords verticaux (par segment de 4 lignes) ---
+				for (int32 e = 0; e < 4; ++e) {
+					if (e == 0 && mbX == 0)
+						continue;
+					vertBs(mbX, mbY, e, bS);
+					const int32 x = mbX * 16 + e * 4;
+					for (int32 br = 0; br < 4; ++br) {
+						if (bS[br] == 0)
 							continue;
-						vertBs(mbX, mbY, e, bS);
-						const int32 x = mbX * 16 + e * 4;
-						for (int32 br = 0; br < 4; ++br) {
-							if (bS[br] == 0)
+						const int32 tc0 = (bS[br] < 4) ? kTc0[idx][bS[br] - 1] : 0;
+						for (int32 r = 0; r < 4; ++r)
+							FiltLuma(&mRecY[(usize)(mbY * 16 + br * 4 + r) * mLumaW + x], 1, alpha, beta, bS[br], tc0);
+					}
+				}
+				// --- luma : bords horizontaux ---
+				for (int32 e = 0; e < 4; ++e) {
+					if (e == 0 && mbY == 0)
+						continue;
+					horizBs(mbX, mbY, e, bS);
+					const int32 y = mbY * 16 + e * 4;
+					for (int32 bc = 0; bc < 4; ++bc) {
+						if (bS[bc] == 0)
+							continue;
+						const int32 tc0 = (bS[bc] < 4) ? kTc0[idx][bS[bc] - 1] : 0;
+						for (int32 c = 0; c < 4; ++c)
+							FiltLuma(&mRecY[(usize)y * mLumaW + mbX * 16 + bc * 4 + c], mLumaW, alpha, beta, bS[bc],
+									 tc0);
+					}
+				}
+				// --- chroma (4:2:0) : bords cx=0/4 (↔ luma e=0/2), bS repris du luma (ligne cr → segment cr/2) ---
+				for (int32 comp = 0; comp < 2; ++comp) {
+					uint8 *rec = comp == 0 ? mRecCb : mRecCr;
+					for (int32 ec = 0; ec < 2; ++ec) {
+						if (ec == 0 && mbX == 0)
+							continue;
+						vertBs(mbX, mbY, ec * 2, bS);
+						const int32 cx = mbX * 8 + ec * 4;
+						for (int32 cr = 0; cr < 8; ++cr) {
+							const int32 b = bS[cr / 2];
+							if (b == 0)
 								continue;
-							const int32 tc0 = (bS[br] < 4) ? kTc0[idx][bS[br] - 1] : 0;
-							for (int32 r = 0; r < 4; ++r)
-								FiltLuma(&mRecY[(usize)(mbY * 16 + br * 4 + r) * mLumaW + x], 1, alpha, beta, bS[br], tc0);
+							const int32 tc0 = (b < 4) ? kTc0[idxC][b - 1] : 0;
+							FiltChroma(&rec[(usize)(mbY * 8 + cr) * mChromaW + cx], 1, alphaC, betaC, b, tc0);
 						}
 					}
-					// --- luma : bords horizontaux ---
-					for (int32 e = 0; e < 4; ++e) {
-						if (e == 0 && mbY == 0)
+					for (int32 ec = 0; ec < 2; ++ec) {
+						if (ec == 0 && mbY == 0)
 							continue;
-						horizBs(mbX, mbY, e, bS);
-						const int32 y = mbY * 16 + e * 4;
-						for (int32 bc = 0; bc < 4; ++bc) {
-							if (bS[bc] == 0)
+						horizBs(mbX, mbY, ec * 2, bS);
+						const int32 cy = mbY * 8 + ec * 4;
+						for (int32 cc = 0; cc < 8; ++cc) {
+							const int32 b = bS[cc / 2];
+							if (b == 0)
 								continue;
-							const int32 tc0 = (bS[bc] < 4) ? kTc0[idx][bS[bc] - 1] : 0;
-							for (int32 c = 0; c < 4; ++c)
-								FiltLuma(&mRecY[(usize)y * mLumaW + mbX * 16 + bc * 4 + c], mLumaW, alpha, beta, bS[bc],
-										 tc0);
-						}
-					}
-					// --- chroma (4:2:0) : bords cx=0/4 (↔ luma e=0/2), bS repris du luma (ligne cr → segment cr/2) ---
-					for (int32 comp = 0; comp < 2; ++comp) {
-						uint8 *rec = comp == 0 ? mRecCb : mRecCr;
-						for (int32 ec = 0; ec < 2; ++ec) {
-							if (ec == 0 && mbX == 0)
-								continue;
-							vertBs(mbX, mbY, ec * 2, bS);
-							const int32 cx = mbX * 8 + ec * 4;
-							for (int32 cr = 0; cr < 8; ++cr) {
-								const int32 b = bS[cr / 2];
-								if (b == 0)
-									continue;
-								const int32 tc0 = (b < 4) ? kTc0[idxC][b - 1] : 0;
-								FiltChroma(&rec[(usize)(mbY * 8 + cr) * mChromaW + cx], 1, alphaC, betaC, b, tc0);
-							}
-						}
-						for (int32 ec = 0; ec < 2; ++ec) {
-							if (ec == 0 && mbY == 0)
-								continue;
-							horizBs(mbX, mbY, ec * 2, bS);
-							const int32 cy = mbY * 8 + ec * 4;
-							for (int32 cc = 0; cc < 8; ++cc) {
-								const int32 b = bS[cc / 2];
-								if (b == 0)
-									continue;
-								const int32 tc0 = (b < 4) ? kTc0[idxC][b - 1] : 0;
-								FiltChroma(&rec[(usize)cy * mChromaW + mbX * 8 + cc], mChromaW, alphaC, betaC, b, tc0);
-							}
+							const int32 tc0 = (b < 4) ? kTc0[idxC][b - 1] : 0;
+							FiltChroma(&rec[(usize)cy * mChromaW + mbX * 8 + cc], mChromaW, alphaC, betaC, b, tc0);
 						}
 					}
 				}
+			};
+			// (23/10) LE FRONT D'ONDE. Deblocer un macrobloc touche les 3 colonnes de droite de son voisin de gauche
+			// et les 3 lignes du bas de celui du dessus ; ce dernier est lui-meme touche par le bord gauche de SON
+			// voisin de droite. Le macrobloc (x, y) attend donc que la rangee y-1 ait fini (x+1) : l'ordre de la norme
+			// (raster) est respecte pour chaque pixel, le resultat est le meme au bit pres.
+			const int32 fils = TranchesEffectives();
+			if (fils <= 1 || mMbH > 256) {
+				for (int32 mbY = 0; mbY < mMbH; ++mbY)
+					for (int32 mbX = 0; mbX < mMbW; ++mbX)
+						deblocMb(mbX, mbY);
+				return;
+			}
+			NkAtomic<int32> faits[256]; // macroblocs finis de chaque rangee
+			for (int32 y = 0; y < mMbH; ++y)
+				faits[y].Store(0);
+			H264EnParallele(mMbH, fils, [&](int32 mbY) {
+				for (int32 mbX = 0; mbX < mMbW; ++mbX) {
+					if (mbY > 0) {
+						const int32 attendu = mbX + 2 < mMbW ? mbX + 2 : mMbW;
+						while (faits[mbY - 1].Load() < attendu)
+							NkChrono::YieldThread();
+					}
+					deblocMb(mbX, mbY);
+					faits[mbY].Store(mbX + 1);
+				}
+			});
 		}
 
 		// --------------------------------------------------------------------------
 		// Compensation de mouvement luma quart-pel (§8.4.2.2.1) : 6-tap demi-pel + moyenne quart-pel.
 		void NkH264Encoder::McLuma(int32 px, int32 py, int32 mvx, int32 mvy, uint8 out[256]) {
+			// (23/10) les plans demi-pel quand ils couvrent le bloc ; sinon la formule bornee (memes valeurs).
+			if (mPlansPrets && McLumaPlans(px, py, mvx, mvy, out))
+				return;
+			McLumaBorne(px, py, mvx, mvy, out);
+		}
+
+		// (23/10) LES PLANS. Origine (-kPlanMarge, -kPlanMarge) de l'image ; F = la reference lue BORNEE (ses
+		// bords prolonges, exactement ce que lit R() ci-dessous) ; Hor = le filtre 6 prises horizontal brut ;
+		// b = Clip((Hor+16)>>5) ; h = Clip((Ver+16)>>5) ; j = Clip((6 prises verticales de Hor + 512)>>10).
+		// b, h et j sont valides sur [2, pas-3) de chaque axe du plan (les prises restent dans F).
+		void NkH264Encoder::PreparerPlans() {
+			const int32 M = kPlanMarge, W = mLumaW, H = mLumaH, PW = mPlanPas, PH = mPlanLignes;
+			const int32 bandes = (PH + 31) / 32, fils = TranchesEffectives();
+			// (23/10) passe 1, en parallele par bandes de 32 lignes : F, le filtre horizontal brut, b
+			H264EnParallele(bandes, fils, [&](int32 bande) {
+				const int32 yFin = bande * 32 + 32 < PH ? bande * 32 + 32 : PH;
+				for (int32 y = bande * 32; y < yFin; ++y) {
+					const int32 sy = y - M < 0 ? 0 : (y - M >= H ? H - 1 : y - M);
+					const uint8 *s = mRefY + (usize)sy * W;
+					uint8 *d = mPlanF + (usize)y * PW;
+					for (int32 x = 0; x < M; ++x)
+						d[x] = s[0];
+					for (int32 x = 0; x < W; ++x)
+						d[M + x] = s[x];
+					for (int32 x = M + W; x < PW; ++x)
+						d[x] = s[W - 1];
+					const uint8 *f = mPlanF + (usize)y * PW;
+					int16 *h = mPlanHor + (usize)y * PW;
+					uint8 *b = mPlanB + (usize)y * PW;
+					for (int32 x = 2; x < PW - 3; ++x) {
+						const int32 v = f[x - 2] - 5 * f[x - 1] + 20 * f[x] + 20 * f[x + 1] - 5 * f[x + 2] + f[x + 3];
+						h[x] = (int16)v;
+						b[x] = (uint8)ClampU8((v + 16) >> 5);
+					}
+				}
+			});
+			const int32 arrondiJ = mutationPlansArrondi ? 513 : 512; // contre-epreuve h264-plans-arrondi
+			// passe 2 (apres TOUTE la passe 1 : elle lit 2 lignes au-dessus et 3 au-dessous) : h, j
+			H264EnParallele(bandes, fils, [&](int32 bande) {
+				const int32 yDebut = bande * 32 < 2 ? 2 : bande * 32,
+							yFin = bande * 32 + 32 < PH - 3 ? bande * 32 + 32 : PH - 3;
+				for (int32 y = yDebut; y < yFin; ++y) {
+					const uint8 *f0 = mPlanF + (usize)(y - 2) * PW, *f1 = f0 + PW, *f2 = f1 + PW, *f3 = f2 + PW,
+								*f4 = f3 + PW, *f5 = f4 + PW;
+					uint8 *hv = mPlanH + (usize)y * PW;
+					for (int32 x = 0; x < PW; ++x) {
+						const int32 v = f0[x] - 5 * f1[x] + 20 * f2[x] + 20 * f3[x] - 5 * f4[x] + f5[x];
+						hv[x] = (uint8)ClampU8((v + 16) >> 5);
+					}
+					const int16 *h0 = mPlanHor + (usize)(y - 2) * PW, *h1 = h0 + PW, *h2 = h1 + PW, *h3 = h2 + PW,
+								*h4 = h3 + PW, *h5 = h4 + PW;
+					uint8 *j = mPlanJ + (usize)y * PW;
+					for (int32 x = 2; x < PW - 3; ++x) {
+						const int32 v = h0[x] - 5 * h1[x] + 20 * h2[x] + 20 * h3[x] - 5 * h4[x] + h5[x];
+						j[x] = (uint8)ClampU8((v + arrondiJ) >> 10);
+					}
+				}
+			});
+			mPlansPrets = true;
+		}
+
+		bool NkH264Encoder::McLumaPlans(int32 px, int32 py, int32 mvx, int32 mvy, uint8 out[256]) const {
+			const int32 M = kPlanMarge, PW = mPlanPas;
+			const int32 bx = px + (mvx >> 2), by = py + (mvy >> 2);
+			// lus : x de bx a bx+16, y de by a by+16 (le voisin de droite / du dessous des cas 3, 7, 11 a 15)
+			if (bx + M < 2 || by + M < 2 || bx + 16 + M >= PW - 3 || by + 16 + M >= mPlanLignes - 3)
+				return false;
+			const usize o = (usize)(by + M) * PW + (usize)(bx + M);
+			// chaque cas de la norme (voir McLumaBorne) = un plan, ou la moyenne arrondie de deux
+			const uint8 *F = mPlanF + o, *B = mPlanB + o, *Hp = mPlanH + o, *J = mPlanJ + o;
+			const uint8 *a = F, *c = nullptr;
+			switch ((mvy & 3) * 4 + (mvx & 3)) {
+				case 0:
+					a = F;
+					break;
+				case 1:
+					a = F, c = B;
+					break;
+				case 2:
+					a = B;
+					break;
+				case 3:
+					a = B, c = F + 1;
+					break;
+				case 4:
+					a = F, c = Hp;
+					break;
+				case 5:
+					a = B, c = Hp;
+					break;
+				case 6:
+					a = B, c = J;
+					break;
+				case 7:
+					a = B, c = Hp + 1;
+					break;
+				case 8:
+					a = Hp;
+					break;
+				case 9:
+					a = Hp, c = J;
+					break;
+				case 10:
+					a = J;
+					break;
+				case 11:
+					a = J, c = Hp + 1;
+					break;
+				case 12:
+					a = Hp, c = F + PW;
+					break;
+				case 13:
+					a = Hp, c = B + PW;
+					break;
+				case 14:
+					a = J, c = B + PW;
+					break;
+				default:
+					a = Hp + 1, c = B + PW;
+					break; // 15
+			}
+			if (!c) {
+				for (int32 y = 0; y < 16; ++y)
+					for (int32 x = 0; x < 16; ++x)
+						out[y * 16 + x] = a[(usize)y * PW + x];
+			} else {
+				for (int32 y = 0; y < 16; ++y)
+					for (int32 x = 0; x < 16; ++x)
+						out[y * 16 + x] = (uint8)((a[(usize)y * PW + x] + c[(usize)y * PW + x] + 1) >> 1);
+			}
+			return true;
+		}
+
+		// La compensation luma de la norme (§8.4.2.2.1), chaque pixel lu BORNE dans la reference.
+		void NkH264Encoder::McLumaBorne(int32 px, int32 py, int32 mvx, int32 mvy, uint8 out[256]) {
 			const int32 W = mLumaW, H = mLumaH;
 			const uint8 *ref = mRefY;
 			auto R = [&](int32 x, int32 y) -> int32 {
@@ -1031,6 +1291,17 @@ namespace nkentseu {
 			const uint8 *ref = comp == 0 ? mRefCb : mRefCr;
 			const int32 W = mChromaW, H = mChromaH;
 			const int32 fx = mvx & 7, fy = mvy & 7, ox = mvx >> 3, oy = mvy >> 3;
+			// (23/10) tout le bloc (et sa colonne / ligne de droite et du dessous) dans l'image : lecture directe
+			const int32 x0 = cpx + ox, y0 = cpy + oy;
+			if (x0 >= 0 && y0 >= 0 && x0 + 8 < W && y0 + 8 < H) {
+				const int32 wA = (8 - fx) * (8 - fy), wB = fx * (8 - fy), wC = (8 - fx) * fy, wD = fx * fy;
+				for (int32 y = 0; y < 8; ++y) {
+					const uint8 *l0 = ref + (usize)(y0 + y) * W + x0, *l1 = l0 + W;
+					for (int32 x = 0; x < 8; ++x)
+						out[y * 8 + x] = (uint8)((wA * l0[x] + wB * l0[x + 1] + wC * l1[x] + wD * l1[x + 1] + 32) >> 6);
+				}
+				return;
+			}
 			auto C = [&](int32 x, int32 y) -> int32 {
 				x = x < 0 ? 0 : (x >= W ? W - 1 : x);
 				y = y < 0 ? 0 : (y >= H ? H - 1 : y);
@@ -1049,7 +1320,8 @@ namespace nkentseu {
 		// Prédicteur médian de MV (§8.4.1.3) pour une partition 16×16.
 		void NkH264Encoder::PredictMv(int32 mbX, int32 mbY, int32 &pmx, int32 &pmy) {
 			auto NB = [&](int32 nx, int32 ny, bool &av, int32 &rf, int32 &mx, int32 &my) {
-				if (nx < 0 || ny < 0 || nx >= mMbW || ny >= mMbH) {
+				if (nx < 0 || ny < tlTrancheHaut || nx >= mMbW ||
+					ny >= mMbH) { // (23/10) hors de la tranche : indisponible
 					av = false;
 					rf = -1;
 					mx = my = 0;
@@ -1105,7 +1377,7 @@ namespace nkentseu {
 
 		// Prédicteur P_Skip (§8.4.1.1) : 0 si un voisin manque ou est inter à MV nul, sinon médian.
 		void NkH264Encoder::SkipMv(int32 mbX, int32 mbY, int32 &smx, int32 &smy) {
-			bool zero = (mbX == 0) || (mbY == 0);
+			bool zero = (mbX == 0) || (mbY == tlTrancheHaut); // (23/10) la premiere rangee de la tranche
 			if (!zero) {
 				const int32 idA = mbY * mMbW + (mbX - 1), idB = (mbY - 1) * mMbW + mbX;
 				if (mMbInter[idA] && mMvX[idA] == 0 && mMvY[idA] == 0)
@@ -1127,29 +1399,22 @@ namespace nkentseu {
 			SkipMv(mbX, mbY, smx, smy);
 			uint8 predY[256], cPred[2][64];
 			McLuma(px, py, smx, smy, predY);
-			int32 lvlBlk[16][16];
+			// (23/10) P_Skip exige que TOUS les niveaux soient nuls : le premier bloc 4x4 qui en garde un suffit a
+			// refuser (meme decision qu'avant, sans quantifier les 15 autres blocs ni la chroma).
 			for (int32 blk = 0; blk < 16; ++blk) {
 				int32 x4, y4;
 				LumaBlk(blk, x4, y4);
-				int32 res[16], coef[16];
+				int32 res[16], coef[16], lvl[16];
 				for (int32 r = 0; r < 4; ++r)
 					for (int32 c = 0; c < 4; ++c)
 						res[r * 4 + c] = (int32)mY[(usize)(py + y4 + r) * mLumaW + px + x4 + c] - predY[(y4 + r) * 16 + (x4 + c)];
 				NkH264Transform::Forward4x4(res, coef);
-				NkH264Transform::Quant4x4(coef, lvlBlk[blk], mQp, false);
+				NkH264Transform::Quant4x4(coef, lvl, mQp, false);
+				for (int32 i = 0; i < 16; ++i)
+					if (lvl[i])
+						return false;
 			}
-			int32 lumaCbp = 0;
-			for (int32 k = 0; k < 4; ++k) {
-				bool cd = false;
-				for (int32 b = 0; b < 4 && !cd; ++b)
-					for (int32 i = 0; i < 16; ++i)
-						if (lvlBlk[k * 4 + b][i]) {
-							cd = true;
-							break;
-						}
-				if (cd)
-					lumaCbp |= (1 << k);
-			}
+			const int32 lumaCbp = 0;
 			McChroma(0, cpx, cpy, smx, smy, cPred[0]);
 			McChroma(1, cpx, cpy, smx, smy, cPred[1]);
 			ChromaMb cmb;
@@ -1168,10 +1433,95 @@ namespace nkentseu {
 		}
 
 		// Macrobloc P_L0_16×16 codé : estimation de mouvement (entier→demi→quart), MVD, résidu, reconstruction.
+		// (23/10) LA RECHERCHE RAPIDE (le direct) : les vecteurs que le voisinage propose (predicteur median, zero,
+		// gauche, haut, haut-droite, et ceux de l'image P precedente au meme endroit et a cote), puis un grand
+		// losange (pas de 2) et un petit (pas de 1) tant qu'ils trouvent mieux, puis les 4 diagonales. Meme cout que
+		// la recherche exhaustive (SAD + 2 x |ecart au predicteur| en quart de pixel). Les positions restent dans
+		// les plans, affinage demi/quart compris. Rend le nombre de positions evaluees.
+		int32 NkH264Encoder::RechercheRapide(int32 mbX, int32 mbY, int32 pmx, int32 pmy, int32 &bix, int32 &biy) {
+			const int32 M = kPlanMarge, PW = mPlanPas, px = mbX * 16, py = mbY * 16;
+			const int32 ixMin = 3 - M - px, ixMax = PW - 20 - M - px, iyMin = 3 - M - py,
+						iyMax = mPlanLignes - 20 - M - py;
+			const uint8 *src = mY + (usize)py * mLumaW + px;
+			const int64 kInfini = (int64)1 << 60;
+			int64 best = kInfini;
+			int32 n = 0;
+			auto cout = [&](int32 ix, int32 iy) -> int64 {
+				if (ix < ixMin || ix > ixMax || iy < iyMin || iy > iyMax)
+					return kInfini;
+				++n;
+				const int32 cxq = ix * 4 - pmx, cyq = iy * 4 - pmy;
+				int64 s = 2 * ((cxq < 0 ? -cxq : cxq) + (cyq < 0 ? -cyq : cyq));
+				const uint8 *r = mPlanF + (usize)(py + iy + M) * PW + (usize)(px + ix + M);
+				for (int32 y = 0; y < 16; ++y) {
+					const uint8 *a = src + (usize)y * mLumaW, *b = r + (usize)y * PW;
+					int32 l = 0;
+					for (int32 x = 0; x < 16; ++x) {
+						const int32 d = (int32)a[x] - b[x];
+						l += d < 0 ? -d : d;
+					}
+					s += l;
+					if (s >= best) // ne peut plus battre le meilleur : inutile de finir
+						return s;
+				}
+				return s;
+			};
+			auto essayer = [&](int32 ix, int32 iy) {
+				const int64 c = cout(ix, iy);
+				if (c < best) {
+					best = c;
+					bix = ix;
+					biy = iy;
+				}
+			};
+			auto entier = [](int32 q) { return (q + 2) >> 2; }; // quart de pixel -> pixel le plus proche
+			if (mutationRechercheZero) { // contre-epreuve h264-recherche-zero : le vecteur nul seul
+				essayer(0, 0);
+				return n;
+			}
+			essayer(entier(pmx), entier(pmy));
+			essayer(0, 0);
+			const int32 id = mbY * mMbW + mbX;
+			if (mbX > 0)
+				essayer(entier(mMvX[id - 1]), entier(mMvY[id - 1]));
+			if (mbY > tlTrancheHaut) { // (23/10) une autre tranche s'ecrit en meme temps : pas ses vecteurs
+				essayer(entier(mMvX[id - mMbW]), entier(mMvY[id - mMbW]));
+				if (mbX + 1 < mMbW)
+					essayer(entier(mMvX[id - mMbW + 1]), entier(mMvY[id - mMbW + 1]));
+			}
+			essayer(entier(mMvPrecX[id]), entier(mMvPrecY[id]));
+			if (mbX + 1 < mMbW)
+				essayer(entier(mMvPrecX[id + 1]), entier(mMvPrecY[id + 1]));
+			if (mbY + 1 < mMbH)
+				essayer(entier(mMvPrecX[id + mMbW]), entier(mMvPrecY[id + mMbW]));
+			if (best >= kInfini) { // aucun candidat dans les plans (n'arrive pas avec la marge) : le centre
+				bix = 0;
+				biy = 0;
+				return n;
+			}
+			for (int32 pas = 2; pas >= 1; --pas)
+				for (int32 k = 0; k < 16; ++k) {
+					const int32 cx = bix, cy = biy;
+					essayer(cx + pas, cy);
+					essayer(cx - pas, cy);
+					essayer(cx, cy + pas);
+					essayer(cx, cy - pas);
+					if (bix == cx && biy == cy)
+						break;
+				}
+			const int32 cx = bix, cy = biy;
+			essayer(cx + 1, cy + 1);
+			essayer(cx - 1, cy + 1);
+			essayer(cx + 1, cy - 1);
+			essayer(cx - 1, cy - 1);
+			return n;
+		}
+
 		void NkH264Encoder::EncodeMbInter(NkH264BitWriter &bs, int32 mbX, int32 mbY) {
 			const int32 px = mbX * 16, py = mbY * 16, cpx = mbX * 8, cpy = mbY * 8, nzW = mMbW * 4;
 			int32 pmx, pmy;
 			PredictMv(mbX, mbY, pmx, pmy);
+			const float64 tMv0 = mProfilActif ? ProfilMaintenantMs() : 0.0;
 
 			auto SadAt = [&](int32 mvx, int32 mvy) -> int64 {
 				uint8 pr[256];
@@ -1186,6 +1536,21 @@ namespace nkentseu {
 			};
 			auto SadInt = [&](int32 ix, int32 iy) -> int64 {
 				int64 s = 0;
+				// (23/10) dans le plan F (la reference aux bords prolonges), sans borner chaque pixel : memes valeurs
+				const int32 fx = px + ix + kPlanMarge, fy = py + iy + kPlanMarge;
+				if (mPlansPrets && fx >= 0 && fy >= 0 && fx + 16 <= mPlanPas && fy + 16 <= mPlanLignes) {
+					for (int32 y = 0; y < 16; ++y) {
+						const uint8 *a = mY + (usize)(py + y) * mLumaW + px,
+									*b = mPlanF + (usize)(fy + y) * mPlanPas + fx;
+						int32 l = 0;
+						for (int32 x = 0; x < 16; ++x) {
+							const int32 d = (int32)a[x] - b[x];
+							l += d < 0 ? -d : d;
+						}
+						s += l;
+					}
+					return s;
+				}
 				for (int32 y = 0; y < 16; ++y)
 					for (int32 x = 0; x < 16; ++x) {
 						int32 rx = px + x + ix, ry = py + y + iy;
@@ -1199,18 +1564,27 @@ namespace nkentseu {
 			// recherche entière autour du prédicteur (biais léger vers le prédicteur pour limiter le MVD).
 			const int32 cix = pmx >> 2, ciy = pmy >> 2, Rng = 16;
 			int32 bix = cix, biy = ciy;
-			int64 best = -1;
-			for (int32 dy = -Rng; dy <= Rng; ++dy)
-				for (int32 dx = -Rng; dx <= Rng; ++dx) {
-					const int32 ix = cix + dx, iy = ciy + dy;
-					const int32 cxq = ix * 4 - pmx, cyq = iy * 4 - pmy;
-					const int64 s = SadInt(ix, iy) + 2 * ((cxq < 0 ? -cxq : cxq) + (cyq < 0 ? -cyq : cyq));
-					if (best < 0 || s < best) {
-						best = s;
-						bix = ix;
-						biy = iy;
+			int64 positions = 0;
+			// (23/10) La recherche EXHAUSTIVE +-16 (1 089 positions) ne tient pas le temps reel sur une image qui
+			// change en entier (4 s par image 720p, mesure NKMediaTest --mesure-h264) : elle reste la reference de
+			// qualite des bancs ; le direct prend la recherche RAPIDE (predicteurs, puis losanges).
+			const bool exhaustive = rechercheExhaustive || !mPlansPrets;
+			if (exhaustive) {
+				int64 best = -1;
+				for (int32 dy = -Rng; dy <= Rng; ++dy)
+					for (int32 dx = -Rng; dx <= Rng; ++dx) {
+						const int32 ix = cix + dx, iy = ciy + dy;
+						const int32 cxq = ix * 4 - pmx, cyq = iy * 4 - pmy;
+						const int64 s = SadInt(ix, iy) + 2 * ((cxq < 0 ? -cxq : cxq) + (cyq < 0 ? -cyq : cyq));
+						if (best < 0 || s < best) {
+							best = s;
+							bix = ix;
+							biy = iy;
+						}
 					}
-				}
+				positions = (int64)(2 * Rng + 1) * (2 * Rng + 1);
+			} else
+				positions = RechercheRapide(mbX, mbY, pmx, pmy, bix, biy);
 			int32 bmx = bix * 4, bmy = biy * 4;
 			// affinage demi-pel puis quart-pel.
 			for (int32 step = 2; step >= 1; --step) {
@@ -1231,6 +1605,11 @@ namespace nkentseu {
 				bmy = ny;
 			}
 
+			const float64 tMv1 = mProfilActif ? ProfilMaintenantMs() : 0.0;
+			if (mProfilActif) {
+				ProfilCourant().mouvementMs += tMv1 - tMv0;
+				ProfilCourant().positionsEntieres += positions;
+			}
 			uint8 predY[256], cPred[2][64];
 			McLuma(px, py, bmx, bmy, predY);
 			McChroma(0, cpx, cpy, bmx, bmy, cPred[0]);
@@ -1291,7 +1670,7 @@ namespace nkentseu {
 					LumaBlk(blk, x4, y4);
 					const int32 bx = bx0 + x4 / 4, by = by0 + y4 / 4;
 					const int32 nA = (bx > 0) ? mLumaNz[by * nzW + (bx - 1)] : -1;
-					const int32 nB = (by > 0) ? mLumaNz[(by - 1) * nzW + bx] : -1;
+					const int32 nB = (by > tlTrancheHaut * 4) ? mLumaNz[(by - 1) * nzW + bx] : -1;
 					const int32 nC = PredictNc(nA, nB);
 					int32 scan[16];
 					for (int32 i = 0; i < 16; ++i)
@@ -1322,27 +1701,13 @@ namespace nkentseu {
 			mMvX[id] = bmx;
 			mMvY[id] = bmy;
 			mMbInter[id] = 1;
+			if (mProfilActif)
+				ProfilCourant().residuMs += ProfilMaintenantMs() - tMv1;
 		}
 
-		// Trame P complète : en-tête de tranche P + données (mb_skip_run + P_L0_16×16) + déblocage.
+		// Trame P complète : une tranche P par groupe de rangées (mb_skip_run + P_L0_16×16), encodées en parallèle,
+		// puis le déblocage de toute l'image.
 		void NkH264Encoder::EncodePFrame(NkVector<uint8> &out) {
-			NkH264BitWriter bs;
-			bs.Clear();
-			bs.Ue(0);						  // first_mb_in_slice
-			bs.Ue(0);						  // slice_type = P
-			bs.Ue(0);						  // pic_parameter_set_id
-			bs.PutBits((uint32)mFrameNum, 8); // frame_num
-			bs.PutBits((uint32)mPoc, 8);	  // pic_order_cnt_lsb
-			bs.PutFlag(0);					  // num_ref_idx_active_override_flag
-			bs.PutFlag(0);					  // ref_pic_list_modification_flag_l0
-			bs.PutFlag(0);					  // adaptive_ref_pic_marking_mode_flag
-			bs.Se(0);						  // slice_qp_delta
-			bs.Ue(mDeblock ? 0u : 1u);		  // disable_deblocking_filter_idc
-			if (mDeblock) {
-				bs.Se(0);
-				bs.Se(0);
-			}
-
 			for (int32 i = 0; i < mMbW * 4 * mMbH * 4; ++i) {
 				mLumaNz[i] = 0;
 				mI4Mode[i] = 2;
@@ -1350,15 +1715,67 @@ namespace nkentseu {
 			for (int32 i = 0; i < mMbW * 2 * mMbH * 2; ++i)
 				mChromaNz[0][i] = mChromaNz[1][i] = 0;
 			for (int32 i = 0; i < mMbW * mMbH; ++i) {
+				if (mMvPrecX &&
+					mMvPrecY) { // (23/10) les vecteurs de l'image precedente : des candidats de la recherche rapide
+					mMvPrecX[i] = mMvX[i];
+					mMvPrecY[i] = mMvY[i];
+				}
 				mMvX[i] = mMvY[i] = 0;
 				mMbInter[i] = 0;
 			}
+			// (23/10) les plans demi-pel de la reference, une fois pour toute l'image
+			if (mPlanF && mPlanB && mPlanH && mPlanJ && mPlanHor && mMvPrecX && mMvPrecY && !mPlansPrets) {
+				const float64 tPlans = mProfilActif ? ProfilMaintenantMs() : 0.0;
+				PreparerPlans();
+				if (mProfilActif)
+					ProfilCourant().plansMs += ProfilMaintenantMs() - tPlans;
+			}
+			const int32 n = TranchesEffectives();
+			NkVector<uint8> nals[8];
+			Profil profils[8];
+			H264EnParallele(n, n, [&](int32 k) {
+				tlProfil = mProfilActif ? &profils[k] : nullptr;
+				EncoderTrancheP(k * mMbH / n, (k + 1) * mMbH / n, nals[k]);
+				tlProfil = nullptr;
+			});
+			for (int32 k = 0; k < n; ++k) {
+				for (usize i = 0; i < nals[k].Size(); ++i)
+					out.PushBack(nals[k][i]);
+				if (mProfilActif) { // le temps CPU de chaque phase, toutes tranches additionnees
+					mProfil.sautMs += profils[k].sautMs;
+					mProfil.mouvementMs += profils[k].mouvementMs;
+					mProfil.residuMs += profils[k].residuMs;
+					mProfil.mbSautes += profils[k].mbSautes;
+					mProfil.mbCodes += profils[k].mbCodes;
+					mProfil.positionsEntieres += profils[k].positionsEntieres;
+				}
+			}
+			const float64 tDeb = mProfilActif ? ProfilMaintenantMs() : 0.0;
+			DeblockFrame();
+			if (mProfilActif)
+				ProfilCourant().deblocageMs += ProfilMaintenantMs() - tDeb;
+		}
 
-			const int32 total = mMbW * mMbH;
-			int32 mbAddr = 0;
+		// Une tranche P : les rangées de macroblocs [r0, r1). Les voisins du dessus de r0 sont indisponibles.
+		void NkH264Encoder::EncoderTrancheP(int32 r0, int32 r1, NkVector<uint8> &nal) {
+			tlTrancheHaut = r0;
+			NkH264BitWriter bs;
+			EcrireEnteteTranche(bs, r0 * mMbW, false);
+			const int32 total = r1 * mMbW;
+			int32 mbAddr = r0 * mMbW;
 			while (mbAddr < total) {
 				int32 skipRun = 0;
-				while (mbAddr < total && TryInterSkip(mbAddr % mMbW, mbAddr / mMbW)) {
+				for (;;) { // (23/10) le profil compte le temps des essais P_Skip
+					if (mbAddr >= total)
+						break;
+					const float64 tSaut = mProfilActif ? ProfilMaintenantMs() : 0.0;
+					const bool saute = TryInterSkip(mbAddr % mMbW, mbAddr / mMbW);
+					if (mProfilActif) {
+						ProfilCourant().sautMs += ProfilMaintenantMs() - tSaut;
+						++(saute ? ProfilCourant().mbSautes : ProfilCourant().mbCodes);
+					}
+					if (!saute)
+						break;
 					++skipRun;
 					++mbAddr;
 				}
@@ -1368,10 +1785,57 @@ namespace nkentseu {
 					++mbAddr;
 				}
 			}
-
 			bs.TrailingBits();
-			bs.EmitNal(out, 2, 1); // nal_ref_idc=2, nal_unit_type=1 (tranche non-IDR)
-			DeblockFrame();
+			bs.EmitNal(nal, 2, 1); // nal_ref_idc=2, nal_unit_type=1 (tranche non-IDR)
+			tlTrancheHaut = 0;
+		}
+
+		float64 NkH264Encoder::ProfilMaintenantMs() const {
+			return NkChrono::Now().milliseconds;
+		}
+
+		NkH264Encoder::Profil &NkH264Encoder::ProfilCourant() {
+			return tlProfil ? *tlProfil : mProfil;
+		}
+
+		// (23/10) Le nombre de tranches d'une image : `tranches` s'il est pose, sinon une par coeur (8 au plus),
+		// chacune d'au moins 4 rangees de macroblocs (une petite image reste d'une seule tranche).
+		int32 NkH264Encoder::TranchesEffectives() const {
+			int32 n = tranches;
+			if (n <= 0) {
+				n = (int32)H264Pool().GetNumWorkers() + 1;
+				if (n > 8)
+					n = 8;
+			}
+			if (n > mMbH / 4)
+				n = mMbH / 4;
+			return n < 1 ? 1 : n;
+		}
+
+		// En-tete d'une tranche (§7.3.3) qui commence au macrobloc `premierMb`.
+		void NkH264Encoder::EcrireEnteteTranche(NkH264BitWriter &bs, int32 premierMb, bool idr) {
+			bs.Clear();
+			bs.Ue((uint32)premierMb);		  // first_mb_in_slice
+			bs.Ue(idr ? 2u : 0u);			  // slice_type = I ou P
+			bs.Ue(0);						  // pic_parameter_set_id
+			bs.PutBits((uint32)mFrameNum, 8); // frame_num (IDR = 0)
+			if (idr)
+				bs.Ue((uint32)(mFrame & 1)); // idr_pic_id (alterne ; le meme pour toutes les tranches de l'image)
+			bs.PutBits((uint32)mPoc, 8);	 // pic_order_cnt_lsb (IDR = 0)
+			if (idr) {
+				bs.PutBits(0, 1); // no_output_of_prior_pics_flag
+				bs.PutBits(0, 1); // long_term_reference_flag
+			} else {
+				bs.PutFlag(0); // num_ref_idx_active_override_flag
+				bs.PutFlag(0); // ref_pic_list_modification_flag_l0
+				bs.PutFlag(0); // adaptive_ref_pic_marking_mode_flag
+			}
+			bs.Se(0);				   // slice_qp_delta
+			bs.Ue(mDeblock ? 0u : 1u); // disable_deblocking_filter_idc
+			if (mDeblock) {
+				bs.Se(0);
+				bs.Se(0);
+			}
 		}
 
 		// --------------------------------------------------------------------------
@@ -1455,25 +1919,7 @@ namespace nkentseu {
 			bs.TrailingBits();
 			bs.EmitNal(out, 3, 8);
 
-			// Slice IDR (nal_unit_type 5, ref_idc 3) : en-tête + données macroblocs.
-			bs.Clear();
-			bs.Ue(0);					  // first_mb_in_slice
-			bs.Ue(2);					  // slice_type = I
-			bs.Ue(0);					  // pic_parameter_set_id
-			bs.PutBits(0, 8);			  // frame_num (IDR = 0)
-			bs.Ue((uint32)(mFrame & 1));  // idr_pic_id (alterne)
-			bs.PutBits(0, 8);			  // pic_order_cnt_lsb (IDR = 0)
-			bs.PutBits(0, 1);			  // no_output_of_prior_pics_flag
-			bs.PutBits(0, 1);			  // long_term_reference_flag
-			bs.Se(0);					  // slice_qp_delta (SliceQPY = pic_init_qp)
-			// contrôle du déblocage (PPS deblocking_filter_control_present_flag = 1).
-			bs.Ue(mDeblock ? 0u : 1u); // disable_deblocking_filter_idc (0 = actif, 1 = désactivé)
-			if (mDeblock) {
-				bs.Se(0); // slice_alpha_c0_offset_div2
-				bs.Se(0); // slice_beta_offset_div2
-			}
-
-			// données de tranche : tous les macroblocs en ordre raster.
+			// Les tranches IDR (nal_unit_type 5, ref_idc 3), encodées en parallèle (23/10), puis le déblocage.
 			for (int32 i = 0; i < mMbW * 4 * mMbH * 4; ++i) {
 				mLumaNz[i] = 0;
 				mI4Mode[i] = 2; // DC par défaut
@@ -1485,7 +1931,30 @@ namespace nkentseu {
 					mMbInter[i] = 0; // IDR = tout intra (pour la force de bord du déblocage)
 					mMvX[i] = mMvY[i] = 0;
 				}
-			for (int32 mbY = 0; mbY < mMbH; ++mbY)
+			const float64 tIntra = mProfilActif ? ProfilMaintenantMs() : 0.0;
+			const int32 n = TranchesEffectives();
+			NkVector<uint8> nals[8];
+			H264EnParallele(n, n, [&](int32 k) { EncoderTrancheI(k * mMbH / n, (k + 1) * mMbH / n, nals[k]); });
+			for (int32 k = 0; k < n; ++k)
+				for (usize i = 0; i < nals[k].Size(); ++i)
+					out.PushBack(nals[k][i]);
+
+			// Déblocage en boucle : filtre la reconstruction (sortie + future référence P).
+			const float64 tDeb = mProfilActif ? ProfilMaintenantMs() : 0.0;
+			if (mProfilActif)
+				ProfilCourant().intraMs += tDeb - tIntra;
+			DeblockFrame();
+			if (mProfilActif)
+				ProfilCourant().deblocageMs += ProfilMaintenantMs() - tDeb;
+		}
+
+		// Une tranche IDR : les rangées de macroblocs [r0, r1), tous intra. Les voisins du dessus de r0 sont
+		// indisponibles.
+		void NkH264Encoder::EncoderTrancheI(int32 r0, int32 r1, NkVector<uint8> &nal) {
+			tlTrancheHaut = r0;
+			NkH264BitWriter bs;
+			EcrireEnteteTranche(bs, r0 * mMbW, true);
+			for (int32 mbY = r0; mbY < r1; ++mbY)
 				for (int32 mbX = 0; mbX < mMbW; ++mbX) {
 					// Choix I_16×16 / I_4×4 par activité (détail fin des blocs 4×4). Heuristique simple :
 					// zone plate → I_16×16 (en-tête compact) ; zone texturée → I_4×4 (prédiction fine).
@@ -1509,12 +1978,9 @@ namespace nkentseu {
 					else
 						EncodeMacroblock(bs, mbX, mbY);
 				}
-
 			bs.TrailingBits();
-			bs.EmitNal(out, 3, 5);
-
-			// Déblocage en boucle : filtre la reconstruction (sortie + future référence P).
-			DeblockFrame();
+			bs.EmitNal(nal, 3, 5);
+			tlTrancheHaut = 0;
 		}
 
 		// --------------------------------------------------------------------------
@@ -1546,9 +2012,22 @@ namespace nkentseu {
 		bool NkH264Encoder::WriteFrame(const uint8 *pixels, NkVideoInputFormat fmt) {
 			if (!mOpen || !pixels)
 				return false;
+			const float64 tProfil0 = mProfilActif ? ProfilMaintenantMs() : 0.0;
 			ConvertToYuv(pixels, fmt);
+			const float64 tProfil1 = mProfilActif ? ProfilMaintenantMs() : 0.0;
 			NkVector<uint8> out;
 			EncodeFrame(out);
+			if (mProfilActif) { // (23/10) le profil : conversion, puis la trame entiere selon son type
+				const float64 t2 = ProfilMaintenantMs();
+				ProfilCourant().conversionMs += tProfil1 - tProfil0;
+				if (mDepuisIdr == 1) {
+					ProfilCourant().totalIMs += t2 - tProfil1;
+					++ProfilCourant().imagesI;
+				} else {
+					ProfilCourant().totalPMs += t2 - tProfil1;
+					++ProfilCourant().imagesP;
+				}
+			}
 
 			if (mMp4) {
 				// Découpe le flux Annex-B en NAL ; SPS/PPS → avcC, VCL → échantillon (NAL longueur-préfixée).
@@ -1616,6 +2095,7 @@ namespace nkentseu {
 				mRefCb[i] = mRecCb[i];
 				mRefCr[i] = mRecCr[i];
 			}
+			mPlansPrets = false; // (23/10) nouvelle reference : ses plans seront recalcules par la prochaine image P
 			mFrameNum = (mFrameNum + 1) & 0xFF;
 			mPoc = (mPoc + 2) & 0xFF;
 			++mFrame;
