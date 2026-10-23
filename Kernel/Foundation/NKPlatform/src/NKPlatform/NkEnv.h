@@ -673,6 +673,41 @@ namespace nkentseu {
 		}
 
 		/**
+		 * @brief (19/10/2026) Ecrire une variable d'environnement, la ou GetEnvVar la lit (l'environnement du
+		 *        runtime C), pour le processus courant. Defini inline DANS le header comme GetEnvVar (NkSet est
+		 *        dans NkEnv.cpp, non liable depuis une autre unite) : les applications n'ont plus a appeler
+		 *        _putenv ou setenv elles-memes (regle de Rodolf : jamais les fonctions C nues hors du noyau).
+		 * @return true si la variable est posee.
+		 * @ingroup EnvAPI
+		 */
+		NKENTSEU_FORCE_INLINE bool SetEnvVar(const char *name, const char *value) noexcept {
+			if (name == nullptr || value == nullptr || name[0] == 0) {
+				return false;
+			}
+#if defined(_WIN32)
+			return _putenv_s(name, value) == 0;
+#else
+			return setenv(name, value, 1) == 0;
+#endif
+		}
+
+		/**
+		 * @brief (19/10/2026) Retirer une variable d'environnement du processus courant (GetEnvVar rend ensuite
+		 *        nullptr).
+		 * @ingroup EnvAPI
+		 */
+		NKENTSEU_FORCE_INLINE bool UnsetEnvVar(const char *name) noexcept {
+			if (name == nullptr || name[0] == 0) {
+				return false;
+			}
+#if defined(_WIN32)
+			return _putenv_s(name, "") == 0; // une valeur vide retire la variable
+#else
+			return unsetenv(name) == 0;
+#endif
+		}
+
+		/**
 		 * @brief Définir une variable d'environnement
 		 * @param name Nom de la variable
 		 * @param value Nouvelle valeur à assigner
