@@ -415,6 +415,7 @@ namespace nkentseu {
 					case NK_TOON_O_OUTLINE:
 						child->mToon.outlineWidth = mToon.outlineWidth;
 						child->mToon.outlineColor = mToon.outlineColor;
+						child->mOutlineDemande = mOutlineDemande;
 						break;
 					case NK_TOON_O_RIM:
 						child->mToon.rimIntensity = mToon.rimIntensity;
@@ -425,6 +426,9 @@ namespace nkentseu {
 						break;
 					case NK_TOON_O_MATCAP:
 						child->mToon.matcapStrength = mToon.matcapStrength;
+						break;
+					case NK_TOON_O_BANDS:
+						child->mToon.bands = mToon.bands;
 						break;
 					default:
 						break;
@@ -727,9 +731,15 @@ namespace nkentseu {
 			auto *t = mTemplates.Find(inst->mTemplate.id);
 			if (!t)
 				return 0.f;
-			const NkMaterialType ty = t->desc.type;
-			if (ty != NkMaterialType::NK_TOON && ty != NkMaterialType::NK_TOON_INK &&
-				ty != NkMaterialType::NK_ANIME)
+			(void)t;
+			// LA COQUE (FlushToonOutline) NE SE TRACE QUE SUR DEMANDE EXPLICITE
+			// (14/10/2026) : SetHullOutline() appele sur l'instance, quel que
+			// soit le materiau -- Toon d'un style cartoon, PBR d'un style
+			// « Rihen » (matiere realiste, silhouette dessinee). SetOutline seul
+			// ne l'arme pas : NKCraft et NkMaterialLibrary l'appellent sur leurs
+			// Toon, qui gardent ainsi leur seul contour d'ecran (fwidth de N,
+			// toon.frag), sans trait double ni changement d'image.
+			if (!inst->mOutlineDemande)
 				return 0.f;
 			const float32 w = inst->GetToon().outlineWidth;
 			return w > 0.f ? w : 0.f;
@@ -1023,6 +1033,12 @@ namespace nkentseu {
 			return this;
 		}
 
+		NkMaterialInstance *NkMaterialInstance::SetHullOutline(float32 w, NkVec3f c) {
+			SetOutline(w, c);
+			mOutlineDemande = w > 0.f;
+			return this;
+		}
+
 		NkMaterialInstance *NkMaterialInstance::SetRim(float32 intensity, NkVec3f c) {
 			mToon.rimIntensity = intensity;
 			mToon.rimColor = {c.x, c.y, c.z, 1};
@@ -1043,6 +1059,14 @@ namespace nkentseu {
 		NkMaterialInstance *NkMaterialInstance::SetMatcapStrength(float32 v) {
 			mToon.matcapStrength = v;
 			MarkToonChanged(NK_TOON_O_MATCAP);
+			return this;
+		}
+
+		NkMaterialInstance *NkMaterialInstance::SetToonBands(float32 n) {
+			// Borne : moins de 2 tons n'a pas de sens (2 = l'ancien cel) ; au-dela
+			// de 8 les paliers ne se distinguent plus d'un degrade.
+			mToon.bands = n < 2.f ? 2.f : (n > 8.f ? 8.f : n);
+			MarkToonChanged(NK_TOON_O_BANDS);
 			return this;
 		}
 

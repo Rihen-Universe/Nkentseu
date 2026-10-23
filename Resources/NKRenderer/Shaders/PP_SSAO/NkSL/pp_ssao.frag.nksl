@@ -128,8 +128,13 @@ void main() {
                 float vv = dot(v, v);
                 float vn = dot(v, N) - biasW;
                 // 1/(vv+eps) : un occludeur lointain pèse quadratiquement
-                // moins -- c'est le falloff, aucune fenêtre à régler.
-                occ += max(vn, 0.0) / (vv + 1e-4);
+                // moins -- mais JAMAIS zéro : une sphère à 3 m devant un mur
+                // l'assombrissait encore d'un halo (étude RENDU T39, 14/10).
+                // FENÊTRE de McGuire (Scalable Ambient Obscurance) : au-delà
+                // du rayon monde, l'occludeur ne compte plus ; (1 - vv/r²)³
+                // vaut 1 au contact, donc l'échelle d'Alchemy reste celle-ci.
+                float fen = max(1.0 - vv / (radiusW * radiusW), 0.0);
+                occ += fen * fen * fen * max(vn, 0.0) / (vv + 1e-4);
             }
         }
     }

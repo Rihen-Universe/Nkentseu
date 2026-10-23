@@ -116,26 +116,43 @@ void main() {
                   ? normalize(-uLights.directions[i].xyz)
                   : normalize(lPos.xyz - vWorldPos);
         float NdotL = max(dot(N, L), 0.0);
-        if (NdotL <= 0.0) continue;
+        // (14/10/2026, etude RENDU T44) PLUS de `continue` a N.L <= 0 : il
+        // coupait le wrap, qui vaut encore 0,3/1,3/PI = 0,0735 juste au-dessus
+        // du terminateur -- une marche, une ligne dure sur les draps. Le wrap
+        // s'eteint seul a N.L = -0,3 ; seul le duvet (sheen) exige N.L > 0.
+        if (dot(N, L) <= -0.3) continue;
 
-        float shadow = (uLights.angles[i].z > 0.5 && uObj.shadowOverrides.x > 0.5)
-                       ? SampleLightShadowExD(i, vWorldPos, N, L, uObj.shadowOverrides.z, dWdx, dWdy) : 1.0;
+        bool  recoit = (uLights.angles[i].z > 0.5 && uObj.shadowOverrides.x > 0.5);
+        float shadow = (recoit && NdotL > 0.0)
+                       ? SampleLightShadowExD(i, vWorldPos, N, L, uObj.shadowOverrides.z, dWdx, dWdy)
+                       : (recoit ? 0.0 : 1.0);
+        // Ombre du wrap : sur un disque de 3 cm (les fibres diffusent peu
+        // loin) -- une prise au point montrerait au-dela du terminateur les
+        // marches de la silhouette dans la carte d'ombre (meme defaut que la
+        // peau, NkShadowAtlas : SampleLightShadowDiffuse).
+        float shadowW = recoit
+                      ? SampleLightShadowDiffuse(i, vWorldPos, N, L, uObj.shadowOverrides.z, 0.03)
+                      : 1.0;
 
         // SURFACIQUE : son facteur de forme porte deja cosinus ET inverse
         // carre — le cumuler avec une attenuation ponctuelle cramait le
         // tissu en blanc (capture de Rihen). Sinon, attenuation ordinaire.
         float areaE = NkAreaFormFactor(i, vWorldPos, N);
-        vec3  rad   = uLights.colors[i].rgb * uLights.colors[i].w * shadow
+        // Radiance SANS ombre : le wrap prend `shadowW`, le duvet `shadow`.
+        vec3  rad   = uLights.colors[i].rgb * uLights.colors[i].w
                     * ((areaE >= 0.0) ? NkAreaRangeWindow(i, vWorldPos)
                                       : NkLightAtt(i, vWorldPos));
 
         // Diffus « wrap » : la lumiere rasante mord un peu sous l'horizon,
         // comme sur des fibres qui diffusent en volume. Devant un panneau,
         // le facteur de forme tient lieu de N.L (et porte deja le 1/PI).
+        // CONSERVATIF (T44) : divise par (1 + w)^2 = 1,69 et non 1,3 --
+        // l'integrale sur la sphere vaut alors PI, celle de Lambert ; /1,3
+        // renvoyait 1,3 fois l'energie recue.
         float wrapD = (areaE >= 0.0)
                     ? areaE
-                    : max((dot(N, L) + 0.3) / 1.3, 0.0) * 0.31830989;
-        total += albedo * wrapD * rad;
+                    : max(dot(N, L) + 0.3, 0.0) / 1.69 * 0.31830989;
+        total += albedo * wrapD * rad * ((areaE >= 0.0) ? shadow : shadowW);
 
         // SHEEN — Charlie (Estevez & Kulla) + visibilite Neubelt.
         // MEME ENERGIE que le diffus : devant une surfacique, `rad` ne porte
@@ -147,7 +164,8 @@ void main() {
         float Dc   = (2.0 + invA) * pow(sinH, invA) * 0.15915494;
         float Vn   = 1.0 / (4.0 * (NdotL + NdotV - NdotL * NdotV));
         float eSp  = (areaE >= 0.0) ? areaE * 3.14159265 : NdotL;
-        total += rad * eSp * Dc * Vn * shAmt;
+        // N.L <= 0 (bande du wrap) : eSp = 0, aucun duvet ; Vn reste fini.
+        total += rad * shadow * eSp * Dc * Vn * shAmt;
     }
 
     // Ambiante : irradiance de l'environnement, moderee par l'occlusion.

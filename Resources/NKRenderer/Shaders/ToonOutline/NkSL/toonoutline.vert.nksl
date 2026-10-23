@@ -12,6 +12,14 @@
 // trait d'un pixel non epaississable.
 @location(0) in vec3 aPos;
 @location(1) in vec3 aNormal;
+// LA COULEUR DU TRAIT VOYAGE EN VARYING (14/10/2026), et ce n'est pas un
+// detail : le generateur GLSL (NkSLCodeGenGLSL, `depthOnly = !mHasVaryingOut`)
+// traite un vertex shader SANS sortie comme une passe de profondeur (ombre) et
+// n'y injecte pas le retournement Y. Sur OpenGL la coque sortait donc A
+// L'ENVERS et peignait la moitie basse de chaque objet (planche du 14/10) --
+// c'est la « coque qui masque l'objet » qui avait fait eteindre la passe le
+// 12 aout. Une passe de couleur declare sa sortie.
+@location(0) out vec4 vOutlineColor;
 
 @binding(set=0, binding=0)
 uniform CameraUBO {
@@ -58,5 +66,6 @@ void main() {
     float w    = pc.outline.x * 0.0035 * max(dist, 0.05);
     wp.xyz += N * w;
     if (uCam.reflectionFlags.x > 0.5) wp.y = -wp.y;
+    vOutlineColor = vec4(pc.outline.yzw, 1.0);
     gl_Position = uCam.viewProj * wp;
 }

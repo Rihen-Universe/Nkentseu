@@ -160,6 +160,16 @@ namespace nkentseu {
 			}; // total 240
 
 			static_assert(sizeof(ObjectUBO) == 240, "ObjectUBO std140 layout");
+			// (16/10/2026) LE TAMPON DU POOL EST PLUS GRAND QUE CE BLOC : le chemin
+			// skinne y ecrit en plus les couches de la peau et les zones de l'atlas
+			// (FlushSkinned, ObjB/ObjB2, 304 octets ; le nuanceur Skin les declare).
+			// Les autres nuanceurs declarent 240 octets et lisent le debut : un
+			// tampon plus grand que le bloc declare est permis par toutes les
+			// interfaces, un tampon plus PETIT ne l'est pas. Une seule taille pour
+			// les deux allocations (ici et GrowObjectPool), kObjectUBOBytes.
+			// Avant : GrowObjectPool allouait 224 octets (« == sizeof(ObjectUBO) »,
+			// perime depuis triplanarParams et wetParams) pour un bloc de 240.
+			static_assert(sizeof(ObjectUBO) <= kObjectUBOBytes, "le pool d'ObjectUBO doit contenir ObjectUBO");
 			// Phase F.B.1 : pool d'ObjectUBO (frame x drawIdx). Pre-alloue
 			// mFramesInFlight * mObjectPoolCap buffers a Init pour eviter
 			// toute allocation dans le hot path et tout vkCmdUpdateBuffer dans
@@ -167,7 +177,7 @@ namespace nkentseu {
 			for (uint32 i = 0; i < mFramesInFlight; i++) {
 				mUBOObjectPool[i].Resize(mObjectPoolCap);
 				for (uint32 d = 0; d < mObjectPoolCap; d++) {
-					mUBOObjectPool[i][d] = mDevice->CreateBuffer(NkBufferDesc::Uniform(sizeof(ObjectUBO)));
+					mUBOObjectPool[i][d] = mDevice->CreateBuffer(NkBufferDesc::Uniform(kObjectUBOBytes));
 				}
 			}
 
@@ -2465,8 +2475,12 @@ namespace nkentseu {
 				// A reprendre avec un test simple : coque sans ecriture de
 				// profondeur, puis verification du sens de cull sur ce backend.
 				// Laisse INACTIF pour ne pas livrer une regression visible.
-				if (false)
-					FlushToonOutline(cmd, currentRP, gs);
+				// (14/10/2026) ACTIVE, mais seulement pour les instances qui ont
+				// DEMANDE un contour (SetOutline : styles cartoon et « Rihen »,
+				// NkRenderStyle) -- aucune scene existante ne l'appelle, donc
+				// aucune ne change. Mesure : scene « planche » du banc
+				// NkRenduLivresProbe, sur spheres (sommets soudes).
+				FlushToonOutline(cmd, currentRP, gs);
 				if (mPBRPipeline.IsValid())
 					cmd->BindGraphicsPipeline(mPBRPipeline);
 				if (gs.IsValid())
@@ -3085,7 +3099,19 @@ namespace nkentseu {
 				// Enfin televersees : la loi d'attenuation choisie ET les dimensions
 				// de la surfacique (le panneau les exposait, le fichier les gardait,
 				// le GPU ne les voyait jamais — defaut n°3 du carnet).
-				lb.extra[i] = {(float32)l.attenuationMode, l.areaWidth, l.areaHeight, 0.f};
+				// .w = TAILLE DE LA SOURCE pour le lobe speculaire (T31) : rayon
+				// angulaire (rad) pour la directionnelle, rayon (m) pour la
+				// ponctuelle et le projecteur ; 0 pour la surfacique, dont le
+				// panneau elargit deja le reflet. Borne a >= 0 : une taille
+				// negative n'a pas de sens et retrecirait le lobe.
+				float32 tailleSource = 0.f;
+				if (l.type == NkLightType::NK_DIRECTIONAL)
+					tailleSource = l.sunAngularRadius;
+				else if (l.type == NkLightType::NK_POINT || l.type == NkLightType::NK_SPOT)
+					tailleSource = l.sourceRadius;
+				if (!(tailleSource > 0.f))
+					tailleSource = 0.f;
+				lb.extra[i] = {(float32)l.attenuationMode, l.areaWidth, l.areaHeight, tailleSource};
 			}
 			if (mFrameSlot < mUBOLightsRing.Size())
 				mDevice->WriteBuffer(mUBOLightsRing[mFrameSlot], &lb, sizeof(lb));
@@ -4189,6 +4215,41 @@ namespace nkentseu {
 			return p[k - 1];
 		}
 
+		namespace {
+			// (16/10/2026, peau du patient) LA FIN DU BLOC OBJET DU NUANCEUR SKIN, apres
+			// wetParams (224) : les couches cliniques (NkSkinLayers, du draw) et les
+			// zones de l'atlas (NkSkinZones, du materiau du sous-maillage). Le
+			// pincement [0, 1] est fait ICI, une fois, pas dans le nuanceur.
+			//   skinLayers  (240) : x cyanose, y paleur, z rougeur, w ictere
+			//   skinLayers2 (256) : x sueur ; y la peau se reconnait a sa couleur
+			//                       (NkSkinZones::skinByColor, 0 ou 1) ; z, w la couleur de
+			//                       CETTE peau (NkSkinZones::skinRefR, skinRefG ; 0 : aucune)
+			//   zoneMucosa  (272) : l'ellipse UV des levres
+			//   zoneEye     (288) : l'ellipse UV de l'ile de l'oeil
+			struct NkSkinObjTail {
+					NkVec4f skinLayers;
+					NkVec4f skinLayers2;
+					NkVec4f zoneMucosa;
+					NkVec4f zoneEye;
+			};
+			static_assert(sizeof(NkSkinObjTail) == 64, "fin du bloc objet du nuanceur Skin");
+
+			NkSkinObjTail NkSkinTail(const NkSkinLayers &s, const NkMaterialInstance *inst) {
+				NkSkinObjTail t{};
+				t.skinLayers = NkVec4f{NkClamp(s.cyanosis, 0.f, 1.f), NkClamp(s.pallor, 0.f, 1.f),
+									   NkClamp(s.erythema, 0.f, 1.f), NkClamp(s.jaundice, 0.f, 1.f)};
+				t.skinLayers2 = NkVec4f{NkClamp(s.sweat, 0.f, 1.f), 0.f, 0.f, 0.f};
+				if (inst != nullptr) {
+					t.zoneMucosa = inst->GetSkinZones().mucosa;
+					t.zoneEye = inst->GetSkinZones().eye;
+					t.skinLayers2.y = inst->GetSkinZones().skinByColor ? 1.f : 0.f;
+					t.skinLayers2.z = inst->GetSkinZones().skinRefR;
+					t.skinLayers2.w = inst->GetSkinZones().skinRefG;
+				}
+				return t;
+			}
+		} // namespace
+
 		void NkRender3D::FlushSkinned(NkICommandBuffer *cmd) {
 			const bool poolFrameValid = (mFrameSlot < mUBOObjectPool.Size()) && (mFrameSlot < mObjectSetPool.Size());
 			if (!poolFrameValid)
@@ -4324,14 +4385,17 @@ namespace nkentseu {
 						NkVec4f shadowOverrides;
 						NkVec4f triplanarParams;
 						NkVec4f wetParams;
+						NkSkinObjTail peau; // (16/10/2026) couches et zones de la peau
 				} ob{};
-				static_assert(sizeof(ObjB) == 240, "ObjB std140 skinned");
+				static_assert(sizeof(ObjB) == 304, "ObjB std140 skinned");
+				static_assert(sizeof(ObjB) <= kObjectUBOBytes, "ObjB doit tenir dans le pool");
 
 				ob.m = dc.transform;
 				ob.nm = dc.transform.Inverse().Transpose();
 				ob.tint = {dc.tint.x, dc.tint.y, dc.tint.z, dc.alpha};
 				ob.subsurfaceColor = NkVec4f{1.f, 1.f, 1.f, 1.f};
 				ob.shadowOverrides = NkVec4f{1.f, 0.f, 1.f, 0.f};
+				ob.peau = NkSkinTail(dc.skin, (dc.material.IsValid() && mMat) ? mMat->GetInstance(dc.material) : nullptr);
 				NkBufferHandle ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
 				NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];
 				if (ubo.IsValid())
@@ -4392,11 +4456,16 @@ namespace nkentseu {
 								NkVec4f shadowOverrides;
 								NkVec4f triplanarParams;
 								NkVec4f wetParams;
+								NkSkinObjTail peau; // (16/10/2026) couches et zones de la peau
 						} sob{};
-						static_assert(sizeof(ObjB2) == 240, "ObjB2 std140 skinned");
+						static_assert(sizeof(ObjB2) == 304, "ObjB2 std140 skinned");
+						static_assert(sizeof(ObjB2) <= kObjectUBOBytes, "ObjB2 doit tenir dans le pool");
 
 						sob.m = dc.transform;
 						sob.nm = dnm;
+						// (16/10/2026) Les couches viennent du draw (l'etat du patient), les
+						// zones du materiau DE CE sous-maillage (son atlas).
+						sob.peau = NkSkinTail(dc.skin, sInst);
 						// (08/10/2026) Le bloc entier (voir ObjB plus haut) : l'ombre recue
 						// suit le materiau du sous-maillage, comme dans le chemin opaque.
 						sob.subsurfaceColor = NkVec4f{1.f, 1.f, 1.f, 1.f};
@@ -4416,6 +4485,12 @@ namespace nkentseu {
 							sob.p[5] = pbr.clearcoat;
 							sob.p[6] = pbr.clearcoatRough;
 							sob.p[7] = pbr.subsurface;
+							// (14/10/2026, etude RENDU T5) La couleur de diffusion
+							// suit le materiau, comme son intensite (p[7]) : le blanc
+							// ecrit plus haut faisait d'une peau rosee (defaut du
+							// materiau 1 ; 0,5 ; 0,3) une peau grise.
+							sob.subsurfaceColor = NkVec4f{pbr.subsurfaceColor.x, pbr.subsurfaceColor.y,
+														  pbr.subsurfaceColor.z, 1.f};
 						} else {
 							sob.p[2] = 1.f;
 							sob.p[1] = 0.5f; // ao=1, roughness=0.5 par defaut

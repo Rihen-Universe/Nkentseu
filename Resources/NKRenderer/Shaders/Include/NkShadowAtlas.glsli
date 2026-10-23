@@ -499,6 +499,43 @@ float SampleLightShadowExD(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float bi
     if (type == 3) return NkSampleSpotShadow       (lightIdx, worldPos, N, L, biasMul, dWdx, dWdy);
     return 1.0;
 }
+// ── OMBRE D'UNE PART DIFFUSEE (14/10/2026, etude RENDU T5 et T44) ─────────
+// Pour un diffus « wrap » (peau, tissu) : la lumiere qui contourne le
+// terminateur est entree par la surface eclairee VOISINE, son ombre se lit donc
+// AUTOUR du point. Quatre prises sur un disque de rayon `rayon` perpendiculaire
+// a L, avancees vers la lumiere : le bord de l'ombre s'adoucit sur l'echelle de
+// la diffusion (ce que fait la matiere reelle), et sous un occultant qui deborde
+// de plus de `rayon` et se tient a plus de 2 x `rayon` toutes les prises restent
+// dans l'ombre portee (0).
+// Pourquoi pas une prise au point : au-dela du terminateur (N.L < 0) seule la
+// silhouette de l'objet dans la carte d'ombre decide, et ses marches de texel,
+// extrudees le long de L, sortaient en frange en dents de scie (capture du
+// 14/10). Decaler le long de L ne change pas le texel lu : il faut decaler
+// PERPENDICULAIREMENT.
+// AVANCE vers la lumiere : rayon/2 + 6 cm x tan(N,L), bornee a 2 x rayon. Les
+// prises comparent sans biais de plan recepteur (derivees nulles) : sur une
+// pente, le noyau PCF lit des profondeurs voisines plus hautes de pente x
+// largeur, et une avance fixe de rayon/2 couvrait la face eclairee d'anneaux
+// d'acne (capture du tissu, 14/10). Les derivees du point, essayees ensuite,
+// supprimaient les anneaux mais rendaient le terminateur GRANULEUX (plan
+// recepteur extrapole a incidence rasante). L'avance suit donc la pente.
+// Sans gradient, fxc emet une vraie boucle : appelable dans une boucle.
+float SampleLightShadowDiffuse(int lightIdx, vec3 worldPos, vec3 N, vec3 L, float biasMul,
+                               float rayon) {
+    vec3 haut = abs(L.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+    vec3 T1 = normalize(cross(L, haut));
+    vec3 T2 = cross(L, T1);
+    float NdLr  = dot(N, L);
+    float tanT  = sqrt(max(1.0 - NdLr * NdLr, 0.0)) / max(NdLr, 0.05);
+    float avance = min(0.5 * rayon + 0.06 * tanT, 2.0 * rayon);
+    vec3 P0 = worldPos + L * avance;
+    vec3 z3 = vec3(0.0);
+    float acc = SampleLightShadowExD(lightIdx, P0 + T1 * rayon, N, L, biasMul, z3, z3);
+    acc += SampleLightShadowExD(lightIdx, P0 - T1 * rayon, N, L, biasMul, z3, z3);
+    acc += SampleLightShadowExD(lightIdx, P0 + T2 * rayon, N, L, biasMul, z3, z3);
+    acc += SampleLightShadowExD(lightIdx, P0 - T2 * rayon, N, L, biasMul, z3, z3);
+    return acc * 0.25;
+}
 // Wrapper historique : derivees prises ICI, en flux uniforme (les appelants
 // pbr/layered invoquent sous des branches UNIFORMES — parametres d'objet et
 // de lumiere, identiques pour tout le draw — alors que la selection de

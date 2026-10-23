@@ -47,6 +47,14 @@ uniform ObjectUBO {
     vec4  subsurfaceColor;
     vec4  shadowOverrides;
     vec4  triplanarParams;
+    // (16/10/2026) La fin du bloc objet du chemin skinne (NkRender3D::FlushSkinned,
+    // NkSkinObjTail) : IDENTIQUE a skin.frag.nksl (en GL, un bloc de meme nom doit
+    // etre le meme dans les deux etages). Ce nuanceur ne les lit pas.
+    vec4  wetParams;
+    vec4  skinLayers;
+    vec4  skinLayers2;
+    vec4  zoneMucosa;
+    vec4  zoneEye;
 } uObj;
 
 // Joint matrices (= globalTransform * inverseBind, calcule cote CPU).

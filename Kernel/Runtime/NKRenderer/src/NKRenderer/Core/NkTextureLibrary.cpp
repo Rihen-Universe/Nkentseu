@@ -7,6 +7,7 @@
 #include "NkTextureAsset.h"
 #include "NkTextureCache.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKPlatform/NkEnv.h" // (23/10) env::GetEnvVar pour la contre-epreuve srgb-ignore, sans std::getenv
 #include "NKTime/NkChrono.h"
 
 #include <cstdlib> // getenv : NK_TEX_FORMAT
@@ -564,7 +565,30 @@ namespace nkentseu {
 		NkTexHandle NkTextureLibrary::Create(const NkTextureCreateDesc &desc) {
 			NkTextureDesc d;
 			d.type = desc.isCubemap ? NkTextureType::NK_CUBE : NkTextureType::NK_TEX2D;
-			d.format = desc.format;
+			// (16/10/2026, agent rendu) `srgb` ETAIT DECLARE ET LU PAR PERSONNE : le pont
+			// glTF/FBX (NkGLTFMaterialBridge::UploadImage) et le streaming le posent pour
+			// les albedos, mais le format restait RGBA8_UNORM -- l'echantillonneur rendait
+			// les valeurs sRGB telles quelles, et les nuanceurs (qui supposent la couleur
+			// delinearisee, cf. skin.frag : « PAS de pow ») eclairaient du sRGB comme du
+			// lineaire : textures delavees, peau terne. Decouvert le 16/10 a 12 h 55 : la
+			// couleur de reference de la peau, lue sur la texture en lineaire, ne
+			// retrouvait pas la couleur du nuanceur. Un format explicite (autre que
+			// RGBA8_UNORM) est garde tel quel.
+			// CONTRE-EPREUVE (banc de la peau de PV3DE) : NK_RENDU_MUTATION=srgb-ignore remet
+			// le defaut (le drapeau ignore), pour photographier l'« avant ».
+			static int ignoreSrgb = -1;
+			if (ignoreSrgb < 0) {
+				// (23/10) sans std::getenv ni std::strcmp (garde std) : comparaison caractère par caractère
+				const char *m = nkentseu::env::GetEnvVar("NK_RENDU_MUTATION");
+				const char *voulu = "srgb-ignore";
+				int32 k = 0;
+				while (m != nullptr && m[k] != '\0' && m[k] == voulu[k]) {
+					++k;
+				}
+				ignoreSrgb = (m != nullptr && m[k] == '\0' && voulu[k] == '\0') ? 1 : 0;
+			}
+			d.format = (desc.srgb && desc.format == NkGPUFormat::NK_RGBA8_UNORM && ignoreSrgb == 0) ? NkGPUFormat::NK_RGBA8_SRGB
+																										: desc.format;
 			d.width = desc.width;
 			d.height = desc.height;
 			d.depth = desc.depth;

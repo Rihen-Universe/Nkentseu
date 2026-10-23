@@ -216,7 +216,12 @@ namespace nkentseu {
 				float32 specHardness = 32.f;
 				float32 metallic = 0.f;		  // teinte spéculaire : 0=blanc, 1=albedo (effet métal cel)
 				float32 matcapStrength = 0.f; // 0=aucun, 1=full matcap (binding=4)
-				float32 _pad[1] = {};
+				// Nombre de TONS de la rampe cel (14/10/2026) : 0 a 2 = deux tons
+				// (ombre / lumiere, l'ancien comportement exact) ; n > 2 = une ombre
+				// et n-1 paliers de lumiere entre shadowThreshold et N.L = 1, chacun
+				// adouci par shadowSmooth. Occupe l'ancien bourrage : la taille du
+				// bloc (et son pas std140) ne change pas.
+				float32 bands = 0.f;
 		};
 
 		// ═════════════════════════════════════════════════════════════════════
@@ -312,6 +317,7 @@ namespace nkentseu {
 			NK_TOON_O_RIM = 1u << 5,
 			NK_TOON_O_SPEC = 1u << 6,
 			NK_TOON_O_MATCAP = 1u << 7,
+			NK_TOON_O_BANDS = 1u << 8,
 		};
 
 		// =========================================================================
@@ -319,8 +325,42 @@ namespace nkentseu {
 		// =========================================================================
 		class NkMaterialSystem;
 
+		// (16/10/2026, peau du patient) LES ZONES D'UN ATLAS DE PEAU. Une ellipse dans
+		// l'espace UV de la texture du materiau : (centre u, centre v, demi-axe u,
+		// demi-axe v) ; un demi-axe <= 0 : la zone n'existe pas (le defaut). C'est une
+		// propriete de l'ATLAS (ou la texture range les levres et l'oeil), donc du
+		// materiau, pas du personnage ni de son etat. Lue par le nuanceur Skin
+		// (NkRender3D::FlushSkinned la copie dans le bloc objet du sous-maillage) :
+		//   mucosa : les levres -- la ou la cyanose et la paleur se voient d'abord ;
+		//   eye    : l'ile de l'oeil -- cornee humide (reflet net), sclere (ictere).
+		// Pas dans le UBO PBR (plein a 96 octets), comme mReceiveShadow.
+		// skinByColor : l'atlas MELE la peau et autre chose (le corps Rocketbox porte
+		// les mains ET les vetements, la tete les cheveux peints) ; la peau s'y
+		// reconnait alors a sa couleur, texel par texel. Faux (defaut) : tout le
+		// materiau est peau, comme avant.
+		// skinRefR, skinRefG : (16/10, 12 h 50) LA COULEUR DE CETTE PEAU-LA, en chromaticite
+		// (r, v) de la racine de la couleur lineaire (l'espace du test du nuanceur). Nulles :
+		// le test large (toutes les peaux). Posees : seuls les texels proches de CETTE peau
+		// (rayon 0,05) le sont -- le t-shirt orange du garcon Rocketbox (0,55 ; 0,27) passait
+		// le test large, sa peau est a (0,48 ; 0,29).
+		struct NkSkinZones {
+				NkVec4f mucosa = {0.f, 0.f, 0.f, 0.f};
+				NkVec4f eye = {0.f, 0.f, 0.f, 0.f};
+				bool skinByColor = false;
+				float32 skinRefR = 0.f;
+				float32 skinRefG = 0.f;
+		};
+
 		class NkMaterialInstance {
 			public:
+				/// (16/10/2026) Les zones de l'atlas de peau (voir NkSkinZones).
+				NkMaterialInstance *SetSkinZones(const NkSkinZones &z) {
+					mSkinZones = z;
+					return this;
+				}
+				const NkSkinZones &GetSkinZones() const {
+					return mSkinZones;
+				}
 				NkMatInstHandle GetHandle() const {
 					return mHandle;
 				}
@@ -346,6 +386,12 @@ namespace nkentseu {
 				NkMaterialInstance *SetSpecHardness(float32 v);
 				NkMaterialInstance *SetMatcapMap(NkTexHandle t);
 				NkMaterialInstance *SetMatcapStrength(float32 v);
+				// Contour par COQUE INVERSEE, pour tout materiau (PBR, peau, tissu,
+				// Toon) : largeur en unites du contour toon, couleur du trait.
+				// w <= 0 retire la coque.
+				NkMaterialInstance *SetHullOutline(float32 w, NkVec3f c);
+				// Rampe cel a n tons (Toon) : 2 = ombre/lumiere ; 3 a 5 = paliers.
+				NkMaterialInstance *SetToonBands(float32 n);
 				NkMaterialInstance *SetFloat(const NkString &n, float32 v);
 				NkMaterialInstance *SetVec2(const NkString &n, NkVec2f v);
 				NkMaterialInstance *SetVec3(const NkString &n, NkVec3f v);
@@ -468,6 +514,12 @@ namespace nkentseu {
 				bool mDirty = true;
 				NkPBRParams mPBR;
 				NkToonParams mToon;
+				// COQUE DEMANDEE (14/10/2026) : SetHullOutline() appele sur CETTE
+				// instance. La coque inversee (FlushToonOutline) ne se trace que
+				// sur cette demande explicite, pour tout materiau : le defaut
+				// NkToonParams::outlineWidth (2) et les SetOutline existants
+				// (NKCraft, NkMaterialLibrary) ne l'arment pas.
+				bool mOutlineDemande = false;
 				NkLayeredParams mLayered;	  // M.1 v0 : utilise si type == NK_LAYERED
 				NkLayeredV1Params mLayeredV1; // M.1 v1 : utilise si type == NK_LAYERED_V1
 				// NkVSM v1 (2026-05-23) : overrides shadow per-material.
@@ -477,6 +529,7 @@ namespace nkentseu {
 				// qui expose les setters/getters.
 				bool mReceiveShadow = true;
 				bool mCastShadowAlphaTest = false;
+				NkSkinZones mSkinZones; // (16/10/2026) voir NkSkinZones
 				// OMBRE D'UN OBJET TRANSPARENT (12 aout, demande de Rihen : « on
 				// peut construire tout ca comme option de l'opacite ») :
 				//   0 = PLEINE          — l'ombre ignore l'opacite (etat historique)

@@ -54,6 +54,13 @@ uniform ObjectUBO {
     vec4  subsurfaceColor;
     vec4  shadowOverrides;
     vec4  triplanarParams;
+    // (16/10/2026, peau du patient) La fin du bloc (NkSkinObjTail, FlushSkinned).
+    // wetParams n'est pas lu ici : il garde les decalages du bloc C++.
+    vec4  wetParams;
+    vec4  skinLayers;   // x cyanose, y paleur, z rougeur, w ictere   [0, 1]
+    vec4  skinLayers2;  // x sueur ; y, z, w reserve
+    vec4  zoneMucosa;   // ellipse UV des levres (cu, cv, du, dv) ; du <= 0 : aucune
+    vec4  zoneEye;      // ellipse UV de l'ile de l'oeil ; du <= 0 : aucune
 } uObj;
 
 @binding(set=0, binding=2)
@@ -63,7 +70,13 @@ uniform LightsUBO {
     vec4 directions[32];
     vec4 angles[32];
     int  count;
-    int  _pad[3];
+    // Trois SCALAIRES, comme pbr.frag (un `int _pad[3]` a un pas std140 de 16
+    // octets : `extras` serait lu 36 octets trop loin). extras.w = taille de la
+    // source (rad pour la directionnelle, m sinon), lue par le lobe (T31).
+    int  _pad0;
+    int  _pad1;
+    int  _pad2;
+    vec4 extras[32];
 } uLights;
 
 // ── OMBRES REÇUES (08/10/2026) ─────────────────────────────────────────────
@@ -99,21 +112,50 @@ uniform ShadowSlotsUBO {
 
 const float PI = 3.14159265358979;
 
-float D_GGX(vec3 N, vec3 H, float r) {
-    float a = r*r, a2 = a*a, NdH = max(dot(N,H), 0.0);
-    float d = NdH*NdH*(a2-1.0)+1.0;
-    return a2 / (PI*d*d + 1e-4);
-}
-float G_Schlick(float x, float k) { return x/(x*(1.0-k)+k); }
-float G_Smith(vec3 N, vec3 V, vec3 L, float r) {
-    float k = (r+1.0)*(r+1.0)/8.0;
-    return G_Schlick(max(dot(N,V),0.0),k) * G_Schlick(max(dot(N,L),0.0),k);
-}
+// Lobe speculaire commun (NkBRDF.glsli) : D GGX exacte, Smith correle, plancher
+// de rugosite, taille de la source (etude du 10/10, T3 + T31).
+#include "Include/NkBRDF.glsli"
 vec3 F_Schlick(float cosT, vec3 F0) {
     return F0 + (1.0-F0)*pow(max(1.0-cosT,0.0),5.0);
 }
 vec3 F_SchlickR(float cosT, vec3 F0, float r) {
     return F0 + (max(vec3(1.0-r),F0)-F0)*pow(max(1.0-cosT,0.0),5.0);
+}
+
+// ── LA PEAU DU PATIENT (16/10/2026) ──────────────────────────────────────────
+// Une ellipse de l'atlas (cu, cv, du, dv) : 1 au centre, 0 au bord et dehors.
+// Une zone absente (demi-axe <= 0) rend 0.
+float NkZoneAtlas(vec2 uv, vec4 z) {
+    if (z.z <= 0.0 || z.w <= 0.0) return 0.0;
+    vec2 d = (uv - z.xy) / z.zw;
+    return clamp(1.0 - dot(d, d), 0.0, 1.0);
+}
+// Le texel a-t-il la couleur d'une peau ? Chromaticite (r, v) de la RACINE de
+// la couleur lineaire (proche du sRGB de la texture). Mesure sur les textures
+// Rocketbox (16/10) : joues, front, nez, levres des cinq personnages, des plus
+// claires aux plus foncees, r 0,45 a 0,54 et v 0,26 a 0,32 ; le jean (r 0,26),
+// le blanc des chaussures et de la sclere (r 0,33 a 0,35) tombent dehors.
+float NkTexelPeau(vec3 lin) {
+    vec3 s = sqrt(max(lin, vec3(0.0)));
+    float t = s.r + s.g + s.b;
+    if (t < 0.03) return 0.0;
+    float r = s.r / t;
+    float g = s.g / t;
+    return smoothstep(0.36, 0.41, r) * (1.0 - smoothstep(0.64, 0.70, r))
+         * smoothstep(0.20, 0.25, g) * (1.0 - smoothstep(0.36, 0.40, g));
+}
+// (16/10, 12 h 50) Le texel a-t-il la couleur de CETTE peau (ref : chromaticite
+// (r, v) lue sur le visage du personnage) ? 1 a moins de 0,035, 0 au-dela de
+// 0,06. Mesure sur les cinq atlas Rocketbox : la peau d'un personnage reste a
+// moins de 0,03 de sa reference (joues, front, mains) ; le t-shirt orange du
+// garcon est a 0,07 de la sienne. Les levres d'une peau claire (0,54 ; 0,26)
+// sont aussi loin : la zone des levres les reprend (main()).
+float NkTexelCettePeau(vec3 lin, vec2 ref) {
+    vec3 s = sqrt(max(lin, vec3(0.0)));
+    float t = s.r + s.g + s.b;
+    if (t < 0.03) return 0.0;
+    float d = length(vec2(s.r / t, s.g / t) - ref);
+    return 1.0 - smoothstep(0.035, 0.06, d);
 }
 
 @stage(fragment)
@@ -128,12 +170,94 @@ void main() {
     float rog = clamp(orm.g * uObj.roughness, 0.04, 1.0);
     float met = orm.b * uObj.metallic;
 
+    // ── LA PEAU (16/10/2026) : ou elle est, ce qu'elle montre ────────────
+    // Le materiau se declare peau par subsurface > 0, ou parce que son atlas
+    // mele la peau et autre chose (skinLayers2.y, NkSkinZones::skinByColor) :
+    // alors seuls les texels couleur de peau le sont. L'ile de l'oeil
+    // (zoneEye) n'est jamais de la peau. Ni l'un ni l'autre (le defaut) :
+    // peau = oeil = 0, rien ne change.
+    bool  matPeau = uObj.subsurface > 0.0 || uObj.skinLayers2.y > 0.5;
+    float oeil = matPeau ? step(1e-4, NkZoneAtlas(vUV, uObj.zoneEye)) : 0.0;
+    // Les levres : la ou le sang affleure, ou la cyanose et la paleur se voient d'abord.
+    float muq  = smoothstep(0.0, 0.35, NkZoneAtlas(vUV, uObj.zoneMucosa));
+    // La couleur : celle de CETTE peau si le materiau la donne (skinLayers2.zw),
+    // sinon le test large ; la zone des levres compte toujours comme peau.
+    float parCouleur = (uObj.skinLayers2.z > 0.0)
+        ? NkTexelCettePeau(albedo, uObj.skinLayers2.zw)
+        : NkTexelPeau(albedo);
+    parCouleur = max(parCouleur, muq);
+    float peau = matPeau ? ((uObj.skinLayers2.y > 0.5) ? parCouleur : 1.0) * (1.0 - oeil) : 0.0;
+    vec4  cl   = uObj.skinLayers;      // x cyanose, y paleur, z rougeur, w ictere
+    float sueur = uObj.skinLayers2.x * peau;
+    if (peau > 0.0) {
+        // Cyanose : l'hemoglobine desaturee absorbe le rouge ; le bleu-violet
+        // vient d'abord aux levres (centrale), plus faible ailleurs.
+        albedo *= mix(vec3(1.0), vec3(0.62, 0.72, 1.12), cl.x * peau * mix(0.30, 1.0, muq));
+        // Paleur : moins de sang, le rouge s'en va et la peau tire vers son gris
+        // (cendree sur une peau foncee) ; les levres d'abord.
+        float lumA = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
+        vec3  pale = mix(albedo, vec3(lumA) * vec3(1.06, 1.0, 0.96), 0.65) * 1.10;
+        albedo = mix(albedo, pale, cl.y * peau * mix(0.45, 1.0, muq));
+        // Rougeur : plus de sang sous la surface (fievre, effort). L'oxyhemoglobine
+        // absorbe le vert plus que le bleu : un rose-rouge, pas un orange.
+        // (1,22 ; 0,86 ; 0,84) avant 13 h 35 : « trop orange » a la relecture de
+        // Rodolf et du coordinateur.
+        albedo *= mix(vec3(1.0), vec3(1.12, 0.88, 0.95), cl.z * peau * mix(0.70, 1.0, muq));
+        // Ictere sur la peau : jaune, plus faible que sur la sclere.
+        albedo *= mix(vec3(1.0), vec3(1.04, 0.97, 0.62), cl.w * peau * 0.60);
+        // Sueur : une pellicule d'eau sur une peau peu poreuse (Lagarde, comme
+        // le mouillage du PBR, porosite 0,2) : un peu plus sombre, plus lisse.
+        // (Photos du 16/10 : x 0,45 sur la rugosite, 11 h 32, un visage de
+        // plastique verni ; x 0,65, 13 h 30, « trop brillante » a la relecture ;
+        // x 0,80 et un assombrissement de 10 %.)
+        albedo *= 1.0 - 0.10 * sueur;
+        rog = clamp(rog * (1.0 - 0.20 * sueur), 0.04, 1.0);
+    }
+    if (oeil > 0.0) {
+        // Ictere : la sclere (le blanc de l'oeil : peu sature, clair) jaunit
+        // la premiere.
+        float mx = max(albedo.r, max(albedo.g, albedo.b));
+        float mn = min(albedo.r, min(albedo.g, albedo.b));
+        float blanc = (1.0 - smoothstep(0.25, 0.45, (mx - mn) / max(mx, 1e-4))) * smoothstep(0.10, 0.30, mx);
+        albedo *= mix(vec3(1.0), vec3(1.02, 0.90, 0.38), cl.w * blanc);
+        // La cornee et le film lacrymal : une surface lisse et mouillee.
+        rog = 0.05;
+    }
+
     vec3 nTs = texture(tNormal, vUV).xyz * 2.0 - 1.0;
     nTs.xy  *= uObj.normalStrength;
     mat3 TBN = mat3(normalize(vTangent), normalize(vBitangent), normalize(vNormal));
     vec3 N   = normalize(TBN * nTs);
+    vec3 Ng  = normalize(vNormal);   // la normale de la forme, sans le relief fin
     vec3 V   = normalize(uCam.camPos.xyz - vWorldPos);
     vec3 F0  = mix(vec3(0.04), albedo, met);
+    // Indices : peau n = 1,4 (F0 0,028), eau de la sueur 1,33 (0,020), cornee
+    // 1,376 (0,025).
+    F0 = mix(F0, vec3(0.028), peau);
+    F0 = mix(F0, vec3(0.020), sueur);
+    F0 = mix(F0, vec3(0.025), oeil);
+
+    // ── DIFFUSION SOUS LA SURFACE, PAR CANAL (16/10/2026) ────────────────
+    // La lumiere entre dans la peau et ressort plus loin, le rouge le plus
+    // loin (d'Eon et Luebke, GPU Gems 3 ch. 14 : le profil du rouge est le
+    // plus large). Deux effets visibles, approches sans passe de plus :
+    //  - un Lambert LISSE par canal, de largeur wC = subsurface x couleur de
+    //    diffusion (rouge le plus large) : au-dessus de N.L = w c'est le
+    //    Lambert (la face eclairee ne change pas), entre -w et w une
+    //    parabole (x + w)^2 / 4w qui le prolonge sans cassure dans l'ombre :
+    //    le terminateur rougit et s'adoucit ;
+    //  - le relief fin (carte de normales) s'efface pour le rouge : chaque
+    //    canal voit une normale melangee vers celle de la forme, de wC.
+    // Energie : + w^2 / 6 sur une integrale de 1/2 (3 % a w = 0,3).
+    // A wC = 0 (subsurface 0, ou pas de peau), c'est le Lambert d'avant.
+    // Essai du matin (gardé pour memoire) : un wrap NORMALISE par canal,
+    // max(x + w, 0) / (1 + w)^2, x une courbure lue par fwidth(Ng) :
+    //    float courbe = clamp(length(fwidth(Ng)) / max(length(fwidth(vWorldPos)), 1e-6) * 0.012, 0.25, 1.0);
+    // Photo du 16/10, 11 h 32 : la normalisation baisse le rouge de la face
+    // ECLAIREE (1 / (1 + w)) -- un visage gris-bleu -- et fwidth d'une normale
+    // interpolee change d'un triangle a l'autre : des facettes grises.
+    float sW = clamp(uObj.subsurface, 0.0, 1.0) * peau;
+    vec3  wC = sW * clamp(uObj.subsurfaceColor.rgb, vec3(0.0), vec3(1.0));
 
     // ── Direct lighting (Cook-Torrance) ──────────────────────────────────
     vec3 Lo = vec3(0.0);
@@ -141,12 +265,15 @@ void main() {
         int   lt  = int(uLights.positions[i].w);
         vec3  L;
         float att = 1.0;
+        float tanSrc = 0.0;
         if (lt == 0) {
             L = normalize(-uLights.directions[i].xyz);
+            tanSrc = uLights.extras[i].w;
         } else {
             vec3 d = uLights.positions[i].xyz - vWorldPos;
             float dist = length(d);
             L = normalize(d);
+            tanSrc = uLights.extras[i].w / max(dist, 0.001);
             att = max(1.0 - dist / max(uLights.directions[i].w, 0.001), 0.0);
             att = att * att;
             if (lt == 2) {
@@ -158,19 +285,85 @@ void main() {
         // L'ombre de CETTE lumière (angles.z = elle projette ; shadowOverrides.x =
         // la surface reçoit, .z = le multiplicateur de biais du matériau).
         float ombre = 1.0;
+        // Ombre de la part DIFFUSEE (wrap, T5) : lue sur un disque de 8 cm x
+        // subsurface autour du point (SampleLightShadowDiffuse, NkShadowAtlas) ;
+        // une prise au point laissait une frange en dents de scie au
+        // terminateur (capture du 14/10).
+        // (16/10) Le disque suit la largeur du ROUGE (wC.r), le canal qui
+        // diffuse le plus loin ; les autres canaux melangent les deux ombres.
+        // Rayon 1,2 cm x wC.r (5 mm a 0,40 : le rouge porte quelques mm dans
+        // la peau). Photos du 16/10 : a 8 cm x wC.r (11 h 32) puis 3 cm x
+        // wC.r (11 h 48), l'ombre de la tete sur le cou devenait une bande
+        // orange de plusieurs cm.
+        float ombreW = 1.0;
         if (uLights.angles[i].z > 0.5 && uObj.shadowOverrides.x > 0.5) {
             ombre = SampleLightShadowEx(i, vWorldPos, N, L, uObj.shadowOverrides.z);
+            ombreW = (wC.r > 0.0)
+                ? SampleLightShadowDiffuse(i, vWorldPos, N, L, uObj.shadowOverrides.z, 0.012 * wC.r)
+                : ombre;
         }
         vec3  H   = normalize(V + L);
         float NdL = max(dot(N, L), 0.0);
-        vec3  rad = uLights.colors[i].rgb * uLights.colors[i].w * att * ombre;
+        // Radiance SANS l'ombre : le Lambert et le reflet prennent `ombre`,
+        // la part diffusee `ombreW`.
+        vec3  rad = uLights.colors[i].rgb * uLights.colors[i].w * att;
 
-        float NDF = D_GGX(N, H, rog);
-        float G   = G_Smith(N, V, L, rog);
+        float alphaL = NkGgxAlphaSource(NkGgxAlpha(rog), tanSrc);
+        float NDF = NkGgxD(max(dot(N, H), 0.0), alphaL);
+        float Vis = NkSmithGgxVis(max(dot(N, V), 1e-4), NdL, alphaL);
         vec3  F   = F_Schlick(max(dot(H,V),0.0), F0);
-        vec3  spec = NDF*G*F / (4.0*max(dot(N,V),0.0)*NdL + 1e-4);
+        vec3  spec = NDF * Vis * F;
+        // (16/10) LE REFLET DE LA PEAU A DEUX LOBES : un lobe plus net (0,75 x
+        // la rugosite, 85 %) et un plus large (1,3 x, 15 %) -- le film gras et
+        // les micro-plis de la peau (le « dual specular » d'Unreal, d'apres
+        // Kelemen et Szirmay-Kalos). Sur la peau seule ; ailleurs, inchange.
+        if (peau > 0.0) {
+            float a1 = NkGgxAlphaSource(NkGgxAlpha(rog * 0.75), tanSrc);
+            float a2 = NkGgxAlphaSource(NkGgxAlpha(min(rog * 1.30, 1.0)), tanSrc);
+            float nh = max(dot(N, H), 0.0);
+            float nv = max(dot(N, V), 1e-4);
+            vec3 spec2 = (0.85 * NkGgxD(nh, a1) * NkSmithGgxVis(nv, NdL, a1)
+                        + 0.15 * NkGgxD(nh, a2) * NkSmithGgxVis(nv, NdL, a2)) * F;
+            spec = mix(spec, spec2, peau);
+        }
         vec3  kD   = (1.0-F)*(1.0-met);
-        Lo += (kD*albedo/PI + spec) * rad * NdL;
+        // ── DIFFUS DE LA PEAU (14/10/2026, etude RENDU T5) ───────────────
+        // Lambert, ou, si subsurface s > 0, un wrap CONSERVATIF teinte par
+        // subsurfaceColor qui REMPLACE une part s du Lambert :
+        //     wrap = max(N.L + s, 0) / (1 + s)^2
+        // dont l'integrale sur la sphere vaut PI pour tout s (celle de Lambert).
+        // Il porte, comme le Lambert, 1/PI, l'attenuation et l'ombre (rad).
+        // Avant : un wrap AJOUTE au Lambert, sans 1/PI, sans attenuation ni
+        // ombre -- albedo directionnel 1,27 a s = 0,5, et une peau eclairee au
+        // fond d'une ombre portee (voir la boucle conservee en commentaire
+        // plus bas).
+        // (16/10/2026) REMPLACE PAR LA DIFFUSION PAR CANAL ci-dessous. Le wrap
+        // de T5 (un seul wrap, teinte par subsurfaceColor), garde pour memoire :
+        //   float wrapN = max(dot(N, L) + sW, 0.0) / ((1.0 + sW) * (1.0 + sW));
+        //   vec3  diffW = mix(vec3(NdL * ombre), uObj.subsurfaceColor.rgb * (wrapN * ombreW), sW);
+        // Il assombrissait la peau (la teinte multipliait le vert et le bleu par
+        // 0,5 et 0,3 : de l'energie perdue) sans elargir le rouge plus que le reste.
+        // Par canal c : x_c = melange de N.L (relief fin) et Ng.L (la forme), de
+        // wC_c ; d_c = x_c si x_c >= w_c, (x_c + w_c)^2 / 4 w_c si |x_c| < w_c,
+        // 0 dessous ; l'ombre passe de la prise au point (bleu) au disque
+        // (rouge) selon (wC_c / wC_r)^2 : le vert et le bleu restent pres de
+        // l'ombre nette (0,2 et 0,06 du disque), le rouge prend le disque.
+        vec3  xC    = mix(vec3(dot(N, L)), vec3(dot(Ng, L)), wC);
+        vec3  tC    = max(xC + wC, vec3(0.0));
+        vec3  lisse = mix(tC * tC / max(4.0 * wC, vec3(1e-5)), xC, step(wC, xC));
+        vec3  wrapC = mix(max(xC, vec3(0.0)), lisse, step(vec3(1e-5), wC));
+        vec3  rC    = wC / max(wC.r, 1e-4);
+        // (16/10, 13 h 20) Le disque ne sert qu'AU TERMINATEUR (la ou la forme se
+        // detourne de la lumiere : l'ombre propre, en dents de scie dans la carte
+        // d'ombre). Une ombre PORTEE sur une face tournee vers la lumiere (la
+        // machoire sur le cou, le col sur la nuque) reste nette pour tous les
+        // canaux : le disque y voyait de la lumiere pour le rouge seul -- une tache
+        // rouge-orange au cou de l'homme 12 et de la femme (relue par Rodolf et le
+        // coordinateur ; mesure : (64, 35, 21) avant, (134, 48, 23) apres).
+        float terminateur = 1.0 - smoothstep(0.0, 0.25, dot(Ng, L));
+        vec3  ombC  = mix(vec3(ombre), vec3(ombreW), rC * rC * terminateur);
+        vec3  diffW = wrapC * ombC;
+        Lo += (kD*albedo/PI) * diffW * rad + spec * rad * (NdL * ombre);
     }
 
     // ── IBL ambient : DIFFUS SEUL ────────────────────────────────────────
@@ -181,22 +374,45 @@ void main() {
     vec3 irr = texture(tEnvIrradiance, N).rgb;
     vec3 amb = irr * albedo * ao * uCam.iblStrength;
 
-    // ── Subsurface (wrap) optionnel ──────────────────────────────────────
-    vec3 sss = vec3(0.0);
-    if (uObj.subsurface > 0.0) {
-        for (int i = 0; i < uLights.count && i < 32; i++) {
-            vec3 L = (int(uLights.positions[i].w) == 0)
-                ? normalize(-uLights.directions[i].xyz)
-                : normalize(uLights.positions[i].xyz - vWorldPos);
-            float wrap = max(dot(N,L)+uObj.subsurface, 0.0) / (1.0+uObj.subsurface);
-            sss += uObj.subsurfaceColor.rgb * uLights.colors[i].rgb *
-                   uLights.colors[i].w * wrap * uObj.subsurface;
-        }
+    // ── LE REFLET DE L'OEIL (16/10/2026) ─────────────────────────────────
+    // Dans une salle, la cornee reflete toujours une source claire (la
+    // fenetre, le plafonnier, la lampe du medecin) : c'est ce point qui fait
+    // un oeil vivant et mouille. Les lumieres directionnelles de la scene ne
+    // le donnent pas (leur reflet tombe sous la paupiere : temoin o1 rouge le
+    // 16/10 a 11 h 54). Une petite source PRES DE L'OEIL DE CELUI QUI REGARDE
+    // (la lampe du medecin), DANS l'axe du regard, 7 degres de rayon apparent
+    // (0,06) ; reflechie par le film lacrymal, lisse : la normale de la FORME
+    // (Ng), pas celle de la carte de normales (le relief de l'iris est sous le
+    // film). En SPECULAIRE SEUL et sur l'oeil seul : ailleurs, rien ne change.
+    // Essais du 16/10 : (12 h 30) la lampe a 60 cm au-dessus de la camera --
+    // dans la vue des yeux, la camera est a 30 cm : 63 degres, le reflet
+    // tombait sous la paupiere ; (12 h 34) 8,5 degres au-dessus du regard, un
+    // degre de rayon -- un reflet d'un pixel ; (12 h 40) 7 degres de rayon --
+    // vu chez la femme (57 pixels) au BORD HAUT de l'iris, cache chez l'homme
+    // par la paupiere : la camera regarde les yeux d'un peu au-dessus.
+    vec3 refletOeil = vec3(0.0);
+    if (oeil > 0.0) {
+        vec3  Le  = V;
+        vec3  He  = V;
+        float nl  = max(dot(Ng, Le), 0.0);
+        float ae  = NkGgxAlphaSource(NkGgxAlpha(rog), 0.06);
+        vec3  Fe  = F_Schlick(1.0, F0);
+        refletOeil = NkGgxD(max(dot(Ng, He), 0.0), ae) * NkSmithGgxVis(nl, nl, ae) * Fe * nl * 6.0;
     }
+
+    // ── Subsurface (wrap) : ANCIENNE boucle, gardee pour memoire ─────────
+    // Retiree le 14/10/2026 (etude RENDU T5) : le wrap est desormais DANS la
+    // boucle directe, conservatif, attenue et ombre. Celle-ci l'ajoutait au
+    // Lambert sans 1/PI, sans attenuation ni ombre :
+    //   for (...) { vec3 L = ...;
+    //       float wrap = max(dot(N,L)+uObj.subsurface, 0.0) / (1.0+uObj.subsurface);
+    //       sss += uObj.subsurfaceColor.rgb * uLights.colors[i].rgb *
+    //              uLights.colors[i].w * wrap * uObj.subsurface; }
+    //   color = amb + Lo + sss*albedo + emissive;
 
     vec3 emissive = texture(tEmissive, vUV).rgb * uObj.emissiveStrength;
 
-    vec3 color = amb + Lo + sss*albedo + emissive;
+    vec3 color = amb + Lo + emissive + refletOeil;
     // Garde anti-NaN/Inf (normalize degenere sur certains drivers) + clamp HDR.
     if (any(isnan(color)) || any(isinf(color))) color = vec3(0.0);
     fragColor = vec4(clamp(color, vec3(0.0), vec3(64.0)), alpha);

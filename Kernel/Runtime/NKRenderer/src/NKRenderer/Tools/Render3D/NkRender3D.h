@@ -506,7 +506,11 @@ namespace nkentseu {
 				// Plafond = 4096 : à 2 frames, 2 UBO/set → 16384 descripteurs UBO,
 				// exactement ce que le pool descriptor VK bumpé (20480) autorise.
 				static constexpr uint32 kObjectPoolHardMax = 4096;
-				static constexpr uint32 kObjectUBOBytes = 224; // == sizeof(ObjectUBO)
+				// (16/10/2026) 224 avant : perime (ObjectUBO fait 240 octets depuis
+				// wetParams), et le bloc du nuanceur Skin en fait 304 (couches de la
+				// peau, zones de l'atlas). Les DEUX allocations du pool la prennent ;
+				// des static_assert dans NkRender3D.cpp verifient que chaque bloc y tient.
+				static constexpr uint32 kObjectUBOBytes = 304;
 				uint32 mObjectPoolCap = kObjectPoolInitial;	   // capacité courante (dynamique)
 
 				// Nombre max de bones par skeleton (taille de l'UBO bones[N],
