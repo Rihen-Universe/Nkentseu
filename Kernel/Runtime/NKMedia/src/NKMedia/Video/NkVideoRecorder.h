@@ -47,7 +47,8 @@ namespace nkentseu {
 				// (temps reel : perdre une trame vaut mieux que geler). Abandons comptes (DroppedFrames()).
 				bool Begin(const char *path, int32 width, int32 height, int32 fpsNum = 60, int32 fpsDen = 1,
 						   int32 qp = 20, int32 maxQueuedFrames = 32,
-					   NkRecorderCodec codec = NkRecorderCodec::H264, int32 mjpegQuality = 90);
+					   NkRecorderCodec codec = NkRecorderCodec::H264, int32 mjpegQuality = 90,
+					   int32 gop = 60); // (23/10) intervalle des images IDR (H.264)
 
 				// Pistes audio PCM — plusieurs = choix de LANGUE. À appeler juste après Begin (avant les trames).
 				int32 AddAudio(int32 sampleRate, int32 channels, const char *lang3 = nullptr);
@@ -56,7 +57,9 @@ namespace nkentseu {
 
 				// Pousse une trame capturée (mise en file, encodée en fond). `flipVertical` pour framebuffer
 				// bottom-up (OpenGL). Formats : RGBA32 (capture DX11), RGB24, BGR24.
-				bool PushVideo(const uint8 *pixels, NkVideoInputFormat fmt, bool flipVertical = false);
+				// (23/10) `imageCle` : cette trame sera une image IDR (H.264) -- le direct en demande une toutes les 2 s
+				// d'horloge, quel que soit le nombre de trames jetees par une file pleine.
+				bool PushVideo(const uint8 *pixels, NkVideoInputFormat fmt, bool flipVertical = false, bool imageCle = false);
 				// Pousse des trames audio capturées (int16 entrelacé) sur la piste `trackIdx`.
 				void PushAudio(int32 trackIdx, const int16 *interleaved, uint32 frames);
 				// Ajoute un sous-titre (mis en file, appliqué dans l'ordre par le worker).
@@ -85,6 +88,7 @@ namespace nkentseu {
 						NkVideoInputFormat fmt = NkVideoInputFormat::RGB24;
 						int32 track = 0;
 						uint32 frames = 0, startMs = 0, durMs = 0;
+						bool imageCle = false; ///< (23/10) cette trame doit etre une image IDR (H.264)
 				};
 				void WorkerLoop();
 

@@ -36,6 +36,10 @@ namespace nkentseu {
 
 				// Encode une trame (pixels haut-en-bas) comme image IDR (I-slice) et l'écrit.
 				bool WriteFrame(const uint8 *pixels, NkVideoInputFormat fmt);
+				/// (23/10) La prochaine trame encodee sera une image IDR (le direct en veut une toutes les 2 s).
+				void ForcerImageCle() {
+					mForcerIdr = true;
+				}
 
 				bool Close();
 
@@ -86,6 +90,8 @@ namespace nkentseu {
 				// Par macrobloc : vecteur mouvement (quart-pel) + indicateur inter (P), pour la prédiction de MV.
 				int32 *mMvX = nullptr, *mMvY = nullptr, *mMbInter = nullptr;
 				int32 mGop = 30, mFrameNum = 0, mPoc = 0;
+				int32 mDepuisIdr = 0;	  ///< (23/10) trames depuis la derniere IDR
+				bool mForcerIdr = false; ///< (23/10) la prochaine trame sera une IDR
 				// total_coeff des blocs luma 4×4 (contexte nC CAVLC), grille (mMbW*4) × (mMbH*4).
 				int32 *mLumaNz = nullptr;
 				// idem chroma par composante (Cb,Cr), grille (mMbW*2) × (mMbH*2).

@@ -252,6 +252,8 @@ namespace nkentseu {
 			mChromaW = mLumaW / 2;
 			mChromaH = mLumaH / 2;
 			mFrame = 0;
+			mDepuisIdr = 0;
+			mForcerIdr = false;
 
 			const usize lumaN = (usize)mLumaW * mLumaH, chromaN = (usize)mChromaW * mChromaH;
 			mY = (uint8 *)memory::NkAlloc(lumaN);
@@ -1375,7 +1377,10 @@ namespace nkentseu {
 		// --------------------------------------------------------------------------
 		void NkH264Encoder::EncodeFrame(NkVector<uint8> &out) {
 			// Type de trame : IDR périodique (intra) sinon P (inter). La 1re trame est toujours IDR.
-			const bool idr = (mFrame % mGop == 0);
+			// (23/10) l intervalle se compte DEPUIS LA DERNIERE IDR (une IDR demandee par ForcerImageCle le remet a zero)
+			const bool idr = mFrame == 0 || mDepuisIdr >= mGop || mForcerIdr;
+			mForcerIdr = false;
+			mDepuisIdr = idr ? 1 : mDepuisIdr + 1;
 			if (idr) {
 				mFrameNum = 0;
 				mPoc = 0;

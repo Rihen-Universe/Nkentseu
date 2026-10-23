@@ -16,7 +16,8 @@ namespace nkentseu {
 		} // namespace
 
 		bool NkVideoRecorder::Begin(const char *path, int32 width, int32 height, int32 fpsNum, int32 fpsDen,
-									int32 qp, int32 maxQueuedFrames, NkRecorderCodec codec, int32 mjpegQuality) {
+									int32 qp, int32 maxQueuedFrames, NkRecorderCodec codec, int32 mjpegQuality,
+									int32 gop) {
 			if (mOpen)
 				return false;
 			mWidth = width;
@@ -58,7 +59,8 @@ namespace nkentseu {
 					return false;
 			} else {
 				// GOP raisonnable pour de la capture temps réel (IDR régulières = seek/robustesse).
-				if (!mEnc.Open(path, width, height, fpsNum, fpsDen, qp, 60))
+				// (23/10) `gop` : 60 par defaut ; le direct de NKCode demande 2 s (YouTube : une image cle toutes les 2 s).
+				if (!mEnc.Open(path, width, height, fpsNum, fpsDen, qp, gop > 0 ? gop : 60))
 					return false;
 			}
 			mOpen = true;
@@ -79,7 +81,7 @@ namespace nkentseu {
 			return (mOpen && !mUseMjpeg) ? mEnc.AddSubtitleTrack(lang3) : -1;
 		}
 
-		bool NkVideoRecorder::PushVideo(const uint8 *pixels, NkVideoInputFormat fmt, bool flipVertical) {
+		bool NkVideoRecorder::PushVideo(const uint8 *pixels, NkVideoInputFormat fmt, bool flipVertical, bool imageCle) {
 			if (!mOpen || !pixels)
 				return false;
 
@@ -99,6 +101,7 @@ namespace nkentseu {
 			Item it;
 			it.type = 0;
 			it.fmt = fmt;
+			it.imageCle = imageCle;
 			it.data.Resize(total);
 			uint8 *dst = it.data.Data();
 			if (!flipVertical) {
@@ -175,8 +178,11 @@ namespace nkentseu {
 				else if (item.type == 0) {
 					if (mUseMjpeg)
 						mMjpegWriter.WriteFrame(item.data.Data(), item.fmt);
-					else
+					else {
+						if (item.imageCle)
+							mEnc.ForcerImageCle();
 						mEnc.WriteFrame(item.data.Data(), item.fmt);
+					}
 					const int64 nowNs = NkChrono::Now().ToNanoseconds();
 					mMutex.Lock();
 					if (mPendingVideo > 0)
