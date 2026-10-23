@@ -26,6 +26,8 @@ bout-en-bout loopback 127.0.0.1 : handshake + snapshots + delta + despawn).
 | Replication — NkNetEntity / NkNetInput / NkNetAuthority | Livré (V1) | — | — |
 | Tests exécutables (`Sandbox/System/NKNetwork`, 67 checks + loopback réel) | Livré | — | — |
 | TLS réel câblé (mbedTLS, opt-in `NK_ENABLE_TLS=1`, HTTPS validé 200) | Livré | — | — |
+| TLS client sur socket par Schannel (`Transport/NkTlsClient`, Windows, TLS 1.2, épinglage pour les bancs ; RTMPS du Direct de NKCode, 23/10/2026, décision de Rodolf : aucune bibliothèque ajoutée) | Livré (Windows) | — | — |
+| TLS client hors Windows (`NkTlsClient` refuse clairement aujourd'hui) | TODO | M | Basse |
 | Replication — prédiction client + réconciliation serveur | TODO | L | Moyenne |
 | Replication — relais des entités client-authoritative | TODO | M | Moyenne |
 | WebAssembly — emscripten_fetch pour HTTP | Partiel | M | Moyenne |

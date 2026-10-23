@@ -83,6 +83,9 @@ with project("NKNetwork"):
         # (« undefined reference to __imp_ntohs »). Le manque ne s'est vu qu'au
         # premier executable Windows a dependre de NKNetwork.
         links(["ws2_32"])
+        # (23/10) Schannel, le TLS de Windows (Transport/NkTlsClient : le RTMPS du Direct de NKCode) : secur32
+        # (InitializeSecurityContext...), crypt32 (le certificat du serveur). Aucune bibliotheque ajoutee.
+        links(["secur32", "crypt32"])
     with filter("system:UWP || system:Windows && options:windows-runtime=uwp"):
         usetoolchain("xbox-clang")
     with filter("system:Linux"):
