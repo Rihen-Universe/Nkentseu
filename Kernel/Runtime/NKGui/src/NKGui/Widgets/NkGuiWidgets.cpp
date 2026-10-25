@@ -1086,8 +1086,9 @@ namespace nkentseu {
 		// Découpe `b` en LIGNES VISUELLES (word-wrap à `wrapW` px) : renvoie l'offset de début
 		// de chaque ligne visuelle (toujours >= 1 entrée). Un '\n' force une nouvelle ligne.
 		// Sans face ou wrapW<=1 : une entrée par ligne LOGIQUE (aucun wrap).
-		static void MlWrapStarts(const NkFont *face, const char *b, int32 len, float32 wrapW,
-								 NkVector<int32> &out) noexcept {
+		// (25/10) PUBLIQUE (déclarée dans NkGuiWidgets.h) : une seule règle de coupe pour ce champ et pour qui
+		// peint le même texte hors du champ (les notes adhésives du tableau blanc de NKCode).
+		void MlWrapStarts(const NkFont *face, const char *b, int32 len, float32 wrapW, NkVector<int32> &out) noexcept {
 			out.Clear();
 			out.PushBack(0);
 			if (!face || wrapW <= 1.f) {

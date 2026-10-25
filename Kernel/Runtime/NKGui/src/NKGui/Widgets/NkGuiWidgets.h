@@ -196,6 +196,14 @@ namespace nkentseu {
 		// Champ de saisie MULTI-LIGNE dans `rect` : Entrée = saut de ligne, flèches
 		// ↑/↓ entre lignes, clic 2D, auto-scroll vers le caret + molette + scrollbar.
 		// Flags (ReadOnly/filtres) + maxChars. Retourne true si le texte a changé.
+		// (25/10) La règle de coupe d'InputTextMultiline (`wrap`), PUBLIQUE pour qu'un texte peint HORS du champ
+		// garde les coupures qu'il avait DANS le champ : le tableau blanc de NKCode peint ses notes adhésives avec
+		// elle (une note posée a les mêmes lignes que pendant la frappe ; un seul chemin, pas une copie).
+		// Découpe `b` (`len` octets) en LIGNES VISUELLES à `wrapW` px de la police `face` : l'offset de début de
+		// chaque ligne (toujours au moins une entrée) ; un '\n' force une ligne ; coupe au dernier espace, sinon au
+		// caractère ; sans face ou wrapW <= 1 : une entrée par ligne LOGIQUE.
+		NKENTSEU_NKGUI_API void MlWrapStarts(const NkFont *face, const char *b, int32 len, float32 wrapW,
+											 NkVector<int32> &out) noexcept;
 		// `wrap` : retour à la ligne AUTOMATIQUE (word-wrap) à la largeur du champ (sinon les
 		// longues lignes débordent horizontalement). Défaut off (compatibilité).
 		NKENTSEU_NKGUI_API bool InputTextMultiline(NkGuiContext &ctx, const char *idStr, char *buf, int32 bufSize,
