@@ -25,7 +25,18 @@ namespace nkentseu {
 				int32 atlasH = 0;
 				bool dirty = false; ///< à (ré)uploader côté backend
 
+				// (26/10) LES IDEOGRAMMES A LA DEMANDE : ce que la police a charge (pour se refaire a l'identique,
+				// ideogrammes compris), et l'etat de son repli CJK
+				bool depuisFichier = false;
+				NkEmbeddedFontId idCharge = NkEmbeddedFontId::Inter;
+				char cheminCharge[600] = {};
+				float32 tailleChargee = 0.f;
+				bool replisExternes = false;
+				bool cjkCharge = false;	 ///< l'atlas porte les ideogrammes
+				bool cjkDemande = false; ///< un texte affiche en a demande (NkGuiPolicesSignalerTexte)
+
 				NkGuiFont() = default;
+				~NkGuiFont();
 				NkGuiFont(const NkGuiFont &) = delete;
 				NkGuiFont &operator=(const NkGuiFont &) = delete;
 
@@ -83,6 +94,24 @@ namespace nkentseu {
 		// A poser par l'APPLICATION (ex. NKCode, depuis son dossier data/fonts) AVANT
 		// de charger les polices. Un chemin nullptr/vide = role desactive.
 		NKENTSEU_NKGUI_API void NkSetFallbackFontPaths(const char *broad, const char *cjk, const char *emoji) noexcept;
+
+		// ── (26/10) LES IDEOGRAMMES (CJK) A LA DEMANDE ─────────────────────────────
+		// Mesure du 26/10 (NKCraft, tests/sonde_demarrage.py) : l'atlas d'Inter avec le repli CJK coutait ~570 ms
+		// avant la premiere image, pour des ideogrammes que l'interface affiche rarement (un nom de fichier chinois).
+		// Desormais, une police a replis externes se construit SANS les ideogrammes ; le premier texte AFFICHE qui en
+		// contient (NkGuiDrawList, NkGuiPolicesSignalerTexte) les demande, et l'atlas se refait ENTRE deux images
+		// (NkGuiPolicesAppliquerDemandes, appele en debut d'image par le rendu) : le texte s'affiche juste des
+		// l'image suivante. Le texte latin est rendu a l'identique (memes glyphes, meme rasterisation).
+		// `NK_POLICE_CJK=immediat` : l'ancien chemin (les ideogrammes des le chargement).
+		NKENTSEU_NKGUI_API void NkSetCjkALaDemande(bool aLaDemande) noexcept;
+		NKENTSEU_NKGUI_API bool NkCjkALaDemande() noexcept;
+		/// Un texte va etre affiche avec `face` : s'il porte un ideogramme absent de la face, la police qui la possede
+		/// le demande. Cout : un passage sur les octets du texte, rien sans octet >= 0xE2.
+		NKENTSEU_NKGUI_API void NkGuiPolicesSignalerTexte(const NkFont *face, const char *debut, const char *fin) noexcept;
+		/// Refait les polices qui ont demande les ideogrammes ; `televerser` renvoie chaque atlas refait au GPU (meme
+		/// texId). Rend le nombre de polices refaites. A appeler hors d'une image (aucune face n'est en usage).
+		using NkGuiTeleverserPolice = bool (*)(uint32 texId, const uint8 *pixels, int32 w, int32 h, void *user);
+		NKENTSEU_NKGUI_API uint32 NkGuiPolicesAppliquerDemandes(NkGuiTeleverserPolice televerser, void *user) noexcept;
 
 	} // namespace nkgui
 } // namespace nkentseu

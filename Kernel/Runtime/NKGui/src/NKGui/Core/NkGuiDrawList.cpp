@@ -4,6 +4,7 @@
 // =============================================================================
 #include "NKGui/Core/NkGuiDrawList.h"
 #include "NKFont/NkFont.h"
+#include "NKGui/Core/NkGuiFont.h" // (26/10) NkGuiPolicesSignalerTexte : les ideogrammes a la demande
 #include "NKFont/Core/NkFontSizeCache.h" // NkFontScaleRenderer : quads de glyphe a l'echelle
 #include <cmath>
 
@@ -732,6 +733,7 @@ namespace nkentseu {
 			}
 			if (p >= end)
 				return; // partie affichee vide (libelle entierement ##id)
+			NkGuiPolicesSignalerTexte(face, p, end); // (26/10) un ideogramme demande l'atlas CJK (NkGuiFont.h)
 			const float32 xEnd = (maxWidth >= 0.f) ? baseline.x + maxWidth : 1.0e30f;
 			float32 x = baseline.x;
 			const float32 y = baseline.y;
@@ -803,6 +805,7 @@ namespace nkentseu {
 				AddText(face, texId, baseline, text, col, maxWidth);
 				return;
 			}
+			NkGuiPolicesSignalerTexte(face, text, nullptr); // (26/10) un ideogramme demande l'atlas CJK
 			if (!face || !text || !*text || texId == 0u)
 				return;
 			const uint32 c = NkGuiPackColor(col);
@@ -844,6 +847,7 @@ namespace nkentseu {
 										 const char *end, const NkColor &col) noexcept {
 			if (!face || !begin || begin >= end || texId == 0u)
 				return;
+			NkGuiPolicesSignalerTexte(face, begin, end); // (26/10) un ideogramme demande l'atlas CJK
 			const uint32 c = NkGuiPackColor(col);
 			const char *p = begin;
 			float32 x = baseline.x;

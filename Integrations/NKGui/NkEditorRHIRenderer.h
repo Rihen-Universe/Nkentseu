@@ -32,6 +32,7 @@
 
 #include "NKEditorKit/NkIEditorRenderer.h"
 #include "NKGui/NkGuiRHIBackend.h" // Integrations/NKGui
+#include "NKGui/Core/NkGuiFont.h"	  // (26/10) les ideogrammes a la demande
 #include "NKWindow/NKWindow.h"
 #include "NKRHI/Core/NkDeviceFactory.h"
 #include "NKRHI/Core/NkDeviceInitInfo.h"
@@ -160,6 +161,14 @@ namespace nkentseu {
 				}
 
 				void BeginFrame() override {
+					// (26/10) LES IDEOGRAMMES DEMANDES a l'image precedente : l'atlas de leur police se refait ICI,
+					// avant que l'interface de cette image ne s'ecrive, et repart au GPU sous le meme texId
+					// (NKGui/Core/NkGuiFont.h, les ideogrammes a la demande)
+					(void)NkGuiPolicesAppliquerDemandes(
+						[](uint32 tex, const uint8 *px, int32 w, int32 h, void *u) {
+							return static_cast<NkEditorRHIRenderer *>(u)->mBackend.UploadTextureGray8(tex, px, w, h);
+						},
+						this);
 					mFrameOk = false;
 					// La liste fusionnee de la frame precedente est caduque. `Reset`
 					// vide sans rendre la capacite : aucune reallocation par frame.

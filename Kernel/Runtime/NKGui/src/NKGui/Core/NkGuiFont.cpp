@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKPlatform/NkEnv.h" // (21/10) env::GetEnvVar : la contre-epreuve des cadres
+#include "NKCore/Text/NkSortie.h" // (26/10) NkPrintfSortie, pas printf (garde std)
 #include <cstdio>
 #include <cstring>
 
@@ -97,11 +98,122 @@ namespace nkentseu {
 			return false;
 		}
 
+		// ── (26/10) LES IDEOGRAMMES A LA DEMANDE (voir NkGuiFont.h) ─────────────────────
+		static int32 gCjkALaDemande = -1; // -1 : pas encore lu (NK_POLICE_CJK)
+		static NkGuiFont *gPolicesDifferees[32] = {};
+
+		void NkSetCjkALaDemande(bool aLaDemande) noexcept {
+			gCjkALaDemande = aLaDemande ? 1 : 0;
+		}
+
+		bool NkCjkALaDemande() noexcept {
+			if (gCjkALaDemande < 0) {
+				const char *v = env::GetEnvVar("NK_POLICE_CJK");
+				const char *imm = "immediat";
+				bool immediat = v != nullptr;
+				for (usize k = 0; immediat && (v[k] || imm[k]); ++k)
+					immediat = v[k] == imm[k];
+				gCjkALaDemande = immediat ? 0 : 1;
+			}
+			return gCjkALaDemande == 1;
+		}
+
+		static void NkInscrireDifferee(NkGuiFont *f) noexcept {
+			for (NkGuiFont *&e : gPolicesDifferees)
+				if (e == f)
+					return;
+			for (NkGuiFont *&e : gPolicesDifferees)
+				if (!e) {
+					e = f;
+					return;
+				}
+		}
+
+		NkGuiFont::~NkGuiFont() {
+			for (NkGuiFont *&e : gPolicesDifferees)
+				if (e == this)
+					e = nullptr;
+		}
+
+		static bool NkEstIdeogramme(uint32 c) noexcept {
+			const uint32 *r = NkCjkRanges();
+			for (usize i = 0; r[i]; i += 2u)
+				if (c >= r[i] && c <= r[i + 1u])
+					return true;
+			return false;
+		}
+
+		void NkGuiPolicesSignalerTexte(const NkFont *face, const char *debut, const char *fin) noexcept {
+			if (!face || !debut)
+				return;
+			NkGuiFont *f = nullptr;
+			for (NkGuiFont *e : gPolicesDifferees)
+				if (e && e->face == face && !e->cjkCharge && !e->cjkDemande) {
+					f = e;
+					break;
+				}
+			if (!f)
+				return; // la face n'attend aucun ideogramme : rien a lire
+			const char *p = debut;
+			const char *e = fin;
+			if (!e) {
+				e = debut;
+				while (*e)
+					++e;
+			}
+			while (p < e) {
+				if ((unsigned char)*p < 0xE2u) { // ASCII, latin, grec, cyrillique... : pas d'ideogramme possible
+					++p;
+					continue;
+				}
+				const NkFontCodepoint c = NkFontDecodeUTF8(&p, e);
+				if (c == 0u)
+					break;
+				if (NkEstIdeogramme((uint32)c) && !face->FindGlyphNoFallback(c)) {
+					f->cjkDemande = true;
+					if (env::GetEnvVar("NK_TRACE_POLICE"))
+						NkPrintfSortie("[police] ideogramme U+%04X demande : l'atlas se refait a l'image suivante\n", (unsigned)c);
+					return;
+				}
+			}
+		}
+
+		uint32 NkGuiPolicesAppliquerDemandes(NkGuiTeleverserPolice televerser, void *user) noexcept {
+			// `NK_POLICE_CJK=sans-repli` : la CONTRE-EPREUVE du banc (la demande n'est jamais servie : le texte
+			// chinois reste en glyphes de repli)
+			{
+				const char *v = env::GetEnvVar("NK_POLICE_CJK");
+				const char *sr = "sans-repli";
+				bool sans = v != nullptr;
+				for (usize k = 0; sans && (v[k] || sr[k]); ++k)
+					sans = v[k] == sr[k];
+				if (sans)
+					return 0u;
+			}
+			uint32 n = 0u;
+			for (NkGuiFont *f : gPolicesDifferees) {
+				if (!f || !f->cjkDemande || f->cjkCharge)
+					continue;
+				const uint32 tex = f->texId;
+				const bool ok = f->depuisFichier ? f->LoadFromFile(f->cheminCharge, f->tailleChargee, f->replisExternes)
+												 : f->LoadEmbedded(f->idCharge, f->tailleChargee, f->replisExternes);
+				f->texId = tex;
+				if (ok && televerser)
+					(void)televerser(f->texId, f->pixels, f->atlasW, f->atlasH, user);
+				if (env::GetEnvVar("NK_TRACE_POLICE"))
+					NkPrintfSortie("[police] atlas refait avec les ideogrammes : %d x %d (%s)\n", (int)f->atlasW, (int)f->atlasH,
+								ok ? "ok" : "ECHEC");
+				++n;
+			}
+			return n;
+		}
+
 		// Fusionne les polices de repli externes presentes (merge -> comble les manquants).
 		// ext=false : n'incorpore AUCUN repli externe (broad/CJK/emoji = plusieurs milliers
 		// de glyphes) -> atlas MINUSCULE + build tres rapide. Reserve aux polices MONOSPACE
 		// (code) : leur police embarquee couvre deja Latin-1/etendu, box-drawing, fleches...
-		static void NkMergeFallback(NkFontAtlas &atlas, float32 sizePx, bool ext) noexcept {
+		// (26/10) `avecCjk` faux : les ideogrammes attendent d'etre demandes (NkGuiFont.h).
+		static void NkMergeFallback(NkFontAtlas &atlas, float32 sizePx, bool ext, bool avecCjk = true) noexcept {
 			if (!ext)
 				return;
 			// (21/10) LES CADRES ET LES BLOCS (U+2500-U+259F) : « ╔═╗ », « █ ». Rodolf : « l'affichage dans
@@ -143,7 +255,8 @@ namespace nkentseu {
 					std::printf("[police] repli %s : %s\n", ok ? "FUSIONNE" : "REFUSE PAR L'ATLAS", path);
 			};
 			add(gFbBroad, NkBroadRanges());
-			add(gFbCjk, NkCjkRanges());
+			if (avecCjk)
+				add(gFbCjk, NkCjkRanges());
 			add(gFbEmoji, NkEmojiRanges());
 		}
 
@@ -156,7 +269,17 @@ namespace nkentseu {
 			face = NkFontEmbedded::AddToAtlas(atlas, id, sizePx, &cfg);
 			if (!face)
 				return false;
-			NkMergeFallback(atlas, sizePx, extFallback); // repli pour les glyphes manquants
+			// (26/10) LES IDEOGRAMMES A LA DEMANDE : sans demande, l'atlas ne les porte pas ; la police s'inscrit pour
+			// se refaire a l'identique quand un texte les demandera
+			depuisFichier = false;
+			idCharge = id;
+			tailleChargee = sizePx;
+			replisExternes = extFallback;
+			const bool differe = extFallback && gFbCjk[0] && NkCjkALaDemande() && !cjkDemande;
+			cjkCharge = extFallback && gFbCjk[0] && !differe;
+			if (differe)
+				NkInscrireDifferee(this);
+			NkMergeFallback(atlas, sizePx, extFallback, !differe); // repli pour les glyphes manquants
 			if (!atlas.Build())
 				return false;
 			int32 bpp = 0;
@@ -178,7 +301,21 @@ namespace nkentseu {
 			face = atlas.AddFontFromFile(path, sizePx > 0.f ? sizePx : 16.f, &cfg);
 			if (!face)
 				return false;
-			NkMergeFallback(atlas, sizePx > 0.f ? sizePx : 16.f, extFallback);
+			// (26/10) les ideogrammes a la demande, comme LoadEmbedded
+			if (path != cheminCharge) {
+				usize i = 0;
+				for (; path[i] && i + 1u < sizeof(cheminCharge); ++i)
+					cheminCharge[i] = path[i];
+				cheminCharge[i] = 0;
+			}
+			depuisFichier = true;
+			tailleChargee = sizePx;
+			replisExternes = extFallback;
+			const bool differe = extFallback && gFbCjk[0] && NkCjkALaDemande() && !cjkDemande;
+			cjkCharge = extFallback && gFbCjk[0] && !differe;
+			if (differe)
+				NkInscrireDifferee(this);
+			NkMergeFallback(atlas, sizePx > 0.f ? sizePx : 16.f, extFallback, !differe);
 			if (!atlas.Build())
 				return false;
 			int32 bpp = 0;
