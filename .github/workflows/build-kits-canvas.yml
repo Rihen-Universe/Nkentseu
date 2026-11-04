@@ -1,0 +1,128 @@
+# =============================================================================
+# build-kits-canvas.yml — Le kit NKCanvas (avec NKNavigation et NKCollision, comme FoodHunt) pour iOS et macOS.
+#
+# POURQUOI : Rodolf (04/11/2026) « il faut ajouter les kits Android, Web, iOS et HarmonyOS ; j'ai besoin de ces kits
+# pour les versions mobiles ». Android, Web et HarmonyOS se fabriquent sur Windows (scripts/MakeKit.py --platform).
+# iOS et macOS exigent Xcode : seuls les runners macOS GitHub les ont (aucun Mac sous la main).
+#
+# QUAND : A LA MAIN seulement  ->  gh workflow run build-kits-canvas.yml
+# CE QUE CA FAIT : construit les trois bibliotheques (Release), extrait le kit avec scripts/MakeKit.py --platform,
+# eprouve le kit par un petit programme (macOS : il se lance ; iOS : il se construit, un iPhone ne se lance pas ici),
+# puis publie les archives en artefacts. Aucune publication de release : Rodolf relit et publie.
+#
+# ETAT : ECRIT SANS PREUVE (aucun Mac ici) — les premieres executions servent a reveler les erreurs. Les noms de
+# plateforme (macOS-arm64, iOS-arm64) suivent Jenga/Core/Api.py ; si `jenga kit` les refuse, lire le message.
+# =============================================================================
+name: build-kits-canvas
+
+on:
+  workflow_dispatch:
+    inputs:
+      jenga_ref:
+        description: "Ref de Jenga a la place du tag v<JENGA_VERSION> (vide = .github/JENGA_REF, sinon le tag)"
+        required: false
+        type: string
+        default: ""
+
+env:
+  JENGA_REF_FORCEE: ${{ inputs.jenga_ref || '' }}
+
+jobs:
+  kit-canvas:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nom: macos-arm64
+            runner: macos-latest
+            plateforme: macOS-arm64
+            systeme: macOS
+            lancer: "1"
+          - nom: macos-x86_64
+            runner: macos-15-intel
+            plateforme: macOS-x86_64
+            systeme: macOS
+            lancer: "1"
+          - nom: ios-arm64
+            runner: macos-latest
+            plateforme: iOS-arm64
+            systeme: iOS
+            lancer: "0"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+      NK_ENABLE_VULKAN: "0"
+      PYTHONPATH: ${{ github.workspace }}/jenga-src
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
+
+      - name: Depot Jenga (public, la source EST le build system)
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: ${{ steps.jenga-version.outputs.ref }}
+          path: jenga-src
+
+      - name: Xcode disponible (on le DIT, on ne le suppose pas)
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path || echo "SDK iphoneos ABSENT"
+
+      - name: Construire NKCanvas, NKNavigation, NKCollision (Release) - ${{ matrix.nom }}
+        run: |
+          set -u
+          mkdir -p journaux
+          for B in NKCanvas NKNavigation NKCollision; do
+            python3 -m Jenga build --target "$B" --config Release --platform "${{ matrix.plateforme }}" --no-daemon \
+              > "journaux/build_${B}.log" 2>&1 || { echo "$B : ECHEC"; tail -60 "journaux/build_${B}.log"; exit 1; }
+            echo "$B : construit"
+          done
+
+      - name: Extraire le kit - ${{ matrix.nom }}
+        run: |
+          set -eu
+          mkdir -p sortie kits
+          python3 scripts/MakeKit.py --name NKCanvas --target NKCanvas,NKNavigation,NKCollision \
+            --platform "${{ matrix.plateforme }}" --config Release --sortie sortie > journaux/makekit.log 2>&1 \
+            || { tail -60 journaux/makekit.log; exit 1; }
+          Z=$(ls sortie/NKCanvas-kit-*.zip | head -1)
+          cp "$Z" "kits/NKCanvas-kit-${{ matrix.nom }}.zip"
+          grep -E "construit le|Cibles" sortie/Kits/NKCanvas/KIT.txt
+          (cd kits && shasum -a 256 *.zip > SHA256SUMS-${{ matrix.nom }}.txt)
+
+      - name: Eprouver le kit par un petit programme - ${{ matrix.nom }}
+        run: |
+          set -eu
+          W=essai
+          mkdir -p "$W"
+          printf '%s\n' '#include "NKCanvas/App/NkCanvasGuiApp.h"' 'int main() { return 0; }' > "$W/main.cpp"
+          printf '%s\n' 'from Jenga import *' "useconfig(\"$PWD/sortie/Kits/NKCanvas/NKCanvas.jenga\")" '' \
+            'with workspace("Essai"):' '    RegisterJengaGlobalToolchains()' '    configurations(["Release"])' \
+            '    with project("App"):' '        consoleapp()' '        language("C++")' '        cppdialect("C++17")' \
+            '        files(["main.cpp"])' '        usenkcanvas()' > "$W/Essai.jenga"
+          (cd "$W" && python3 -m Jenga build --config Release --platform "${{ matrix.plateforme }}" --no-daemon)
+          if [ "${{ matrix.lancer }}" = "1" ]; then
+            X=$(find "$W/Build/Bin" -type f -name App -perm -u+x | head -1)
+            test -n "$X" && "$X"
+          fi
+
+      - name: Artefact - kit NKCanvas ${{ matrix.nom }}
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kit-nkcanvas-${{ matrix.nom }}
+          path: |
+            kits/
+            journaux/

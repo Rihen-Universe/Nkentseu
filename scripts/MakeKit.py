@@ -98,11 +98,14 @@ def CommandeJenga():
         return ["jenga"]
 
 
-def LancerJengaKit(nom, cibles, configs, dossier):
+def LancerJengaKit(nom, cibles, configs, dossier, plateformes=()):
     commande = CommandeJenga() + ["kit", "--target", ",".join(cibles), "--name", nom,
                                   "--output", str(dossier).replace("\\", "/"), "--force"]
     for c in configs:
         commande += ["--config", c]
+    # (04/11/2026) plateformes croisees : `jenga kit --platform Android-arm64` ; sans option, l'hote (inchange).
+    for p in plateformes:
+        commande += ["--platform", p]
     Dire("$ " + " ".join(commande))
     # shell=True sous Windows : `jenga` y est un .exe OU un .cmd selon l'installation.
     code = subprocess.call(" ".join('"%s"' % a if " " in a else a for a in commande),
@@ -263,18 +266,83 @@ def EmbarquerRessources(kit, nomKit):
     return faits
 
 
+_USAGE = re.compile(r'^def (use\w*)\(modules=None')
+_SELECTION = "    selection = _kit_selection(modules)"
+
+# Le texte ajoute au .jenga du kit (Python lu par Jenga chez l'etudiant). ASCII seulement.
+_RESSOURCES_JENGA = '''# (31/10/2026, scripts/MakeKit.py) LES RESSOURCES LUES A L'EXECUTION, POSEES A COTE DE L'EXECUTABLE.
+# NKRenderer cherche ses nuanceurs dans Resources/NKRenderer/Shaders : le dossier courant d'abord, puis a
+# cote de l'executable. Sans eux, il se rabattait sur des nuanceurs embarques incomplets (OpenGL :
+# "softness is not a member of struct ShadowUBO" ; Vulkan : "ShadowLinear ... introuvable" ; image noire).
+# Le kit les copie donc lui-meme apres chaque construction, a cote de l'executable, FIDELEMENT (le dossier
+# est vide d'abord : rien d'un ancien kit ne reste), par une commande du systeme et sans Python (sous
+# NKCode, le Python de Jenga est NKCode lui-meme).
+KIT_RESSOURCES = %s
+
+def _kit_ressources_apres_construction(selection):
+    for _module, _dossiers in sorted(KIT_RESSOURCES.items()):
+        if _module not in selection:
+            continue
+        for _rel in _dossiers:
+            _src = KIT_ROOT + "/" + _rel
+            _dst = "%%{prj.targetdir}/" + _rel
+            with filter("system:Windows"):
+                postbuild(['if exist "%%s" rmdir /S /Q "%%s"' %% (_dst, _dst),
+                           'xcopy /E /I /Y /Q "%%s" "%%s"' %% (_src, _dst)])
+            for _systeme in ("Linux", "macOS"):
+                with filter("system:" + _systeme):
+                    postbuild(['rm -rf "%%s" && mkdir -p "%%s" && cp -R "%%s/." "%%s"' %% (_dst, _dst, _src, _dst)])
+
+'''
+
+
+def RessourcesApresConstruction(kit, nomKit):
+    """(31/10/2026) LE KIT POSE LUI-MEME SES RESSOURCES A COTE DE L'EXECUTABLE. Jusqu'ici le projet de
+    l'etudiant devait les copier par son propre postbuild ; MaSalle (Cours-NKRHI-NKRenderer) le faisait par
+    « sys.executable -c shutil.copytree », et sous NKCode sys.executable etait NKCode : la copie n'avait
+    pas lieu, NKRenderer prenait ses nuanceurs embarques, et l'etudiant voyait « softness is not a member
+    of struct ShadowUBO » (OpenGL) et « ShadowLinear/VK/shadowlinear.vert.vk.glsl introuvable » (Vulkan),
+    image noire (NKCode-Beta #17, et le signalement de la plateforme du 31/10). La fonction d'usage du kit
+    (user3d, usenkrenderer...) ajoute donc un postbuild : la copie fidele des dossiers que ses modules lisent
+    a l'execution, a cote de l'executable, ou NKRenderer les trouve quel que soit le dossier de lancement.
+    Rend le nombre d'appels poses (0 : le kit n'a rien a copier)."""
+    presents = ModulesDuKit(kit)
+    table = {m: d for m, d in sorted(RESSOURCES_PAR_MODULE.items()) if m in presents}
+    if not table:
+        return 0
+    fichier = kit / (nomKit + ".jenga")
+    lignes = fichier.read_text(encoding="utf-8").split("\n")
+    sortie, poses, dans_usage = [], 0, False
+    for ligne in lignes:
+        if _USAGE.match(ligne):
+            sortie.extend((_RESSOURCES_JENGA % repr(table)).split("\n"))
+            dans_usage = True
+        sortie.append(ligne)
+        if dans_usage and ligne.rstrip() == _SELECTION:
+            sortie.append("    _kit_ressources_apres_construction(selection)  # (31/10/2026) les nuanceurs a cote de l'executable")
+            poses += 1
+            dans_usage = False
+    if poses == 0:
+        raise SystemExit("ressources du kit : aucune fonction d'usage avec « %s » dans %s" % (_SELECTION.strip(), fichier))
+    fichier.write_text("\n".join(sortie), encoding="utf-8", newline="\n")
+    return poses
+
+
 def Noter(kit, embarques, cibles, ressources=()):
     note = kit / "KIT.txt"
     ajout = ["", "Rendu autonome par scripts/MakeKit.py le %s." % datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
              "Cibles : " + ", ".join(cibles) + "."]
     if ressources:
         ajout.append("")
-        ajout.append("RESSOURCES LUES A L'EXECUTION (dans ce kit, a copier dans VOTRE projet) :")
+        ajout.append("RESSOURCES LUES A L'EXECUTION (dans ce kit) :")
         for rel, n in ressources:
             ajout.append("  %s  (%d fichiers)" % (rel, n))
         ajout.append("Le programme les cherche RELATIVEMENT AU DOSSIER COURANT, puis a cote de l'executable.")
-        ajout.append("Copiez-les par un postbuild de votre .jenga (voir le projet de depart livre avec le kit),")
-        ajout.append("et lancez le programme depuis le dossier de votre projet.")
+        # (31/10/2026) ancien conseil, garde pour memoire : « Copiez-les par un postbuild de votre .jenga (voir le
+        # projet de depart livre avec le kit), et lancez le programme depuis le dossier de votre projet. »
+        ajout.append("La fonction d'usage du kit les COPIE ELLE-MEME a cote de l'executable apres chaque construction")
+        ajout.append("(copie fidele : le dossier est vide d'abord). Un dossier Resources/ dans le dossier courant passe")
+        ajout.append("en premier : s'il vient d'un ancien kit, supprimez-le, ou copiez-le aussi fidelement.")
     if embarques:
         ajout.append("Bibliotheques externes embarquees (elles etaient cherchees dans un dossier de la machine d'origine) :")
         for source, destination in embarques:
@@ -285,8 +353,8 @@ def Noter(kit, embarques, cibles, ressources=()):
     note.write_text(ancien.rstrip("\n") + "\n" + "\n".join(ajout) + "\n", encoding="utf-8", newline="\n")
 
 
-def Archiver(kit, nomKit, sortie):
-    archive = sortie / ("%s-kit-%s.zip" % (nomKit, Systeme()))
+def Archiver(kit, nomKit, sortie, systeme=None):
+    archive = sortie / ("%s-kit-%s.zip" % (nomKit, systeme or Systeme()))
     if archive.exists():
         archive.unlink()
     total = 0
@@ -305,6 +373,8 @@ def main():
     ap.add_argument("--target", help="modules racines, separes par des virgules")
     ap.add_argument("--config", action="append", help="Debug, Release (repetable ; defaut : les deux)")
     ap.add_argument("--sortie", help="dossier de sortie (defaut : D:/Rihen/Livraisons/Kits_<date>)")
+    ap.add_argument("--platform", action="append",
+                    help="plateforme croisee, OS[-arch] : Android-arm64, Web, HarmonyOS-arm64... (repetable ; defaut : l'hote)")
     ap.add_argument("--sans-archive", action="store_true", help="ne pas ecrire le .zip")
     args = ap.parse_args()
 
@@ -322,7 +392,7 @@ def main():
     kit = sortie / "Kits" / nom
     kit.parent.mkdir(parents=True, exist_ok=True)
 
-    LancerJengaKit(nom, cibles, configs, kit)
+    LancerJengaKit(nom, cibles, configs, kit, args.platform or ())
     embarques = RendreAutonome(kit, nom)
     LienStatiqueWindows(kit, nom)
     for source, destination in embarques:
@@ -331,10 +401,13 @@ def main():
     ressources = EmbarquerRessources(kit, nom)
     for rel, n in ressources:
         Dire("ressources : %s (%d fichiers)" % (rel, n))
+    if ressources:
+        Dire("ressources copiees a cote de l'executable par le kit : %d fonction(s) d'usage" % RessourcesApresConstruction(kit, nom))
+        Verifier(kit, nom)  # le .jenga change : toujours aucun chemin absolu, toujours du Python qui se compile
     Noter(kit, embarques, cibles_presentes, ressources)
     Dire("kit autonome : %s (%s)" % (kit, ", ".join(cibles_presentes)))
     if not args.sans_archive:
-        archive, total = Archiver(kit, nom, sortie)
+        archive, total = Archiver(kit, nom, sortie, "+".join(args.platform) if args.platform else None)
         Dire("archive : %s (%d fichiers, %.1f Mo)" % (archive, total, archive.stat().st_size / 1e6))
     Dire("fichier a designer dans NKCode (Nouveau projet) : %s" % (kit / (nom + ".jenga")))
     return 0

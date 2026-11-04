@@ -19,6 +19,7 @@
 
 #include <ace/xcomponent/native_interface_xcomponent.h>
 #include <ace/xcomponent/native_xcomponent_key_event.h>
+#include <native_window/external_window.h> // OHNativeWindow (le SDK 5.0 ne le tire pas par native_interface_xcomponent.h)
 #include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {

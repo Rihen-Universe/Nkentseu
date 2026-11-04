@@ -14,6 +14,7 @@
 
 #include "NKWindow/Platform/HarmonyOS/NkHarmonyWindow.h"
 #include "NKWindow/Core/NkWindow.h"
+#include "NKWindow/Core/NkWindowAudit.h" // refus NOMME (BgColor)
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkWindowEvent.h"

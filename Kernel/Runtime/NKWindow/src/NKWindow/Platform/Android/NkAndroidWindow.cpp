@@ -10,6 +10,7 @@
 #include "NKWindow/Platform/Android/NkAndroidDropTarget.h"
 #include "NKWindow/Core/NkWindow.h"
 #include "NKLogger/NkLog.h" // SetMousePositionClient DIT ses refus : jamais un repli muet
+#include "NKWindow/Core/NkWindowAudit.h" // refus NOMME (BgColor)
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKMemory/NkAllocator.h" // NkGetDefaultAllocator().New/Delete (regle maison : pas de new/delete)
