@@ -52,6 +52,18 @@ namespace nkentseu {
 				}
 
 				/**
+				 * @brief Conversion NkDefaultDelete<U> -> NkDefaultDelete<T> (Derivee -> Base)
+				 * @note Sans elle, NkUniquePtr<Derivee> ne peut pas devenir NkUniquePtr<Base> :
+				 *       le deleter de la source ne se convertit pas (erreur de compilation du 02/11).
+				 *       Le deleter garde l'allocateur ; la destruction passe par ~T() de la base,
+				 *       donc la base doit avoir un destructeur virtuel (comme std::default_delete).
+				 *       Banc : NKMemory/tests/test_uniqueptr_conversion.cpp.
+				 */
+				template <typename U, typename = traits::NkEnableIf_t<traits::NkIsBaseOf_v<T, U> && !traits::NkIsSame_v<T, U>>>
+				NkDefaultDelete(const NkDefaultDelete<U> &other) noexcept : allocator(other.allocator) {
+				}
+
+				/**
 				 * @brief Opérateur d'appel : détruit et libère le pointeur
 				 * @param ptr Pointeur à libérer (nullptr accepté, no-op)
 				 *
@@ -164,6 +176,27 @@ namespace nkentseu {
 						Reset(other.Release());
 						mDeleter = static_cast<Deleter &&>(other.mDeleter);
 					}
+					return *this;
+				}
+
+				/**
+				 * @brief Conversion par mouvement NkUniquePtr<U> -> NkUniquePtr<T>
+				 * @note Seulement si T est une base de U (NkIsBaseOf) : Derivee -> Base.
+				 *       Le deleter de la source est converti (NkDefaultDelete<U> -> NkDefaultDelete<T>).
+				 *       Banc : NKMemory/tests/test_uniqueptr_conversion.cpp.
+				 */
+				template <typename U, typename E,
+						  typename = traits::NkEnableIf_t<traits::NkIsBaseOf_v<T, U> && !traits::NkIsSame_v<T, U>>>
+				NkUniquePtr(NkUniquePtr<U, E> &&other) noexcept
+					: mPtr(other.Release()), mDeleter(static_cast<E &&>(other.GetDeleter())) {
+				}
+
+				/** @brief Affectation par mouvement depuis NkUniquePtr<U> (Derivee -> Base) */
+				template <typename U, typename E,
+						  typename = traits::NkEnableIf_t<traits::NkIsBaseOf_v<T, U> && !traits::NkIsSame_v<T, U>>>
+				NkUniquePtr &operator=(NkUniquePtr<U, E> &&other) noexcept {
+					Reset(other.Release());
+					mDeleter = Deleter(static_cast<E &&>(other.GetDeleter()));
 					return *this;
 				}
 

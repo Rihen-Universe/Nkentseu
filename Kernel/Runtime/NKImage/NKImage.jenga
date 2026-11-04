@@ -32,6 +32,7 @@ with project("NKImage"):
         # Core
         "src/NKImage/Core/NkImage.cpp",
         "src/NKImage/Core/NkXMLParser.cpp",
+        "src/NKImage/Core/NkImagePalette.cpp",
         # Codecs image natifs
         "src/NKImage/Codecs/PNG/NkPNGCodec.cpp",
         "src/NKImage/Codecs/JPEG/NkJPEGCodec.cpp",
@@ -145,7 +146,7 @@ with project("NKImage"):
             # ci-dessous a son PROPRE main() : sans cette exclusion, la suite sans nom en
             # lierait DEUX. Mesure sur l arbre fusionne : tests/ porte exactement deux
             # main(), TestMain.cpp et test_texture_bake.cpp.
-            excludefiles(["tests/test_texture_bake.cpp"])
+            excludefiles(["tests/test_texture_bake.cpp", "tests/test_palette.cpp"])
             # ── FUSION DE feat/svg-codec DANS transit (2026-09-12) : la question de R7 est RESOLUE ──
             # transit gardait excludefiles(TestEXR) parce que TestEXR.cpp portait son propre main().
             # MESURE sur l'arbre fusionne : TestEXR.cpp n'a PLUS de main() -- le commit 86d16f49a
@@ -185,6 +186,23 @@ with project("NKImage"):
                 "NKContainers",
                 "NKPlatform",
                 "NKTime",
+                "NKMemory",
+                "NKCore",
+            ])
+
+        # Banc de NK_AREA et de NkImagePalette (04/11/2026) : sous-suite a part, avec le
+        # main() fourni par Unitest (la suite sans nom a le sien, dans TestMain.cpp).
+        with test("Palette"):
+            testfiles(["tests/test_palette.cpp"])
+            links([
+                "NKImage",
+                "NKMath",
+                "NKContainers",
+                "NKLogger",
+                "NKThreading",
+                "NKFileSystem",
+                "NKStream",
+                "NKPlatform",
                 "NKMemory",
                 "NKCore",
             ])

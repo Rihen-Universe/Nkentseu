@@ -127,6 +127,13 @@ namespace nkentseu {
 				void AddMesh(uint32 texId, const NkVec2 *pts, const NkVec2 *uvs, const NkColor *cols, int32 nVtx,
 							 const uint32 *indices, int32 nIdx) noexcept;
 				void AddLine(const NkVec2 &a, const NkVec2 &b, const NkColor &col, float32 thickness = 1.f) noexcept;
+				// TRAIT EFFILE (04/11/2026) : un quadrilatere de `a` a `b` dont la largeur passe
+				// de `epaisseurA` (au point a) a `epaisseurB` (au point b), interpolee
+				// lineairement. Sert aux pattes, antennes, cornes, traits de pinceau : tout
+				// ce qui s'amincit. Meme geometrie que AddLine (normale au segment, demi-
+				// largeur de part et d'autre) ; AddLine(a, b, c, e) == AddTaperedLine(a, b, c, e, e).
+				void AddTaperedLine(const NkVec2 &a, const NkVec2 &b, const NkColor &col, float32 epaisseurA,
+									float32 epaisseurB) noexcept;
 				void AddTriangleFilled(const NkVec2 &a, const NkVec2 &b, const NkVec2 &c, const NkColor &col) noexcept;
 				// Triangle à DÉGRADÉ (3 couleurs de sommet) — roue de teinte + triangle SV.
 				void AddTriangleMultiColor(const NkVec2 &a, const NkVec2 &b, const NkVec2 &c, const NkColor &ca,

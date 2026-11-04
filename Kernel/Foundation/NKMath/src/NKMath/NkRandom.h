@@ -324,6 +324,69 @@ namespace nkentseu {
 		}; // class NkRandom
 
 		// =================================================================
+		// NkLcg32 : generateur congruentiel lineaire, UN PAR OBJET, rejouable
+		// =================================================================
+		// Principe (Knuth, TAOCP vol. 2, § 3.2.1). Un generateur congruentiel
+		// lineaire (LCG) produit la suite
+		//     x(n+1) = (a * x(n) + c) mod m.
+		// Ici m = 2^32 : le « mod m » est le debordement naturel d'un uint32, sans
+		// division. Les constantes a = 1664525 et c = 1013904223 sont celles de
+		// Numerical Recipes ; elles verifient le theoreme de Hull et Dobell (c
+		// premier avec m, a - 1 multiple de tout facteur premier de m et de 4) :
+		// la suite parcourt les 2^32 valeurs avant de se repeter (periode pleine).
+		//
+		// Pourquoi un objet et non rand() : rand() est un etat GLOBAL (NkRandom en
+		// depend) ; deux sous-systemes se perturbent, et un test ne peut pas
+		// rejouer une sequence sans toucher a tous les autres. Ici l'etat est un
+		// seul uint32 porte par l'objet : meme graine, meme suite, sur toute
+		// machine (arithmetique entiere exacte). C'est ce qui rend une scene ou
+		// un niveau reproductible.
+		//
+		// Limite : les bits de poids faible d'un LCG sont peu aleatoires (le bit 0
+		// alterne). On n'utilise donc que les bits hauts (>> 8 ou >> 16).
+		// Ne convient pas a la cryptographie.
+		// =================================================================
+		class NkLcg32 {
+			public:
+				explicit NkLcg32(uint32 graine = 1u) noexcept : mEtat(graine) {
+				}
+
+				/// Reprend la suite depuis une graine (rejoue la meme sequence).
+				void Seed(uint32 graine) noexcept {
+					mEtat = graine;
+				}
+
+				/// Etat courant (pour sauvegarder et reprendre une sequence).
+				uint32 State() const noexcept {
+					return mEtat;
+				}
+
+				/// Valeur suivante sur 32 bits.
+				uint32 NextUInt32() noexcept {
+					mEtat = mEtat * 1664525u + 1013904223u;
+					return mEtat;
+				}
+
+				/// Flottant uniforme dans [0, 1[ (24 bits hauts, exactement representables).
+				float32 NextFloat32() noexcept {
+					return static_cast<float32>(NextUInt32() >> 8) * (1.0f / 16777216.0f);
+				}
+
+				/// Flottant uniforme dans [min, max[.
+				float32 NextFloat32(float32 min, float32 max) noexcept {
+					return min + (max - min) * NextFloat32();
+				}
+
+				/// Entier dans [0, borne[ (borne > 0), sur les bits hauts.
+				uint32 NextUInt32(uint32 borne) noexcept {
+					return borne == 0u ? 0u : (NextUInt32() >> 8) % borne;
+				}
+
+			private:
+				uint32 mEtat;
+		};
+
+		// =================================================================
 		// Alias global de commodité : NkRand
 		// =================================================================
 		// Référence statique vers le singleton NkRandom pour un accès concis.

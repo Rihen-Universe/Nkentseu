@@ -291,6 +291,32 @@ namespace nkentseu {
 			Tri(i0, i2, i3, 0u);
 		}
 
+		void NkGuiDrawList::AddTaperedLine(const NkVec2 &a, const NkVec2 &b, const NkColor &col, float32 epaisseurA,
+										   float32 epaisseurB) noexcept {
+			// Trait effile. Soit u = (b - a) / |b - a| le vecteur unitaire du segment et
+			// n = (-u.y, u.x) sa normale (rotation de +90 degres). Les quatre sommets sont
+			//     a +/- n * (epaisseurA / 2)     et     b +/- n * (epaisseurB / 2),
+			// c'est-a-dire un trapeze isocele : la largeur varie lineairement le long
+			// de l'axe. Deux triangles (i0 i1 i2) et (i0 i2 i3) le remplissent, comme
+			// pour AddLine dont c'est la generalisation (epaisseurA == epaisseurB).
+			epaisseurA *= thickScale; // en px ecran (DPI), comme AddLine
+			epaisseurB *= thickScale;
+			const float32 dx = b.x - a.x, dy = b.y - a.y;
+			const float32 len = math::NkSqrt(dx * dx + dy * dy);
+			if (len < 1.0e-4f)
+				return;
+			const float32 ux = -dy / len, uy = dx / len; // normale unitaire
+			const float32 ha = epaisseurA * 0.5f, hb = epaisseurB * 0.5f;
+			const uint32 cc = NkGuiPackColor(col);
+			const NkVec2 uv{0.f, 0.f};
+			const uint32 i0 = Vtx({a.x + ux * ha, a.y + uy * ha}, uv, cc);
+			const uint32 i1 = Vtx({b.x + ux * hb, b.y + uy * hb}, uv, cc);
+			const uint32 i2 = Vtx({b.x - ux * hb, b.y - uy * hb}, uv, cc);
+			const uint32 i3 = Vtx({a.x - ux * ha, a.y - uy * ha}, uv, cc);
+			Tri(i0, i1, i2, 0u);
+			Tri(i0, i2, i3, 0u);
+		}
+
 
 		void NkGuiDrawList::AddRect(const NkRect &r, const NkColor &col, float32 thickness,
 									float32 rounding) noexcept {

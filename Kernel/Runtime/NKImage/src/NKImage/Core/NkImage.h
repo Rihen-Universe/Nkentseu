@@ -163,12 +163,15 @@ namespace nkentseu {
 	 *   NK_BILINEAR  — bilinéaire (bon compromis qualité/vitesse, défaut)
 	 *   NK_BICUBIC   — bicubique (meilleure qualité, plus lent)
 	 *   NK_LANCZOS3  — Lanczos-3 (qualité maximale, lent)
+	 *   NK_AREA      — moyenne par cellule, pondérée par l'alpha (réduction sans crénelage,
+	 *                  sans halo de la couleur du fond sur les bords transparents)
 	 */
 	enum class NkResizeFilter : uint8 {
 		NK_NEAREST,
 		NK_BILINEAR,
 		NK_BICUBIC,
 		NK_LANCZOS3,
+		NK_AREA,
 	};
 
 	// ─────────────────────────────────────────────────────────────────────────────

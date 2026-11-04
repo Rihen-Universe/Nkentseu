@@ -1427,6 +1427,24 @@ namespace nkentseu {
 				}
 
 				/**
+				 * @brief Ombre la couleur : multiplie le RGB par `facteur`, puis borne à [0, 255]
+				 * @param facteur Multiplicateur (< 1 assombrit, 1 inchange, > 1 eclaircit, 0 = noir)
+				 * @note Contrairement a Darken (facteur dans [0, 1] seulement), Shade accepte
+				 *       un facteur > 1 : un « ombrage » de jeu 2.5D multiplie la teinte par un
+				 *       coefficient d'eclairage (face dessus 1.0, face gauche 0.8, ...).
+				 *       Le resultat est borne : un canal ne deborde jamais (pas de repliement).
+				 * @note L'alpha reste inchange
+				 */
+				NKENTSEU_MATH_API_FORCE_INLINE
+				NkColor Shade(float32 facteur) const noexcept {
+					auto canal = [facteur](uint8 c) -> uint8 {
+						const float32 v = static_cast<float32>(c) * facteur;
+						return static_cast<uint8>(v < 0.0f ? 0.0f : (v > 255.0f ? 255.0f : v + 0.5f));
+					};
+					return {canal(r), canal(g), canal(b), a};
+				}
+
+				/**
 				 * @brief Éclaircit la couleur courante d'un facteur donné
 				 * @param amount Facteur d'éclaircissement ∈ [0, 1] (0=inchangé, 1=blanc)
 				 * @return Nouvelle couleur éclaircie

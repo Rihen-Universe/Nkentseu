@@ -70,6 +70,24 @@ namespace nkentseu {
 			NkTexte(dl, f, cx - NkTexteLargeur(f, s) * 0.5f, topY, s, c);
 		}
 
+		/// Texte centre horizontalement sur `cx`, a une TAILLE donnee (hauteur de ligne en
+		/// pixels). La police est chargee a une taille de base ; on l'echelonne par
+		///     echelle = taille / hauteur de ligne de base,
+		/// et la largeur mesuree est multipliee par la meme echelle pour le centrage
+		/// (sinon un texte agrandi serait decale vers la droite). `topY` est le haut du texte.
+		/// Pour un jeu : titres, scores et etiquettes de tailles variables, sans charger
+		/// une police par taille.
+		inline void NkTexteCentreTaille(nkgui::NkGuiDrawList &dl, nkgui::NkGuiFont *f, float32 cx, float32 topY,
+										const char *s, const nkgui::NkColor &c, float32 taille) noexcept {
+			if (f == nullptr || f->Face() == nullptr || s == nullptr || taille <= 0.f) {
+				return;
+			}
+			const float32 base = f->LineHeight();
+			const float32 echelle = (base > 0.f) ? taille / base : 1.f;
+			const float32 x = cx - f->MeasureWidth(s) * echelle * 0.5f;
+			dl.AddTextScaled(f->Face(), f->TexId(), math::NkVec2f(x, topY + f->Ascent() * echelle), s, c, echelle);
+		}
+
 		/// Texte cale a droite de `droite`.
 		inline void NkTexteADroite(nkgui::NkGuiDrawList &dl, nkgui::NkGuiFont *f, float32 droite, float32 topY,
 								   const char *s, const nkgui::NkColor &c) noexcept {

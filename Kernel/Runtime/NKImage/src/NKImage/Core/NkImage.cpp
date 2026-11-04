@@ -2830,6 +2830,76 @@ namespace nkentseu {
 		const float32 scaleX = float32(sW) / float32(dW);
 		const float32 scaleY = float32(sH) / float32(dH);
 
+		if (filter == NkResizeFilter::NK_AREA && !IsHDR()) {
+			// ── Moyenne par cellule (« area averaging »), pondérée par l'alpha ────
+			//
+			// Principe. Réduire une image, c'est remplacer chaque cellule de
+			// scaleX x scaleY pixels sources par UN pixel. L'échantillonnage
+			// bilinéaire ne lit que 4 voisins : quand scale > 2 il saute des pixels
+			// (crénelage). La moyenne de TOUS les pixels de la cellule est le filtre
+			// « boîte » exact : chaque pixel source pèse 1 dans la cellule.
+			//
+			// Pondération par l'alpha. Un pixel transparent n'a pas de couleur
+			// propre (son RGB est arbitraire, souvent la couleur du fond). Si on
+			// moyennait RGB sans pondérer, un contour d'aliment sur fond blanc
+			// transparent verrait un halo blanc. On calcule donc, avec a_i l'alpha
+			// du pixel i et c_i sa couleur,
+			//     C = somme(c_i * a_i) / somme(a_i)       (couleur « prémultipliée »)
+			//     A = somme(a_i) / N                      (alpha moyen de la cellule)
+			// Si somme(a_i) = 0 la cellule est entièrement transparente : on garde
+			// la moyenne simple des couleurs (sans importance, alpha = 0).
+			// Formats sans alpha (GRAY8, RGB24) : tous les poids valent 1.
+			const int32 ch = Channels();
+			const bool aAlpha = (ch == 2 || ch == 4);
+			const int32 nColor = aAlpha ? ch - 1 : ch;
+			for (int32 dy = 0; dy < dH; ++dy) {
+				const int32 y0 = sY + int32(float32(dy) * scaleY);
+				int32 y1 = sY + int32(float32(dy + 1) * scaleY + 0.999999f);
+				if (y1 <= y0)
+					y1 = y0 + 1;
+				if (y1 > src.mHeight)
+					y1 = src.mHeight;
+				uint8 *dstRow = RowPtr(dY + dy) + dX * bpp;
+				for (int32 dx = 0; dx < dW; ++dx) {
+					const int32 x0 = sX + int32(float32(dx) * scaleX);
+					int32 x1 = sX + int32(float32(dx + 1) * scaleX + 0.999999f);
+					if (x1 <= x0)
+						x1 = x0 + 1;
+					if (x1 > src.mWidth)
+						x1 = src.mWidth;
+					float64 sommeC[3] = {0.0, 0.0, 0.0};
+					float64 sommeCPlein[3] = {0.0, 0.0, 0.0}; // moyenne non pondérée (repli)
+					float64 sommeA = 0.0;
+					int32 n = 0;
+					for (int32 yy = y0; yy < y1; ++yy) {
+						const uint8 *row = src.RowPtr(yy);
+						for (int32 xx = x0; xx < x1; ++xx) {
+							const uint8 *p = row + xx * bpp;
+							const float64 a = aAlpha ? float64(p[nColor]) : 255.0;
+							for (int32 c = 0; c < nColor; ++c) {
+								sommeC[c] += float64(p[c]) * a;
+								sommeCPlein[c] += float64(p[c]);
+							}
+							sommeA += a;
+							++n;
+						}
+					}
+					uint8 *dp = dstRow + dx * bpp;
+					if (n == 0) {
+						continue;
+					}
+					for (int32 c = 0; c < nColor; ++c) {
+						const float64 v = (sommeA > 0.0) ? sommeC[c] / sommeA : sommeCPlein[c] / float64(n);
+						dp[c] = uint8(v + 0.5);
+					}
+					if (aAlpha) {
+						dp[nColor] = uint8(sommeA / float64(n) + 0.5);
+					}
+				}
+			}
+			return true;
+		}
+
 		if (filter == NkResizeFilter::NK_NEAREST) {
 			// ── Plus proche voisin ────────────────────────────────────────────────
 			for (int32 dy = 0; dy < dH; ++dy) {
@@ -2958,6 +3028,7 @@ namespace nkentseu {
 	 *   NK_NEAREST  : accès direct au pixel le plus proche (O(nw*nh)).
 	 *   NK_BILINEAR : interpolation sur 4 voisins avec pondération bilinéaire.
 	 *   NK_BICUBIC, NK_LANCZOS3 : fallback bilinéaire (non encore implémentés).
+	 *   NK_AREA : moyenne par cellule pondérée par l'alpha (formats 8 bits).
 	 *
 	 * Les coordonnées sources fractionnaires sont centrées sur les pixels
 	 * (+0.5/-0.5) pour éviter le décalage d'un demi-pixel aux bords.

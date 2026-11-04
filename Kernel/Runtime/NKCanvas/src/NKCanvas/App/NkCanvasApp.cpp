@@ -431,6 +431,16 @@ namespace nkentseu {
 			cfg.resizable = mConfig.resizable;
 			cfg.frame = mConfig.frame;
 
+			// (04/11/2026) Banc et captures : NK_FENETRE_CACHEE=1 rend la fenetre invisible
+			// (regle de la machine : aucune fenetre visible pendant les mesures). Meme
+			// variable que NkDialogs, lue par env::GetEnvVar.
+			{
+				const char *cachee = env::GetEnvVar("NK_FENETRE_CACHEE");
+				if (cachee != nullptr && cachee[0] == '1') {
+					cfg.visible = false;
+				}
+			}
+
 			if (!mWindow.Create(cfg)) {
 				logger.Error("[nkcanvasapp] creation de fenetre impossible");
 				return false;
