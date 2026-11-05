@@ -196,6 +196,8 @@ namespace nkentseu {
 			/// chemin complet que suit un utilisateur, depuis le systeme. Sans effet hors Windows.
 			enum class NkSourisBanc { SurvolAgrandir, AppuiAgrandir, RelacheAgrandir, SortieAgrandir, Mouvement, Appui, Relache };
 			void NativeSouris(NkSourisBanc geste, int32 x, int32 y);
+			/// (05/11, bancs) Hauteur de la fenetre moins celle de sa zone client. Hors Windows : 0.
+			int32 NativeCadreHauteur() const;
 			/// Bord de redimensionnement pour BeginResize (fenetre sans bordure).
 			enum class NkResizeEdge { Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
 			void BeginResize(NkResizeEdge edge); ///< hand-off natif du redimensionnement par un bord

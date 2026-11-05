@@ -1208,8 +1208,24 @@ namespace nkentseu {
 								   "BeginDragMove appele sur une fenetre creee movable=false : ignore");
 			return;
 		}
+		POINT souris;
+		GetCursorPos(&souris);
+		// (05/11) Rodolf : la fenetre agrandie ne se deplace pas. Comme VS Code : tirer sa barre de titre la restaure sous le
+		// pointeur, au meme endroit relatif de la largeur, et le deplacement continue.
+		if (IsZoomed(mData.mHwnd)) {
+			RECT agrandie;
+			GetWindowRect(mData.mHwnd, &agrandie);
+			WINDOWPLACEMENT place{};
+			place.length = sizeof(place);
+			GetWindowPlacement(mData.mHwnd, &place);
+			const int32 largeurAgrandie = agrandie.right - agrandie.left;
+			const int32 largeurNormale = place.rcNormalPosition.right - place.rcNormalPosition.left;
+			const int32 prise = largeurAgrandie > 0 ? MulDiv(souris.x - agrandie.left, largeurNormale, largeurAgrandie) : largeurNormale / 2;
+			Restore();
+			SetWindowPos(mData.mHwnd, nullptr, souris.x - prise, souris.y - 12, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+		}
 		ReleaseCapture();
-		SendMessageW(mData.mHwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+		SendMessageW(mData.mHwnd, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM((short)souris.x, (short)souris.y));
 	}
 
 	// ── Presse-papiers OS (CF_UNICODETEXT, conversion UTF-8 <-> UTF-16) ──────────

@@ -49,6 +49,10 @@ namespace nkentseu {
 	void NkWindow::NativeSouris(NkSourisBanc, int32, int32) {
 	}
 
+	int32 NkWindow::NativeCadreHauteur() const {
+		return 0;
+	}
+
 } // namespace nkentseu
 
 #endif

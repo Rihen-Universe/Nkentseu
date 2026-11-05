@@ -67,6 +67,7 @@ namespace nkentseu {
 	// qui est défini plus bas dans le fichier.
 	static LRESULT NkWin32_ProcessMessage(NkEventSystem &sys, HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
 										  NkWindowId winId, NkWindow *owner);
+	static bool NkWin32_MutationSnap(const char *nom);
 
 	// =============================================================================
 	// Init
@@ -175,6 +176,10 @@ namespace nkentseu {
 				p->rgrc[0].top += fy;
 				p->rgrc[0].right -= fx;
 				p->rgrc[0].bottom -= fy;
+			} else if (!NkWin32_MutationSnap("snap-sans-cadre")) {
+				// (05/11) Rodolf : le panneau des dispositions n'apparait que si la fenetre est agrandie. C'est le seul etat ou la
+				// zone client ne couvre pas toute la fenetre. Un pixel de cadre, en bas, pour que le systeme lui reconnaisse un cadre.
+				p->rgrc[0].bottom -= 1;
 			}
 			return 0; // client = toute la fenetre (aucune bordure dessinee par l'OS)
 		}

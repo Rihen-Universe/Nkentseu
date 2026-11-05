@@ -301,6 +301,14 @@ namespace nkentseu {
 		return static_cast<int32>(SendMessageW(mData.mHwnd, WM_NCHITTEST, 0, MAKELPARAM((short)p.x, (short)p.y)));
 	}
 
+	int32 NkWindow::NativeCadreHauteur() const {
+		RECT fenetre;
+		RECT client;
+		GetWindowRect(mData.mHwnd, &fenetre);
+		GetClientRect(mData.mHwnd, &client);
+		return (fenetre.bottom - fenetre.top) - (client.bottom - client.top);
+	}
+
 	void NkWindow::NativeSouris(NkSourisBanc geste, int32 x, int32 y) {
 		POINT p = {x, y};
 		ClientToScreen(mData.mHwnd, &p);
