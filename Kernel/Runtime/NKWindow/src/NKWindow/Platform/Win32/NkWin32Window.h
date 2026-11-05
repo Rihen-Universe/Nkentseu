@@ -57,6 +57,11 @@ namespace nkentseu {
 			bool mExternal = false;
 			bool mBorderless = false; // frame=false : zone non-cliente supprimee (WM_NCCALCSIZE)
 			bool mMouseTracking = false;
+			// (05/11, point 18) LE BOUTON AGRANDIR DE NOTRE BARRE DE TITRE, en coordonnees client : WM_NCHITTEST y rend HTMAXBUTTON, et
+			// Windows 11 ouvre au survol le panneau des dispositions (Snap Layouts), comme pour VS Code.
+			int32 mMaxBtn[4] = {0, 0, 0, 0};
+			bool mMaxBtnValid = false;
+			bool mMaxBtnSurvol = false; ///< WM_NCMOUSEMOVE a vu le survol (WM_NCMOUSELEAVE le rend)
 			HCURSOR mClientCursor = nullptr; // curseur courant de la zone client (WM_SETCURSOR)
 			NkSurfaceHints mAppliedHints{};
 	};

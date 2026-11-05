@@ -25,6 +25,8 @@
 #include <ole2.h>
 #include <shlobj.h>
 #include <shellapi.h>
+#include <cstdlib>
+#include <cstring>
 
 namespace nkentseu {
 
@@ -279,6 +281,24 @@ namespace nkentseu {
 		if (hr == DRAGDROP_S_DROP)
 			effet = (obtenu & DROPEFFECT_MOVE) ? 2 : ((obtenu & DROPEFFECT_COPY) ? 1 : 0);
 		return hr == DRAGDROP_S_DROP || hr == DRAGDROP_S_CANCEL;
+	}
+
+	void NkWindow::SetMaxButtonRect(int32 x, int32 y, int32 w, int32 h) {
+		// Contre-epreuve NK_NKCODE_MUTATION=snap-sans-bouton : le systeme n'est pas prevenu (l'etat d'avant).
+		const char *mu = std::getenv("NK_NKCODE_MUTATION");
+		if (mu && std::strcmp(mu, "snap-sans-bouton") == 0)
+			w = 0;
+		mData.mMaxBtn[0] = x;
+		mData.mMaxBtn[1] = y;
+		mData.mMaxBtn[2] = w;
+		mData.mMaxBtn[3] = h;
+		mData.mMaxBtnValid = (w > 0 && h > 0);
+	}
+
+	int32 NkWindow::NativeHitTest(int32 x, int32 y) const {
+		POINT p = {x, y};
+		ClientToScreen(mData.mHwnd, &p);
+		return static_cast<int32>(SendMessageW(mData.mHwnd, WM_NCHITTEST, 0, MAKELPARAM((short)p.x, (short)p.y)));
 	}
 
 } // namespace nkentseu

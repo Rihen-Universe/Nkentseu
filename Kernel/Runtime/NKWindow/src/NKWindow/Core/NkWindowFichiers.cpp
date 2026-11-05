@@ -39,6 +39,13 @@ namespace nkentseu {
 		return false;
 	}
 
+	void NkWindow::SetMaxButtonRect(int32, int32, int32, int32) {
+	}
+
+	int32 NkWindow::NativeHitTest(int32, int32) const {
+		return 1;
+	}
+
 } // namespace nkentseu
 
 #endif

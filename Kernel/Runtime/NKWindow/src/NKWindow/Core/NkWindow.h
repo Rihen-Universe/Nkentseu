@@ -184,6 +184,14 @@ namespace nkentseu {
 			/// application) ; BLOQUE jusqu'au lacher. `effet` : 0 rien, 1 copie, 2 deplacement (la CIBLE l'a fait : l'appelant
 			/// ne touche pas aux originaux, il releit seulement). `autoriserDeplacer` faux : copie seule. Faux : indisponible.
 			bool BeginFileDrag(const NkVector<NkString> &chemins, bool autoriserDeplacer, int32 &effet);
+			/// (05/11, point 18) LE BOUTON AGRANDIR de la barre de titre DESSINEE par l'application (fenetre sans cadre), en
+			/// pixels client ; a poser a chaque image. Windows 11 y ouvre au survol le panneau des dispositions (Snap Layouts) :
+			/// le systeme ne sait pas ou est un bouton qu'on dessine, sauf si WM_NCHITTEST lui rend HTMAXBUTTON. Largeur nulle :
+			/// aucun bouton. Sans effet hors Windows.
+			void SetMaxButtonRect(int32 x, int32 y, int32 w, int32 h);
+			/// (05/11, bancs) Ce que le SYSTEME repond pour un point client (WM_NCHITTEST) : 1 = HTCLIENT, 9 = HTMAXBUTTON...
+			/// Hors Windows : 1.
+			int32 NativeHitTest(int32 x, int32 y) const;
 			/// Bord de redimensionnement pour BeginResize (fenetre sans bordure).
 			enum class NkResizeEdge { Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
 			void BeginResize(NkResizeEdge edge); ///< hand-off natif du redimensionnement par un bord

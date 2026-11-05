@@ -836,6 +836,42 @@ namespace nkentseu {
 					// backend implemente BeginResize nativement). Le drag de titre = idem
 					// via BeginDragMove. Voir NkEditorShell::HandleEdgeResize.
 					result = HTCLIENT;
+					// (05/11, point 18) le bouton agrandir que NOUS dessinons : le systeme doit le savoir pour ouvrir, au survol, les
+					// dispositions de Windows 11 (Snap Layouts) ; le clic, lui, est celui du systeme (agrandir / restaurer).
+					if (owner->mData.mMaxBtnValid) {
+						POINT pc = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+						ScreenToClient(hwnd, &pc);
+						const int32 *r = owner->mData.mMaxBtn;
+						if (pc.x >= r[0] && pc.x < r[0] + r[2] && pc.y >= r[1] && pc.y < r[1] + r[3])
+							result = HTMAXBUTTON;
+					}
+				}
+				break;
+
+			// (05/11, point 18) Le survol et la sortie du bouton agrandir ne sont plus des messages CLIENT : l'application ne recevrait plus
+			// de mouvement de souris, et son bouton resterait sans survol. On le lui rejoue, en coordonnees client.
+			case WM_NCMOUSEMOVE:
+				if (owner && wp == HTMAXBUTTON) {
+					TRACKMOUSEEVENT tme{};
+					tme.cbSize = sizeof(tme);
+					tme.dwFlags = TME_LEAVE | TME_NONCLIENT;
+					tme.hwndTrack = hwnd;
+					TrackMouseEvent(&tme);
+					owner->mData.mMaxBtnSurvol = true;
+					POINT pc = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+					POINT ps = pc;
+					ScreenToClient(hwnd, &pc);
+					NkMouseButtons rien;
+					NkMouseMoveEvent evt((int)pc.x, (int)pc.y, (int32)ps.x, (int32)ps.y, 0, 0, rien, NkWin32_CurrentMods(), winId);
+					EnqueueForWindow(evt);
+				}
+				break;
+			case WM_NCMOUSELEAVE:
+				if (owner && owner->mData.mMaxBtnSurvol) {
+					owner->mData.mMaxBtnSurvol = false;
+					NkMouseButtons rien;
+					NkMouseMoveEvent evt(-100, -100, 0, 0, 0, 0, rien, NkWin32_CurrentMods(), winId); // hors du bouton : le survol s'efface
+					EnqueueForWindow(evt);
 				}
 				break;
 
