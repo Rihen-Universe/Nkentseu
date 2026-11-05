@@ -1,5 +1,8 @@
 # =============================================================================
-# build-kits-canvas.yml — Le kit NKCanvas (avec NKNavigation et NKCollision, comme FoodHunt) pour iOS et macOS.
+# build-kits-canvas.yml — Le kit NKCanvas (avec NKNavigation et NKCollision, comme FoodHunt) pour iOS, macOS et Linux.
+#
+# LINUX (Rodolf, 05/11/2026 : « construit ») : clang 18 d'ubuntu-24.04 et libstdc++, sans Vulkan, la chaine des kits
+# Linux de Nkentseu-Kits (publier-kits.yml).
 #
 # POURQUOI : Rodolf (04/11/2026) « il faut ajouter les kits Android, Web, iOS et HarmonyOS ; j'ai besoin de ces kits
 # pour les versions mobiles ». Android, Web et HarmonyOS se fabriquent sur Windows (scripts/MakeKit.py --platform).
@@ -48,6 +51,11 @@ jobs:
             plateforme: iOS-arm64
             systeme: iOS
             lancer: "0"
+          - nom: linux-x86_64
+            runner: ubuntu-24.04
+            plateforme: Linux-x86_64
+            systeme: Linux
+            lancer: "1"
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     env:
@@ -75,7 +83,14 @@ jobs:
           ref: ${{ steps.jenga-version.outputs.ref }}
           path: jenga-src
 
+      - name: Dependances Linux (X11, GL, ALSA)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxrandr-dev libxext-dev libgl1-mesa-dev libasound2-dev
+
       - name: Xcode disponible (on le DIT, on ne le suppose pas)
+        if: runner.os == 'macOS'
         run: |
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-path || echo "SDK iphoneos ABSENT"

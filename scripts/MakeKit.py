@@ -98,7 +98,7 @@ def CommandeJenga():
         return ["jenga"]
 
 
-def LancerJengaKit(nom, cibles, configs, dossier, plateformes=()):
+def LancerJengaKit(nom, cibles, configs, dossier, plateformes=(), manquants_permis=False):
     commande = CommandeJenga() + ["kit", "--target", ",".join(cibles), "--name", nom,
                                   "--output", str(dossier).replace("\\", "/"), "--force"]
     for c in configs:
@@ -106,6 +106,9 @@ def LancerJengaKit(nom, cibles, configs, dossier, plateformes=()):
     # (04/11/2026) plateformes croisees : `jenga kit --platform Android-arm64` ; sans option, l'hote (inchange).
     for p in plateformes:
         commande += ["--platform", p]
+    # (05/11/2026) un seul kit pour plusieurs plateformes : Windows a Debug et Release, les mobiles Release seulement.
+    if manquants_permis:
+        commande.append("--allow-missing")
     Dire("$ " + " ".join(commande))
     # shell=True sous Windows : `jenga` y est un .exe OU un .cmd selon l'installation.
     code = subprocess.call(" ".join('"%s"' % a if " " in a else a for a in commande),
@@ -376,6 +379,8 @@ def main():
     ap.add_argument("--platform", action="append",
                     help="plateforme croisee, OS[-arch] : Android-arm64, Web, HarmonyOS-arm64... (repetable ; defaut : l'hote)")
     ap.add_argument("--sans-archive", action="store_true", help="ne pas ecrire le .zip")
+    ap.add_argument("--allow-missing", action="store_true",
+                    help="garder le kit meme si une configuration n'existe pas sur toutes les plateformes")
     args = ap.parse_args()
 
     if args.kit:
@@ -392,7 +397,7 @@ def main():
     kit = sortie / "Kits" / nom
     kit.parent.mkdir(parents=True, exist_ok=True)
 
-    LancerJengaKit(nom, cibles, configs, kit, args.platform or ())
+    LancerJengaKit(nom, cibles, configs, kit, args.platform or (), args.allow_missing)
     embarques = RendreAutonome(kit, nom)
     LienStatiqueWindows(kit, nom)
     for source, destination in embarques:
