@@ -32,6 +32,7 @@
 #include <wincrypt.h>
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 #include <emscripten.h>
+#include <arpa/inet.h> // (05/11) htons et htonl, que la section Web de NkNetDefines.h n'apporte pas
 #else
 #include <unistd.h>
 #include <sys/time.h>

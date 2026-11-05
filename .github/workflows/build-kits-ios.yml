@@ -1,0 +1,115 @@
+# =============================================================================
+# build-kits-ios.yml — Les 34 modules de Nkentseu pour iOS-arm64 (Release), un tableau passe/echoue.
+#
+# Modele : build-kits-canvas.yml (meme Jenga, memes etapes, meme nom de plateforme : iOS-arm64).
+#
+# QUAND : A LA MAIN seulement  ->  gh workflow run build-kits-ios.yml
+# CE QUE CA FAIT : construit chacun des 34 modules SANS s'arreter au premier echec, ecrit tableau.tsv
+# (module, code, Status), extrait un kit par module construit (MakeKit.py --platform iOS-arm64),
+# eprouve un petit consommateur (loadkit) sur 3 modules (il se construit ; un iPhone ne se lance pas ici),
+# puis publie le tout en artefacts. Aucune publication de release.
+#
+# ETAT : ECRIT SANS PREUVE (aucun Mac ici). Les premieres executions revelent les erreurs.
+# =============================================================================
+name: build-kits-ios
+
+on:
+  workflow_dispatch:
+    inputs:
+      jenga_ref:
+        description: "Ref de Jenga a la place du tag v<JENGA_VERSION> (vide = .github/JENGA_REF, sinon le tag)"
+        required: false
+        type: string
+        default: ""
+
+env:
+  JENGA_REF_FORCEE: ${{ inputs.jenga_ref || '' }}
+  MODULES: >-
+    NKCore NKPlatform NKMemory NKMath NKContainers NKLogger NKTime NKThreading NKFileSystem NKStream NKEvent
+    NKReflection NKSerialization NKECS NKNetwork NKConverse NKImage NKFont NKWindow NKMedia NKAudio NKCamera
+    NKCollision NKNavigation NKPhysics NKSL NKRHI NKRenderer NKGui NKUI NKCanvas NKVFX NKAnima NKXR
+
+jobs:
+  kits-ios:
+    runs-on: macos-latest
+    timeout-minutes: 240
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+      NK_ENABLE_VULKAN: "0"
+      PYTHONPATH: ${{ github.workspace }}/jenga-src
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
+
+      - name: Depot Jenga (public, la source EST le build system)
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: ${{ steps.jenga-version.outputs.ref }}
+          path: jenga-src
+
+      - name: Xcode disponible (on le DIT, on ne le suppose pas)
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path || echo "SDK iphoneos ABSENT"
+
+      - name: Construire les 34 modules (Release, iOS-arm64), sans s'arreter au premier echec
+        run: |
+          mkdir -p journaux
+          printf 'module\tcode\tstatus\tsecondes\n' > tableau.tsv
+          for M in $MODULES; do
+            t0=$(date +%s)
+            python3 -m Jenga build --target "$M" --config Release --platform iOS-arm64 --no-daemon \
+              > "journaux/build_${M}.log" 2>&1
+            rc=$?
+            ST=$(sed -E 's/\x1b\[[0-9;]*m//g' "journaux/build_${M}.log" | grep -a 'Status:' | tail -1 | sed 's/.*Status: *//')
+            printf '%s\t%s\t%s\t%s\n' "$M" "$rc" "$ST" "$(( $(date +%s) - t0 ))" >> tableau.tsv
+            echo "$M : code $rc $ST"
+          done
+          cat tableau.tsv
+
+      - name: Extraire un kit par module construit
+        run: |
+          mkdir -p sortie kits
+          for M in $(awk -F'\t' 'NR>1 && $2==0 {print $1}' tableau.tsv); do
+            python3 scripts/MakeKit.py --name "$M" --target "$M" --platform iOS-arm64 --config Release \
+              --allow-missing --sans-archive --sortie "sortie/$M" > "journaux/makekit_${M}.log" 2>&1 \
+              && echo "$M : kit extrait" || echo "$M : EXTRACTION ECHOUEE"
+          done
+          (cd sortie && tar -czf ../kits/kits-ios-arm64.tar.gz .) || true
+
+      - name: Eprouver loadkit sur 3 modules (NKCore, NKMath, NKLogger) - il se construit
+        run: |
+          W=essai
+          mkdir -p "$W"
+          printf '%s\n' '#include "NKCore/NkTypes.h"' 'int main() { return 0; }' > "$W/main.cpp"
+          for M in NKCore NKMath NKLogger; do
+            K="$PWD/sortie/$M/Kits/$M/$M.jenga"
+            test -f "$K" || { echo "$M : pas de kit"; continue; }
+            printf '%s\n' 'from Jenga import *' "useconfig(\"$K\")" '' \
+              "with workspace(\"Essai$M\"):" '    RegisterJengaGlobalToolchains()' '    configurations(["Release"])' \
+              '    with project("App"):' '        consoleapp()' '        language("C++")' '        cppdialect("C++17")' \
+              '        files(["main.cpp"])' "        use${M,,}()" > "$W/Essai$M.jenga"
+            (cd "$W" && python3 -m Jenga build --config Release --platform iOS-arm64 --no-daemon) \
+              && echo "$M : consommateur construit" || echo "$M : CONSOMMATEUR ECHOUE"
+          done
+
+      - name: Artefact - tableau, kits et journaux iOS-arm64
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kits-ios-arm64
+          path: |
+            tableau.tsv
+            kits/
+            journaux/
