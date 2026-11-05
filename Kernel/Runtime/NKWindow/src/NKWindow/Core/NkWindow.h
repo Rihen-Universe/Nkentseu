@@ -174,6 +174,16 @@ namespace nkentseu {
 			/// CF_DIB (24 et 32 bits) ; les autres plateformes rendent faux AVEC leur
 			/// motif (pas de silence).
 			bool GetClipboardImage(NkVector<uint8> &rgba, int32 &w, int32 &h, NkString &motif) const;
+			/// (05/11) LES FICHIERS du presse-papiers, dans le format de l'Explorateur de Windows (CF_HDROP + « Preferred
+			/// DropEffect » : `couper` = deplacer au collage). Un SEUL presse-papiers : poser des fichiers remplace le texte,
+			/// poser du texte remplace les fichiers. Faux : la plateforme ne sait pas (un repli interne tient alors la liste).
+			bool SetClipboardFiles(const NkVector<NkString> &chemins, bool couper);
+			/// Les fichiers du presse-papiers (copies dans l'Explorateur, dans NKCode...). Faux : aucun.
+			bool GetClipboardFiles(NkVector<NkString> &chemins, bool &couper) const;
+			/// (05/11) Glisse ces fichiers HORS de la fenetre (OLE DoDragDrop, l'Explorateur, une autre instance, une autre
+			/// application) ; BLOQUE jusqu'au lacher. `effet` : 0 rien, 1 copie, 2 deplacement (la CIBLE l'a fait : l'appelant
+			/// ne touche pas aux originaux, il releit seulement). `autoriserDeplacer` faux : copie seule. Faux : indisponible.
+			bool BeginFileDrag(const NkVector<NkString> &chemins, bool autoriserDeplacer, int32 &effet);
 			/// Bord de redimensionnement pour BeginResize (fenetre sans bordure).
 			enum class NkResizeEdge { Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
 			void BeginResize(NkResizeEdge edge); ///< hand-off natif du redimensionnement par un bord

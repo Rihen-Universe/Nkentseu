@@ -564,10 +564,45 @@ namespace nkentseu {
 					}
 					return clipboardImageFn(clipboardUser, rgba, w, h, motif);
 				}
-				NkString GetClipboard() const {
+				/// (05/11) LES FICHIERS du presse-papiers (copies dans l'Explorateur de Windows ou dans NKCode) et le glisser vers
+				/// l'exterieur, fournis par l'hote. UN SEUL presse-papiers : poser du texte remplace les fichiers, et inversement.
+				bool (*clipboardFilesGetFn)(void *, NkVector<NkString> &chemins, bool &couper) = nullptr;
+				bool (*clipboardFilesSetFn)(void *, const NkVector<NkString> &chemins, bool couper) = nullptr;
+				bool (*fileDragFn)(void *, const NkVector<NkString> &chemins, bool autoriserDeplacer, int32 &effet) = nullptr;
+				bool GetClipboardFiles(NkVector<NkString> &chemins, bool &couper) const {
+					chemins.Clear();
+					couper = false;
+					return clipboardFilesGetFn ? clipboardFilesGetFn(clipboardUser, chemins, couper) : false;
+				}
+				bool SetClipboardFiles(const NkVector<NkString> &chemins, bool couper) {
+					return clipboardFilesSetFn ? clipboardFilesSetFn(clipboardUser, chemins, couper) : false;
+				}
+				bool BeginFileDrag(const NkVector<NkString> &chemins, bool autoriserDeplacer, int32 &effet) {
+					effet = 0;
+					return fileDragFn ? fileDragFn(clipboardUser, chemins, autoriserDeplacer, effet) : false;
+				}
+				/// Le TEXTE du presse-papiers ; s'il n'y a que des FICHIERS (copies dans l'Explorateur), leurs chemins, un par
+				/// ligne -- comme les autres applications les collent. `enLigne` : sur UNE ligne, separes par des espaces, entre
+				/// guillemets si besoin (un terminal ne doit pas executer une commande par fichier).
+				NkString GetClipboard(bool enLigne = false) const {
 					NkString s;
 					if (clipboardGetFn)
 						clipboardGetFn(clipboardUser, s);
+					if (s.Empty() && clipboardFilesGetFn) {
+						NkVector<NkString> f;
+						bool couper = false;
+						if (clipboardFilesGetFn(clipboardUser, f, couper))
+							for (usize i = 0; i < f.Size(); ++i) {
+								if (i)
+									s += enLigne ? " " : "\n";
+								const bool blancs = enLigne && f[i].Contains(" ");
+								if (blancs)
+									s += "\"";
+								s += f[i];
+								if (blancs)
+									s += "\"";
+							}
+					}
 					return s;
 				}
 

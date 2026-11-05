@@ -117,8 +117,29 @@ namespace nkentseu {
 			// IDropTarget
 			// =====================================================================
 
-			HRESULT STDMETHODCALLTYPE DragEnter(IDataObject *pData, DWORD /*grfKeyState*/, POINTL pt,
+			// (05/11) L'EFFET D'UN DEPOT DE FICHIERS : Ctrl = copier ; Maj = deplacer ; sinon, une source NKCode (le format prive
+			// « NKCode.FichiersInterne ») DEPLACE (glisser d'une instance a l'autre = deplacer) et toute autre source COPIE
+			// (l'Explorateur Windows : VS Code copie aussi). Toujours borne par ce que la source autorise.
+			static UINT FormatNk() {
+				static UINT f = RegisterClipboardFormatW(L"NKCode.FichiersInterne");
+				return f;
+			}
+			static DWORD EffetFichiers(IDataObject *pData, DWORD cles, DWORD permis) {
+				FORMATETC fmt = {static_cast<CLIPFORMAT>(FormatNk()), nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+				const bool deNk = pData && SUCCEEDED(pData->QueryGetData(&fmt));
+				DWORD e = DROPEFFECT_COPY;
+				if (cles & MK_CONTROL)
+					e = DROPEFFECT_COPY;
+				else if ((cles & MK_SHIFT) || deNk)
+					e = DROPEFFECT_MOVE;
+				if (!(permis & e))
+					e = (permis & DROPEFFECT_COPY) ? DROPEFFECT_COPY : (permis & DROPEFFECT_MOVE) ? DROPEFFECT_MOVE : DROPEFFECT_NONE;
+				return e;
+			}
+
+			HRESULT STDMETHODCALLTYPE DragEnter(IDataObject *pData, DWORD grfKeyState, POINTL pt,
 												DWORD *pdwEffect) override {
+				mDonnees = pData;
 				POINT cp = {pt.x, pt.y};
 				ScreenToClient(mHwnd, &cp);
 
@@ -137,24 +158,28 @@ namespace nkentseu {
 				if (mDropEnter)
 					mDropEnter(event);
 
-				*pdwEffect = DROPEFFECT_COPY;
+				*pdwEffect = numFiles > 0 ? EffetFichiers(pData, grfKeyState, *pdwEffect) : DROPEFFECT_COPY;
 				return S_OK;
 			}
 
-			HRESULT STDMETHODCALLTYPE DragOver(DWORD /*grfKeyState*/, POINTL /*pt*/, DWORD *pdwEffect) override {
-				*pdwEffect = DROPEFFECT_COPY;
+			HRESULT STDMETHODCALLTYPE DragOver(DWORD grfKeyState, POINTL /*pt*/, DWORD *pdwEffect) override {
+				*pdwEffect = (mDonnees && CountFiles(mDonnees) > 0) ? EffetFichiers(mDonnees, grfKeyState, *pdwEffect)
+																	  : DROPEFFECT_COPY;
 				return S_OK;
 			}
 
 			HRESULT STDMETHODCALLTYPE DragLeave() override {
+				mDonnees = nullptr;
 				NkDropLeaveEvent event;
 				if (mDropLeave)
 					mDropLeave(event);
 				return S_OK;
 			}
 
-			HRESULT STDMETHODCALLTYPE Drop(IDataObject *pData, DWORD /*grfKeyState*/, POINTL pt,
+			HRESULT STDMETHODCALLTYPE Drop(IDataObject *pData, DWORD grfKeyState, POINTL pt,
 										   DWORD *pdwEffect) override {
+				mDonnees = nullptr;
+				const DWORD effetFichiers = EffetFichiers(pData, grfKeyState, *pdwEffect);
 				POINT cp = {pt.x, pt.y};
 				ScreenToClient(mHwnd, &cp);
 				const int32 dropX = static_cast<int32>(cp.x);
@@ -162,11 +187,13 @@ namespace nkentseu {
 
 				// --- Fichiers ---
 				NkVector<NkString> files = ExtractFiles(pData);
+				const bool aDesFichiers = !files.Empty();
 				if (!files.Empty() && mDropFile) {
 					NkDropFileData data{};
 					data.x = dropX;
 					data.y = dropY;
 					data.paths = traits::NkMove(files);
+					data.deplacer = (effetFichiers == DROPEFFECT_MOVE);
 					NkDropFileEvent event(data);
 					mDropFile(event);
 				}
@@ -183,11 +210,12 @@ namespace nkentseu {
 					mDropText(event);
 				}
 
-				*pdwEffect = DROPEFFECT_COPY;
+				*pdwEffect = aDesFichiers ? effetFichiers : DROPEFFECT_COPY;
 				return S_OK;
 			}
 
 		private:
+			IDataObject *mDonnees = nullptr; ///< (05/11) la source en cours de survol (DragEnter -> Drop / DragLeave)
 			HWND mHwnd;
 			NkAtomic<ULONG> mRefCount;
 

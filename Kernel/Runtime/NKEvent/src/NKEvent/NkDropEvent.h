@@ -335,6 +335,9 @@ namespace nkentseu {
 			int32 x = 0;
 			int32 y = 0;
 			NkVector<NkString> paths;
+			/// (05/11) vrai : la CIBLE a repondu « deplacer » au systeme (Maj, ou une source qui le demande) : c'est a elle de
+			/// DEPLACER les fichiers, la source n'y touche pas. Faux : copie.
+			bool deplacer = false;
 
 			NkDropFileData() = default;
 
