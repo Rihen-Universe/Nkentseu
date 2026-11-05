@@ -31,6 +31,8 @@
 #include <shellapi.h> // DragAcceptFiles/DragQueryFile (drop OS)
 #include <windowsx.h>
 #include <dwmapi.h>
+#include <cstdlib>
+#include <cstring>
 #include <vector>
 
 #pragma comment(lib, "dwmapi.lib")
@@ -183,6 +185,12 @@ namespace nkentseu {
 	// =============================================================================
 	// Helpers
 	// =============================================================================
+
+	/// (05/11) Contre-epreuves du bouton agrandir (tools/banc_snap.sh).
+	static bool NkWin32_MutationSnap(const char *nom) {
+		const char *m = std::getenv("NK_NKCODE_MUTATION");
+		return m && std::strcmp(m, nom) == 0;
+	}
 
 	static NkModifierState NkWin32_CurrentMods() {
 		NkModifierState m;
@@ -522,6 +530,10 @@ namespace nkentseu {
 				// =====================================================================
 
 			case WM_MOUSEMOVE: {
+				// (05/11) Le pointeur est revenu dans la zone client : la sortie du bouton agrandir est deja reglee. Windows envoie
+				// WM_NCMOUSELEAVE APRES ce message, et ce rejeu effacait alors la vraie position du bouton voisin.
+				if (owner && owner->mData.mMaxBtnSurvol && !NkWin32_MutationSnap("snap-sortie-efface"))
+					owner->mData.mMaxBtnSurvol = false;
 				if (owner && !owner->mData.mMouseTracking) {
 					TRACKMOUSEEVENT tme{};
 					tme.cbSize = sizeof(tme);
@@ -857,6 +869,8 @@ namespace nkentseu {
 					tme.dwFlags = TME_LEAVE | TME_NONCLIENT;
 					tme.hwndTrack = hwnd;
 					TrackMouseEvent(&tme);
+					// (05/11) Cette demande remplace le suivi de la zone client : le prochain WM_MOUSEMOVE doit le reposer.
+					owner->mData.mMouseTracking = false;
 					owner->mData.mMaxBtnSurvol = true;
 					POINT pc = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
 					POINT ps = pc;
@@ -982,6 +996,30 @@ namespace nkentseu {
 			case WM_NCLBUTTONDOWN:
 				if (owner && !owner->GetConfig().movable && wp == HTCAPTION)
 					suppressDefaultProc = true;
+				[[fallthrough]];
+			// (05/11) Rodolf : « le bouton minimiser maximiser et les fleches de redimensionnement ne fonctionnent plus ». HTMAXBUTTON
+			// donnait le clic au systeme : il passait par SC_MAXIMIZE, que WM_SYSCOMMAND filtre plus haut, et par le bouton de cadre
+			// d'une fenetre qui n'en a pas. Le clic revient a l'application, qui agrandit ET restaure comme ses deux voisins.
+			// NK_NKCODE_MUTATION=snap-clic-systeme : l'etat d'avant.
+			case WM_NCLBUTTONDBLCLK:
+				if (owner && wp == HTMAXBUTTON && !NkWin32_MutationSnap("snap-clic-systeme")) {
+					suppressDefaultProc = true;
+					POINT sp = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+					POINT pt = sp;
+					ScreenToClient(hwnd, &pt);
+					NkMouseButtonPressEvent evt(NkMouseButton::NK_MB_LEFT, pt.x, pt.y, sp.x, sp.y, 1, NkWin32_CurrentMods(), winId);
+					EnqueueForWindow(evt);
+				}
+				break;
+			case WM_NCLBUTTONUP:
+				if (owner && wp == HTMAXBUTTON && !NkWin32_MutationSnap("snap-clic-systeme")) {
+					suppressDefaultProc = true;
+					POINT sp = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+					POINT pt = sp;
+					ScreenToClient(hwnd, &pt);
+					NkMouseButtonReleaseEvent evt(NkMouseButton::NK_MB_LEFT, pt.x, pt.y, sp.x, sp.y, 1, NkWin32_CurrentMods(), winId);
+					EnqueueForWindow(evt);
+				}
 				break;
 
 			// =====================================================================

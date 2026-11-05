@@ -301,6 +301,36 @@ namespace nkentseu {
 		return static_cast<int32>(SendMessageW(mData.mHwnd, WM_NCHITTEST, 0, MAKELPARAM((short)p.x, (short)p.y)));
 	}
 
+	void NkWindow::NativeSouris(NkSourisBanc geste, int32 x, int32 y) {
+		POINT p = {x, y};
+		ClientToScreen(mData.mHwnd, &p);
+		const LPARAM ecran = MAKELPARAM((short)p.x, (short)p.y);
+		const LPARAM client = MAKELPARAM((short)x, (short)y);
+		switch (geste) {
+			case NkSourisBanc::SurvolAgrandir:
+				SendMessageW(mData.mHwnd, WM_NCMOUSEMOVE, HTMAXBUTTON, ecran);
+				break;
+			case NkSourisBanc::AppuiAgrandir:
+				SendMessageW(mData.mHwnd, WM_NCLBUTTONDOWN, HTMAXBUTTON, ecran);
+				break;
+			case NkSourisBanc::RelacheAgrandir:
+				SendMessageW(mData.mHwnd, WM_NCLBUTTONUP, HTMAXBUTTON, ecran);
+				break;
+			case NkSourisBanc::SortieAgrandir:
+				SendMessageW(mData.mHwnd, WM_NCMOUSELEAVE, 0, 0);
+				break;
+			case NkSourisBanc::Mouvement:
+				SendMessageW(mData.mHwnd, WM_MOUSEMOVE, 0, client);
+				break;
+			case NkSourisBanc::Appui:
+				SendMessageW(mData.mHwnd, WM_LBUTTONDOWN, MK_LBUTTON, client);
+				break;
+			case NkSourisBanc::Relache:
+				SendMessageW(mData.mHwnd, WM_LBUTTONUP, 0, client);
+				break;
+		}
+	}
+
 } // namespace nkentseu
 
 #endif // desktop Win32

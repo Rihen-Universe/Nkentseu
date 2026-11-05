@@ -46,6 +46,9 @@ namespace nkentseu {
 		return 1;
 	}
 
+	void NkWindow::NativeSouris(NkSourisBanc, int32, int32) {
+	}
+
 } // namespace nkentseu
 
 #endif

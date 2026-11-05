@@ -192,6 +192,10 @@ namespace nkentseu {
 			/// (05/11, bancs) Ce que le SYSTEME repond pour un point client (WM_NCHITTEST) : 1 = HTCLIENT, 9 = HTMAXBUTTON...
 			/// Hors Windows : 1.
 			int32 NativeHitTest(int32 x, int32 y) const;
+			/// (05/11, bancs) Les vrais messages de souris de Windows, envoyes a la fenetre sans toucher au vrai pointeur : le
+			/// chemin complet que suit un utilisateur, depuis le systeme. Sans effet hors Windows.
+			enum class NkSourisBanc { SurvolAgrandir, AppuiAgrandir, RelacheAgrandir, SortieAgrandir, Mouvement, Appui, Relache };
+			void NativeSouris(NkSourisBanc geste, int32 x, int32 y);
 			/// Bord de redimensionnement pour BeginResize (fenetre sans bordure).
 			enum class NkResizeEdge { Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
 			void BeginResize(NkResizeEdge edge); ///< hand-off natif du redimensionnement par un bord
