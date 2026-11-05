@@ -312,6 +312,9 @@ namespace nkentseu {
 	//    toute la fenetre cliente).
 	// =============================================================================
 	static DWORD NkWin32ComposerStyle(const NkWindowConfig &c) {
+		// (05/11) LIMITE CONNUE : le panneau des dispositions de Windows 11 n'apparait que fenetre agrandie. Essais de Rodolf a la
+		// main, sans effet sur la fenetre non agrandie : WS_OVERLAPPED au lieu de WS_POPUP, DwmDefWindowProc avant nos messages, un
+		// pixel de cadre en bas. La cause n'est pas trouvee. Le lever demande un autre essai que ces trois-la.
 		DWORD style = (c.frame ? WS_OVERLAPPED : WS_POPUP) | WS_CAPTION | WS_SYSMENU;
 		if (c.resizable)
 			style |= WS_THICKFRAME;
