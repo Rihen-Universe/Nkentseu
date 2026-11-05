@@ -101,7 +101,7 @@ jobs:
             printf '%s\n' 'from Jenga import *' "useconfig(\"$K\")" '' \
               "with workspace(\"Essai$M\"):" '    RegisterJengaGlobalToolchains()' '    configurations(["Release"])' \
               '    with project("App"):' '        consoleapp()' '        language("C++")' '        cppdialect("C++17")' \
-              '        files(["main.cpp"])' "        use${M,,}()" > "$W/Essai$M.jenga"
+              '        files(["main.cpp"])' "        use$(echo "$M" | tr "[:upper:]" "[:lower:]")()" > "$W/Essai$M.jenga"
             (cd "$W" && python3 -m Jenga build --config Release --platform iOS-arm64 --no-daemon) \
               && echo "$M : consommateur construit" || echo "$M : CONSOMMATEUR ECHOUE"
           done
