@@ -393,6 +393,11 @@ namespace nkentseu::converse {
 				CloseHandle(pi.hProcess);
 				code = (int32)ec;
 				return true;
+#elif defined(NKENTSEU_PLATFORM_IOS)
+				// (05/11) iOS interdit de lancer un autre programme : system() n'y est meme pas declare utilisable.
+				(void)ligne;
+				(void)code;
+				return false;
 #else
 				const int r = system(ligne);
 				if (r == -1)

@@ -65,6 +65,8 @@ jobs:
 
       - name: Construire les 34 modules (Release, iOS-arm64), sans s'arreter au premier echec
         run: |
+          # GitHub lance bash avec -e : sans ceci, le premier echec arrete la boucle et le tableau reste incomplet.
+          set +e
           mkdir -p journaux
           printf 'module\tcode\tstatus\tsecondes\n' > tableau.tsv
           for M in $MODULES; do
