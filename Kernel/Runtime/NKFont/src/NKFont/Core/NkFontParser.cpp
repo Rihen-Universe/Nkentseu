@@ -1109,10 +1109,29 @@ namespace nkentseu {
 								nkft_float32 py = mtx[1] * v.x + mtx[3] * v.y + mtx[5];
 								v.x = (nkft_int16)px;
 								v.y = (nkft_int16)py;
+								// (05/11) LE POINT DE CONTROLE EST ABSOLU, COMME LE SOMMET : il se TRANSLATE du meme
+								// decalage (mtx[4], mtx[5]). Avant, seule la matrice s'y appliquait : dans un glyphe
+								// COMPOSE, les courbes d'un composant decale gardaient leur point de controle a
+								// l'origine. L'ellipse « … » d'Inter (trois points, composants decales) rendait son
+								// 3e point en trainee (Rodolf : « le troisieme point est toujours mal affiche »), et les
+								// accents (é, ü...) etaient deformes. Les lignes (type LINE/MOVE) n'ont pas de controle.
+								if (v.type == NK_FONT_VERTEX_CURVE || v.type == NK_FONT_VERTEX_CUBIC) {
+									nkft_float32 qx = mtx[0] * v.cx + mtx[2] * v.cy + mtx[4];
+									nkft_float32 qy = mtx[1] * v.cx + mtx[3] * v.cy + mtx[5];
+									v.cx = (nkft_int16)qx;
+									v.cy = (nkft_int16)qy;
+									if (v.type == NK_FONT_VERTEX_CUBIC) {
+										nkft_float32 rx = mtx[0] * v.cx1 + mtx[2] * v.cy1 + mtx[4];
+										nkft_float32 ry = mtx[1] * v.cx1 + mtx[3] * v.cy1 + mtx[5];
+										v.cx1 = (nkft_int16)rx;
+										v.cy1 = (nkft_int16)ry;
+									}
+								}
+								/* (avant, sans translation ni test de type) :
 								nkft_float32 qx = mtx[0] * v.cx + mtx[2] * v.cy;
 								nkft_float32 qy = mtx[1] * v.cx + mtx[3] * v.cy;
 								v.cx = (nkft_int16)qx;
-								v.cy = (nkft_int16)qy;
+								v.cy = (nkft_int16)qy; */
 								buf->Push(v);
 							}
 						}

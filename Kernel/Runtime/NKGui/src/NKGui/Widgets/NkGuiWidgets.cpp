@@ -6,6 +6,7 @@
 #include "NKGui/Widgets/NkGuiWidgets.h"
 #include "NKCore/Text/NkSnprintf.h"
 #include "NKGui/Core/NkGuiFont.h"
+#include "NKGui/Core/NkGuiTextUndo.h" // (05/11) Ctrl+Z / Ctrl+Maj+Z / Ctrl+Y des champs
 #include "NKFont/NkFont.h"				  // NkFontEncodeUTF8 / CalcTextSizeX
 #include "NKContainers/String/NkString.h" // NkString : parse (ToFloat) + format (Format)
 #include "NKGui/Core/NkGuiIntrospect.h"   // le releve : ce que cette trame dessine
@@ -1294,6 +1295,30 @@ namespace nkentseu {
 				}
 				if (!ctx.input.mouseDown[0])
 					ctx.inputDrag = false;
+				// (05/11) ANNULER / REFAIRE : Ctrl+Z, Ctrl+Maj+Z, Ctrl+Y (Rodolf : « partout dans NKCode »). Avant, ce champ
+				// copiait, coupait et collait mais n'annulait rien. L'historique : NkGuiTextUndo.h ; la photographie
+				// « avant » est reprise apres l'annulation.
+				NkGuiTextUndo &undo = NkGuiTextUndoDe();
+				undo.Debut(buf, buf, caret, ctx.time);
+				bool editeAutrement = false; // un coller / couper : un pas a lui seul
+				if (!readOnly && ctx.input.ctrlDown && !ctx.input.altDown &&
+					(ctx.input.KeyPressed(NkGuiKey::Z) || ctx.input.KeyPressed(NkGuiKey::Y))) {
+					const bool refaire = ctx.input.KeyPressed(NkGuiKey::Y) || ctx.input.shiftDown;
+					NkString t;
+					int32 c = 0;
+					if (refaire ? undo.Refaire(buf, caret, t, c) : undo.Annuler(buf, caret, t, c)) {
+						int32 n = 0;
+						while (t.CStr()[n] && n + 1 < bufSize)
+							++n;
+						::memcpy(buf, t.CStr(), static_cast<usize>(n));
+						buf[n] = '\0';
+						len = n;
+						caret = c < 0 ? 0 : (c > len ? len : c);
+						anchor = -1;
+						changed = true;
+					}
+					undo.Debut(buf, buf, caret, ctx.time);
+				}
 				if (ctx.input.wantSelectAll) {
 					anchor = 0;
 					caret = len;
@@ -1305,6 +1330,7 @@ namespace nkentseu {
 					ctx.input.wantCopy = false;
 				}
 				if (!readOnly && ctx.input.wantCut) {
+					editeAutrement = true;
 					if (hasSel()) {
 						copySel();
 						delSel();
@@ -1312,6 +1338,7 @@ namespace nkentseu {
 					ctx.input.wantCut = false;
 				}
 				if (!readOnly && ctx.input.wantPaste) {
+					editeAutrement = true;
 					if (hasSel())
 						delSel();
 					const NkString cb = ctx.GetClipboard();
@@ -1395,6 +1422,7 @@ namespace nkentseu {
 						}
 					}
 				}
+				undo.Fin(buf, caret, !editeAutrement); // (05/11) le pas annulable de cette image
 				if (changed) // le texte a bougé -> recalcule les lignes visuelles pour la nav/le rendu
 					rebuildV();
 				// Navigation. Maj = étend la sélection ; sinon la 1re pression sur une

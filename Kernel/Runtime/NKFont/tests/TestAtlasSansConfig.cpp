@@ -54,6 +54,8 @@ using namespace nkentseu;
 
 /// (14/10) Les temoins de l'atlas SDF (tests/TestAtlasSdf.cpp).
 void NkTestsAtlasSdf(void (*temoin)(bool, const char *), const nkft_uint8 *octets, nkft_uint32 taille);
+/// (05/11) Les temoins des glyphes composes (tests/TestGlyphesComposes.cpp).
+void NkTestsGlyphesComposes(void (*temoin)(bool, const char *));
 
 namespace {
 
@@ -214,6 +216,7 @@ int main() {
 	Temoin(fusionne.repli == 'X', "une police fusionnee ne remplace pas le repli de sa base");
 
 	NkTestsAtlasSdf(&Temoin, octets, taille); // (14/10) l'atlas SDF
+	NkTestsGlyphesComposes(&Temoin); // (05/11) les courbes d'un glyphe compose
 	NkFontEmbedded::FreeDecompressedData(octets);
 
 	std::printf("\n===== NKFont_Tests : %d / %d — %s =====\n", gVerts, gVerts + gRouges, gRouges == 0 ? "VERT" : "ROUGE");

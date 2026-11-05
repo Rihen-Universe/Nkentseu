@@ -144,6 +144,13 @@ layout(std140, binding=3) uniform ShadowUBO {
     float shadowBias;
     float normalBias;
     int   softShadows;
+    // (31/10) le champ que ce nuanceur LIT (uShadow.softness, filtre PCF plus bas) et que le bloc n'avait pas :
+    // "softness is not a member of struct ShadowUBO" en OpenGL, image noire, des que les nuanceurs du
+    // dossier Resources n'etaient pas trouves (ce repli embarque prenait alors le relais). Meme disposition
+    // que le nuanceur de sommets ci-dessus, que PBR/GL/pbr.frag.gl.glsl et que la structure C++ (NkShadowSystem.cpp).
+    // (ASCII seulement : ce texte est donne tel quel au compilateur GLSL du pilote.)
+    float softness;
+    float _pad0, _pad1, _pad2;
 } uShadow;
 
 layout(binding=4)  uniform sampler2D   tAlbedo;
