@@ -46,6 +46,10 @@ namespace nkentseu {
 		return 1;
 	}
 
+	void *NkWindow::NativeWindowHandle() const {
+		return nullptr;
+	}
+
 	void NkWindow::NativeSouris(NkSourisBanc, int32, int32) {
 	}
 

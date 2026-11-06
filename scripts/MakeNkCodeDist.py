@@ -636,6 +636,18 @@ def Main() -> int:
     for dll in ("python312.dll", "python3.dll", "vcruntime140.dll", "vcruntime140_1.dll"):
         shutil.copy2(pyembed / dll, out / dll)
 
+    # L'APERCU WEB (05/11) : NKCode charge WebView2Loader.dll par LoadLibrary (pas dans la table d'imports) ; elle doit etre A COTE de
+    # NKCode.exe. Posee a cote de l'exe de construction par tools/webview2_charger.py (jamais dans git) ; a defaut, le cache. Absente, le
+    # paquet reste valable : l'apercu rend la main au navigateur du systeme (c'est une option).
+    chargeur = exe.parent / "WebView2Loader.dll"
+    if not chargeur.exists():
+        chargeur = REPO / "Build/Cache/WebView2/1.0.2903.40/x64/WebView2Loader.dll"
+    if chargeur.exists():
+        Log("copie de WebView2Loader.dll (apercu Web integre, a cote de NKCode.exe)")
+        shutil.copy2(chargeur, out / "WebView2Loader.dll")
+    else:
+        Log("AVERTISSEMENT : WebView2Loader.dll introuvable (construire NKCode d'abord) : l'apercu Web ouvrira le navigateur du systeme.")
+
     # Garde-fou : la liste ci-dessus est tenue a la main, la table d'imports non.
     VerifierImports(exe, out)
 

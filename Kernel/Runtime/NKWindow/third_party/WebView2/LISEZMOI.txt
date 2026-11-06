@@ -1,0 +1,2 @@
+Microsoft.Web.WebView2 1.0.2903.40 (NuGet), en-tete WebView2.h et LICENSE.txt tels que livres (BSD-3-Clause, Copyright (C) Microsoft Corporation).
+Seul l'en-tete est versionne. WebView2Loader.dll (build/native/x64) n'est JAMAIS dans git : tools/webview2_charger.py de NKCode le recupere a la construction.

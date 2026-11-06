@@ -135,3 +135,23 @@ licence, et ce que la licence exige.
   `/Encoding /Differences` et encodages en clair des programmes Type 1.
 - **Provenance** : `raw.githubusercontent.com/adobe-type-tools/agl-aglfn/`
   `master/glyphlist.txt`, récupéré le 2026-08-11 (78 060 octets).
+
+---
+
+## Microsoft Edge WebView2 SDK — l'aperçu Web de NKCode (Windows)
+
+- **Ce qui est incorporé** : l'EN-TÊTE `Kernel/Runtime/NKWindow/third_party/WebView2/WebView2.h`
+  (interfaces COM, généré par MIDL), tel que livré, avec son `LICENSE.txt`. Seul l'en-tête est
+  versionné. `WebView2Loader.dll` n'est **jamais** dans git : `Applications/NKCode/tools/webview2_charger.py`
+  la récupère à la construction et la pose à côté de `NKCode.exe` ; elle se charge par `LoadLibrary`.
+- **Provenance** : paquet NuGet `Microsoft.Web.WebView2` **1.0.2903.40**
+  (`nuget.org/packages/Microsoft.Web.WebView2`), récupéré le 2026-11-05.
+- **Licence** : BSD-3-Clause — Copyright (C) Microsoft Corporation. All rights reserved. Texte
+  intégral : `Kernel/Runtime/NKWindow/third_party/WebView2/LICENSE.txt`.
+- **Ce que la licence exige** : conserver la notice de droit d'auteur, la liste des conditions et la
+  clause de non-garantie dans les redistributions de code source ET, pour les binaires (le paquet de
+  NKCode qui embarque `WebView2Loader.dll`), les reproduire dans la documentation ou les autres
+  matériaux livrés — c'est le rôle de cette entrée et du fichier `LICENSE.txt` du paquet ; ne pas
+  utiliser le nom de Microsoft pour promouvoir le produit.
+- **Le moteur de page** (Edge, runtime Evergreen) n'est PAS redistribué : il est présent sur Windows 11 ;
+  absent, NKCode ouvre le navigateur du système.

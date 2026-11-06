@@ -295,6 +295,10 @@ namespace nkentseu {
 		mData.mMaxBtnValid = (w > 0 && h > 0);
 	}
 
+	void *NkWindow::NativeWindowHandle() const {
+		return static_cast<void *>(mData.mHwnd);
+	}
+
 	int32 NkWindow::NativeHitTest(int32 x, int32 y) const {
 		POINT p = {x, y};
 		ClientToScreen(mData.mHwnd, &p);
