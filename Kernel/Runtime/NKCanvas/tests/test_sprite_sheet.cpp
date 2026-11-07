@@ -17,7 +17,10 @@
 //        planche 1 en grille 4 x 4 : 16 rectangles, aucun ne touche la case a
 //        cocher (x < 0.30 de la case) ni l'etiquette (y > 0.80) ;
 //        planche 2 en detection : 72 rectangles (6 x 12)
-// Contre-epreuve : dans BuildGrid inverser `+ c * (l + g.ecartX)` en `+ r * ...`
+//   (s6) EXTRACT (07/11) : image 40 x 40 blanche, un carre rouge 10 x 10 en (10, 10) dont le centre est BLANC (un blanc interieur : il ne doit pas
+//        devenir transparent), une case unique = toute l'image : la sous-image fait 12 x 12 (le carre + 1 pixel de marge), le pixel de marge est
+//        transparent (alpha 0), le coin du carre opaque, le blanc interieur OPAQUE ; un indice hors planche rend faux
+// Contre-epreuve : dans Extract retirer le recadrage (out = sub) -> (s6) rouge ; dans BuildGrid inverser `+ c * (l + g.ecartX)` en `+ r * ...`
 // -> (s1) rouge ; dans BuildAuto ignorer la bande (zoneBande = image entiere) ->
 // (s4) rouge.
 // =============================================================================
@@ -177,4 +180,42 @@ TEST_CASE(NKCanvasSpriteSheet, S5_PlanchesReelles) {
 		NkSpriteSheet s;
 		ASSERT_EQUAL(72, s.BuildAuto(im, blanc, 45, 12, 8));
 	}
+}
+
+TEST_CASE(NKCanvasSpriteSheet, S6_Extract) {
+	NkImage im = NkImage::Create(40, 40, NkImagePixelFormat::NK_RGBA32, 0u);
+	for (int32 y = 0; y < 40; ++y) {
+		for (int32 x = 0; x < 40; ++x) {
+			uint8 *p = im.RowPtr(y) + x * 4;
+			p[0] = p[1] = p[2] = 255;
+			p[3] = 255;
+		}
+	}
+	for (int32 y = 10; y < 20; ++y) {
+		for (int32 x = 10; x < 20; ++x) {
+			uint8 *p = im.RowPtr(y) + x * 4;
+			p[0] = 255;
+			p[1] = p[2] = 0;
+		}
+	}
+	for (int32 y = 13; y < 17; ++y) { // le blanc INTERIEUR
+		for (int32 x = 13; x < 17; ++x) {
+			uint8 *p = im.RowPtr(y) + x * 4;
+			p[0] = p[1] = p[2] = 255;
+		}
+	}
+	NkSheetGrid g;
+	g.colonnes = 1;
+	g.lignes = 1;
+	NkSpriteSheet s;
+	ASSERT_EQUAL(1, s.BuildGrid(40, 40, g));
+	NkImage out;
+	ASSERT_TRUE(s.Extract(im, 0, math::NkColor(255, 255, 255, 255), 20, out));
+	ASSERT_EQUAL(12, out.Width());
+	ASSERT_EQUAL(12, out.Height());
+	ASSERT_EQUAL(0, static_cast<int32>(out.RowPtr(0)[3]));		// la marge : transparente
+	ASSERT_EQUAL(255, static_cast<int32>(out.RowPtr(1)[1 * 4 + 3])); // le coin du carre : opaque
+	ASSERT_EQUAL(255, static_cast<int32>(out.RowPtr(6)[6 * 4 + 3])); // le blanc interieur : opaque
+	NkImage rien;
+	ASSERT_FALSE(s.Extract(im, 5, math::NkColor(255, 255, 255, 255), 20, rien));
 }

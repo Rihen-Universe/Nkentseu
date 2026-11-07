@@ -129,6 +129,46 @@ namespace nkentseu {
 			}
 		}
 
+		bool NkSpriteSheet::Extract(const NkImage &image, int32 indice, const math::NkColor &fond, int32 tolerance, NkImage &out) const {
+			const NkSheetCell *cell = Get(indice);
+			if (cell == nullptr || !image.IsValid()) {
+				return false;
+			}
+			math::NkRect2i r = cell->rect;
+			r.left = r.left < 0 ? 0 : (r.left > image.Width() - 1 ? image.Width() - 1 : r.left);
+			r.top = r.top < 0 ? 0 : (r.top > image.Height() - 1 ? image.Height() - 1 : r.top);
+			r.width = r.width < image.Width() - r.left ? r.width : image.Width() - r.left;
+			r.height = r.height < image.Height() - r.top ? r.height : image.Height() - r.top;
+			if (r.width < 2 || r.height < 2) {
+				return false;
+			}
+			NkImage sub = image.Crop(r.left, r.top, r.width, r.height);
+			if (!sub.IsValid()) {
+				return false;
+			}
+			NkImagePalette::RemoveBackground(sub, fond, tolerance);
+			int32 x0 = sub.Width(), y0 = sub.Height(), x1 = -1, y1 = -1; // boite englobante du contenu
+			for (int32 y = 0; y < sub.Height(); ++y) {
+				for (int32 x = 0; x < sub.Width(); ++x) {
+					if (sub.RowPtr(y)[x * 4 + 3] >= 128) {
+						x0 = x < x0 ? x : x0;
+						y0 = y < y0 ? y : y0;
+						x1 = x > x1 ? x : x1;
+						y1 = y > y1 ? y : y1;
+					}
+				}
+			}
+			if (x1 < x0 || y1 < y0) {
+				return false;
+			}
+			x0 = x0 - 1 > 0 ? x0 - 1 : 0;
+			y0 = y0 - 1 > 0 ? y0 - 1 : 0;
+			x1 = x1 + 1 < sub.Width() - 1 ? x1 + 1 : sub.Width() - 1;
+			y1 = y1 + 1 < sub.Height() - 1 ? y1 + 1 : sub.Height() - 1;
+			out = sub.Crop(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+			return out.IsValid();
+		}
+
 		void NkSpriteSheet::SetNames(const char *const *noms, int32 n) {
 			for (int32 i = 0; i < n && i < Count(); ++i) {
 				CopierNom(mCases[static_cast<usize>(i)].nom, 48, noms[i]);

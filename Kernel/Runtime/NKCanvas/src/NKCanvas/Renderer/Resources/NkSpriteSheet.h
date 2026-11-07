@@ -76,6 +76,11 @@ namespace nkentseu {
 				/// Un rectangle sans aucun pixel occupe est laisse tel quel.
 				void Tighten(const NkImage &image, const math::NkColor &fond, int32 tolerance);
 
+				/// (07/11, 1.5.8) EXTRAIT la sous-image `indice` de `image` : copie du rectangle, FOND retire (les pixels proches de `fond` ET reliés au bord par un
+				/// chemin de pixels de fond deviennent transparents ; les blancs INTERIEURS a l'icone restent opaques), puis recadrage serre sur le contenu (+1 pixel).
+				/// Faux si l'indice est hors planche, le rectangle trop petit (< 2 pixels) ou la sous-image entierement du fond. Vient de FoodHunt (SpriteSheet::Extract).
+				bool Extract(const NkImage &image, int32 indice, const math::NkColor &fond, int32 tolerance, NkImage &out) const;
+
 				/// Noms dans l'ordre de lecture : `noms[0]` pour le premier rectangle, etc.
 				void SetNames(const char *const *noms, int32 n);
 				void Rename(int32 indice, const char *nom);

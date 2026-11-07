@@ -21,6 +21,7 @@
 #include "NKEvent/NkToucheDisposition.h" // (14/10) AltGr separe de Ctrl+Alt
 #include "NKWindow/Core/NkWindow.h"
 #include "NKWindow/Core/NkWESystem.h"
+#include "NKWindow/Core/NkSession.h" // (08/11) WM_QUERYENDSESSION / WM_ENDSESSION
 #include "NKWindow/Core/NkEvent.h"
 #include "NKWindow/Platform/Win32/NkWin32Window.h"
 
@@ -1032,6 +1033,18 @@ namespace nkentseu {
 					result = TRUE; // on a géré → empêche le reset par DefWindowProc
 				}
 				break;
+
+			// (08/11) La fin de session (extinction, redemarrage, deconnexion) : NkSession (Core/NkSession.h).
+			// DefWindowProc rend deja TRUE a WM_QUERYENDSESSION : on ne s'oppose a rien.
+			case WM_QUERYENDSESSION: {
+				NkSession::NotifierDemande();
+				break;
+			}
+
+			case WM_ENDSESSION: {
+				NkSession::NotifierFin(wp != 0); // wp != 0 : la session finit vraiment ; le rappel ecrit la memoire
+				break;
+			}
 
 			default:
 				break;
