@@ -1786,9 +1786,11 @@ namespace nkentseu {
 			// Format attendu : [{"player":"Alice","score":1000,"rank":1},...]
 
 			// Recherche simplifiée des entrées
-			size_t pos = 0;
+			// (07/11) NkString::SizeType et non size_t : en wasm32, size_t fait 32 bits, la position tronquee
+			// n'egalait jamais npos (64 bits) et la boucle ne s'arretait pas (avertissement du compilateur Web).
+			NkString::SizeType pos = 0;
 			while ((pos = json.Find("{", pos)) != NkString::npos) {
-				size_t endPos = json.Find("}", pos);
+				NkString::SizeType endPos = json.Find("}", pos);
 				if (endPos == NkString::npos) {
 					break;
 				}
@@ -1797,19 +1799,19 @@ namespace nkentseu {
 
 				NkLeaderboardEntry e = {};
 				// Extraction basique des champs (à remplacer par vrai parsing)
-				size_t namePos = entry.Find("\"player\":");
+				NkString::SizeType namePos = entry.Find("\"player\":");
 				if (namePos != NkString::npos) {
-					size_t valStart = entry.Find("\"", namePos + 9) + 1;
-					size_t valEnd = entry.Find("\"", valStart);
+					NkString::SizeType valStart = entry.Find("\"", namePos + 9) + 1;
+					NkString::SizeType valEnd = entry.Find("\"", valStart);
 					if (valEnd != NkString::npos) {
 						NkString name = entry.SubStr(valStart, static_cast<uint32>(valEnd - valStart));
 						SafeStrCopy(e.playerName, sizeof(e.playerName), name.CStr(), 64);
 					}
 				}
 
-				size_t scorePos = entry.Find("\"score\":");
+				NkString::SizeType scorePos = entry.Find("\"score\":");
 				if (scorePos != NkString::npos) {
-					size_t valStart = scorePos + 8;
+					NkString::SizeType valStart = scorePos + 8;
 					while (valStart < entry.Length() && !encoding::ascii::NkIsDigit(entry[valStart])) {
 						++valStart;
 					}
@@ -1818,9 +1820,9 @@ namespace nkentseu {
 					}
 				}
 
-				size_t rankPos = entry.Find("\"rank\":");
+				NkString::SizeType rankPos = entry.Find("\"rank\":");
 				if (rankPos != NkString::npos) {
-					size_t valStart = rankPos + 7;
+					NkString::SizeType valStart = rankPos + 7;
 					while (valStart < entry.Length() && !encoding::ascii::NkIsDigit(entry[valStart])) {
 						++valStart;
 					}
@@ -1838,9 +1840,9 @@ namespace nkentseu {
 			// Parsing JSON minimaliste pour un seul joueur
 			// Format attendu : {"player":"Alice","score":1000,"rank":1}
 
-			size_t rankPos = json.Find("\"rank\":");
+			NkString::SizeType rankPos = json.Find("\"rank\":");
 			if (rankPos != NkString::npos) {
-				size_t valStart = rankPos + 7;
+				NkString::SizeType valStart = rankPos + 7;
 				while (valStart < json.Length() && !encoding::ascii::NkIsDigit(json[valStart])) {
 					++valStart;
 				}
@@ -1849,9 +1851,9 @@ namespace nkentseu {
 				}
 			}
 
-			size_t scorePos = json.Find("\"score\":");
+			NkString::SizeType scorePos = json.Find("\"score\":");
 			if (scorePos != NkString::npos) {
-				size_t valStart = scorePos + 8;
+				NkString::SizeType valStart = scorePos + 8;
 				while (valStart < json.Length() && !encoding::ascii::NkIsDigit(json[valStart])) {
 					++valStart;
 				}
