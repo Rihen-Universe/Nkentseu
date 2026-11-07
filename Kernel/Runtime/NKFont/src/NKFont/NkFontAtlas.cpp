@@ -842,6 +842,60 @@ namespace nkentseu {
 		return NkFontDecodeUTF8(t, e);
 	}
 
+	// (07/11/2026) LE DECODAGE S'ARRETE AU TERMINATEUR ET A LA BORNE. Rodolf : « le text dans quel image choisir clignote ».
+	// La cause : l'ancien decodage (garde plus bas, sous #if 0) ne regardait pas les octets de suite. Sur une chaine coupee
+	// au milieu d'un caractere (« R\xC3 » puis le zero), sans borne, il prenait le ZERO pour la suite de « é », avancait
+	// APRES le terminateur et continuait dans la memoire du tas : une lecture hors limites, et une largeur au hasard
+	// d'une image a l'autre. Il avalait aussi l'octet qui suit un premier octet orphelin (« \xC3A » perdait le A).
+	// Desormais : chaque octet de suite est lu SEULEMENT si le precedent en etait un (jamais apres un zero, jamais a
+	// partir de `end`) ; une suite tronquee ou invalide rend U+FFFD et le curseur s'arrete sur l'octet fautif (le zero,
+	// la borne, ou le caractere qui reprend) ; les formes trop longues, les demi-codets (D800-DFFF) et ce qui depasse
+	// U+10FFFF rendent U+FFFD. Banc : tests/TestDecodageUtf8.cpp (NKFont_Tests), son negatif dans le meme binaire.
+	NkFontCodepoint NkFontDecodeUTF8(const char **str, const char *end) {
+		if (!str)
+			return 0;
+		const nkft_uint8 *s = (const nkft_uint8 *)*str;
+		const nkft_uint8 *e = (const nkft_uint8 *)end;
+		if (!s || (e && s >= e) || !*s)
+			return 0;
+		const nkft_uint8 b0 = *s;
+		if (b0 < 0x80) {
+			*str = (const char *)(s + 1);
+			return b0;
+		}
+		nkft_int32 n = 0;
+		NkFontCodepoint cp = 0, minimum = 0;
+		if (b0 >= 0xC2 && b0 <= 0xDF) {
+			n = 2;
+			cp = b0 & 0x1F;
+			minimum = 0x80;
+		} else if ((b0 & 0xF0) == 0xE0) {
+			n = 3;
+			cp = b0 & 0x0F;
+			minimum = 0x800;
+		} else if (b0 >= 0xF0 && b0 <= 0xF4) {
+			n = 4;
+			cp = b0 & 0x07;
+			minimum = 0x10000;
+		} else { // un octet de suite isole, C0, C1, F5..FF : jamais un debut de caractere
+			*str = (const char *)(s + 1);
+			return NKFONT_CODEPOINT_REPLACEMENT;
+		}
+		for (nkft_int32 k = 1; k < n; ++k) {
+			// la borne AVANT la lecture ; un zero (le terminateur) n'est pas un octet de suite : on s'arrete dessus
+			if ((e && s + k >= e) || (s[k] & 0xC0) != 0x80) {
+				*str = (const char *)(s + k);
+				return NKFONT_CODEPOINT_REPLACEMENT;
+			}
+			cp = (cp << 6) | (NkFontCodepoint)(s[k] & 0x3F);
+		}
+		*str = (const char *)(s + n);
+		if (cp < minimum || cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu))
+			return NKFONT_CODEPOINT_REPLACEMENT;
+		return cp;
+	}
+
+#if 0 // (07/11/2026) L'ANCIEN DECODAGE, garde pour memoire : il lisait apres le terminateur (voir l'en-tete ci-dessus).
 	NkFontCodepoint NkFontDecodeUTF8(const char **str, const char *end) {
 		const nkft_uint8 *s = (const nkft_uint8 *)*str;
 		const nkft_uint8 *e = (const nkft_uint8 *)end;
@@ -883,6 +937,7 @@ namespace nkentseu {
 		}
 		return cp;
 	}
+#endif
 
 	nkft_int32 NkFontEncodeUTF8(NkFontCodepoint c, char *out, nkft_int32 sz) {
 		if (c < 0x80 && sz >= 1) {
