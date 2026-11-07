@@ -249,6 +249,10 @@ namespace nkentseu {
 				mTarget = nullptr;
 			}
 			mWindow.Close();
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+			// (07/11, 1.5.8) la boucle est finie : l'activite doit l'etre aussi, sinon elle reste au premier plan, figee (retour sans effet).
+			(void)NkAndroidFinishActivity(nk_android_global_app);
+#endif
 			return 0;
 		}
 

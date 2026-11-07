@@ -190,6 +190,14 @@ namespace nkentseu {
 	//
 	// 📌 Usage prevu : un mode enfant (Mou), une demonstration en salon, un
 	// examen. Pas un jeu ordinaire.
+	bool NkAndroidFinishActivity(android_app *app) {
+		if (!app || !app->activity) {
+			return false;
+		}
+		ANativeActivity_finish(app->activity);
+		return true;
+	}
+
 	bool NkAndroidEpinglerEcran(android_app *app, bool actif) {
 		if (!app || !app->activity || !app->activity->clazz) {
 			return false;

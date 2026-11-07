@@ -60,6 +60,9 @@ namespace nkentseu {
 	/// Hors mode proprietaire d'appareil, le systeme laisse une sortie -- et
 	/// c'est deliberé de sa part.
 	bool NkAndroidEpinglerEcran(struct android_app *app, bool actif);
+	/// (07/11, 1.5.8) FERME l'activite : la boucle de l'application est finie (retour non reclame, fermeture demandee) et il faut le dire au systeme.
+	/// Sans cela la boucle s'arretait mais l'activite restait au premier plan, figee : « retour sans effet » (constate sur l'emulateur avec FoodHunt).
+	bool NkAndroidFinishActivity(struct android_app *app);
 	/// Vrai si l'ecran est allume. `hors_service` rend vrai quand la question
 	/// n'a pas pu etre posee -- une reponse par defaut qui se tait serait
 	/// indiscernable d'un ecran allume.
