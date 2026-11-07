@@ -1458,74 +1458,10 @@ namespace nkentseu {
 			}
 		}
 
-		// EM_JS : code JavaScript inline qui s'execute cote navigateur.
-		// Cree l'AudioContext + ScriptProcessor + cable le callback C.
-		EM_JS(int, NkWebAudio_JSInit, (int sampleRate, int channels, int bufferSize), {
-			// Cree ou reutilise l'AudioContext global (Chrome limite a 6).
-			if (!window.NkAudioCtx) {
-				var Ctx = window.AudioContext || window.webkitAudioContext;
-				if (!Ctx)
-					return 0;
-				window.NkAudioCtx = new Ctx({sampleRate : sampleRate});
-			}
-			var ctx = window.NkAudioCtx;
-			// Reveille le contexte si suspendu (politique autoplay nav).
-			if (ctx.state === 'suspended')
-				ctx.resume();
-			// Cree le ScriptProcessor : bufferSize doit etre puissance de 2
-			// entre 256 et 16384. On clamp au plus proche.
-			var bs = bufferSize;
-			if (bs < 256)
-				bs = 256;
-			if (bs > 16384)
-				bs = 16384;
-			// Round to next power of 2.
-			bs = Math.pow(2, Math.ceil(Math.log2(bs)));
-			var node = ctx.createScriptProcessor(bs, 0, channels);
-			// Heap interleaved buffer alloue cote C, mapped vers Module.HEAPF32.
-			var heapPtr = _malloc(bs * channels * 4);
-			window.NkAudioHeapPtr = heapPtr;
-			window.NkAudioHeapSize = bs * channels;
-			node.onaudioprocess = function(e) {
-				// Appelle le callback C (ecrit interleaved float32 dans le heap).
-				Module._NkWebAudioFillBuffer(bs, heapPtr);
-				// Recopie planaire vers les channels JS.
-				var floatPtr = heapPtr >> 2; // byte ptr -> float32 index
-				for (var c = 0; c < channels; ++c) {
-					var out = e.outputBuffer.getChannelData(c);
-					for (var i = 0; i < bs; ++i) {
-						out[i] = HEAPF32[floatPtr + i * channels + c];
-					}
-				}
-			};
-			node.connect(ctx.destination);
-			window.NkAudioNode = node;
-			return ctx.sampleRate; // retourne le sample rate reel
-		});
-
-		EM_JS(void, NkWebAudio_JSShutdown, (), {
-			if (window.NkAudioNode) {
-				window.NkAudioNode.disconnect();
-				window.NkAudioNode.onaudioprocess = null;
-				window.NkAudioNode = null;
-			}
-			if (window.NkAudioHeapPtr) {
-				_free(window.NkAudioHeapPtr);
-				window.NkAudioHeapPtr = 0;
-			}
-		});
-
-		EM_JS(void, NkWebAudio_JSResume, (), {
-			if (window.NkAudioCtx &&window.NkAudioCtx.state === 'suspended') {
-				window.NkAudioCtx.resume();
-			}
-		});
-
-		EM_JS(void, NkWebAudio_JSSuspend, (), {
-			if (window.NkAudioCtx &&window.NkAudioCtx.state === 'running') {
-				window.NkAudioCtx.suspend();
-			}
-		});
+		// (08/11) Le JavaScript (AudioContext, ScriptProcessor, DEBLOCAGE PAR LE PREMIER GESTE de l'utilisateur) vit dans
+		// NkWebAudioJs.h, que le banc tools/banc_webaudio.sh compile aussi : voir le defaut qui y est decrit.
+		// ANCIEN CODE (EM_JS Init/Shutdown/Resume/Suspend, sans ecoute des gestes) : deplace la-bas, sans rien perdre.
+#include "NkWebAudioJs.h"
 
 		WebAudioBackend::WebAudioBackend() = default;
 
@@ -1540,7 +1476,7 @@ namespace nkentseu {
 			mBufferSize = bufferSize;
 			// Initialise le contexte audio cote JS et recupere le sample rate
 			// reel (le navigateur peut ignorer notre request).
-			int actualSR = NkWebAudio_JSInit(sampleRate, channels, bufferSize);
+			int actualSR = NkWebAudio_JSInit(sampleRate, channels, bufferSize, NK_WEBAUDIO_DEBLOCAGE);
 			if (actualSR == 0)
 				return false;
 			mSampleRate = actualSR;

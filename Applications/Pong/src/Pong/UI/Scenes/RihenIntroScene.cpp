@@ -23,8 +23,19 @@
 #include "NKCore/NkTraits.h" // traits::NkMove (NkImage non copiable, deplacable)
 #include <cstdio>
 
+// (07/11) Web sans fils : Emscripten sans pthreads refuse `std::thread` (« thread constructor failed », Pong Web
+// s'arretait au demarrage). Le decode passe alors sur le fil principal, quelques images par tick (DecodeStep).
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+#define NK_PONG_INTRO_SANS_FILS 1
+#else
+#define NK_PONG_INTRO_SANS_FILS 0
+#endif
+
 namespace nkentseu {
 	namespace pong {
+
+		// Images decodees par tick sur le Web sans fils : assez pour finir vite, assez peu pour que le spinner tourne.
+		static constexpr int kDecodesPerUpdateSansFils = 2;
 
 		// ── Easing : rampe douce pour le fade out final ──────────────────────
 		static float EaseOutCubic(float t) {
@@ -79,7 +90,22 @@ namespace nkentseu {
 		// ─────────────────────────────────────────────────────────────────────
 		void RihenIntroScene::StartWorker() {
 			mWorkerStop.store(false);
+			mDecodeNext = 0;
+#if NK_PONG_INTRO_SANS_FILS
+			// Pas de worker : OnUpdate appelle DecodeStep (voir l'en-tete de ce fichier).
+			logger.Info("[RihenIntro] Web sans fils : decode sur le fil principal, {0} image(s) par tick", kDecodesPerUpdateSansFils);
+#else
 			mWorker = std::thread(&RihenIntroScene::WorkerProc, this);
+#endif
+		}
+
+		void RihenIntroScene::DecodeStep(int n) {
+			for (int k = 0; k < n && mDecodeNext < kFrameCount && !mWorkerStop.load(); ++k)
+				(void)DecodeOne(mDecodeNext++);
+			if (mDecodeNext >= kFrameCount && !mWorkerDone.load()) {
+				mWorkerDone.store(true);
+				logger.Info("[RihenIntro] Decode termine (fil principal) : {0} image(s)", kFrameCount);
+			}
 		}
 
 		void RihenIntroScene::StopWorker() {
@@ -97,8 +123,33 @@ namespace nkentseu {
 		// est detectee par DrainQueue via mWorkerLastAttempted > i et
 		// mPending[i] == nullptr -> on l'ignore visuellement (freeze sur
 		// la derniere texture valide).
-		void RihenIntroScene::WorkerProc() {
+		bool RihenIntroScene::DecodeOne(int i) {
 			char path[256];
+			// Files renumerotes 2026-05-19 : noms `rihen_00000.png` a
+			// `rihen_00155.png`, sans espaces, demarrant a 0. L'index i
+			// est utilise directement dans le path.
+			std::snprintf(path, sizeof(path), "Resources/Pong/Textures/animrihen/rihen_%05d.png", i);
+			NkImage img = NkImage::Alloc(1, 1, NkImagePixelFormat::NK_RGBA32);
+			if (img.IsValid() && (!img.Load(path, 4) || !img.IsValid())) {
+				img.Unload();
+			}
+			if (!img.IsValid()) {
+				// Frame manquante : on continue (au lieu de break) pour
+				// tenter les suivantes. mPending[i] reste INVALIDE, le
+				// DrainQueue saura la sauter via mWorkerLastAttempted.
+				mWorkerLastAttempted.store(i);
+				logger.Warn("[RihenIntro] Decode FAIL i={0} path={1}", i, path);
+				return false;
+			}
+			{
+				std::lock_guard<std::mutex> lock(mQueueMutex);
+				mPending[i] = traits::NkMove(img); // transfert du buffer, pas de copie
+			}
+			mWorkerLastAttempted.store(i);
+			return true;
+		}
+
+		void RihenIntroScene::WorkerProc() {
 			int missingCount = 0;
 			int decoded = 0;
 			for (int i = 0; i < kFrameCount; ++i) {
@@ -106,28 +157,10 @@ namespace nkentseu {
 					logger.Warn("[RihenIntro] Worker INTERROMPU a i={0}/{1} (mWorkerStop signaled)", i, kFrameCount);
 					break;
 				}
-				// Files renumerotes 2026-05-19 : noms `rihen_00000.png` a
-				// `rihen_00155.png`, sans espaces, demarrant a 0. L'index i
-				// est utilise directement dans le path.
-				std::snprintf(path, sizeof(path), "Resources/Pong/Textures/animrihen/rihen_%05d.png", i);
-				NkImage img = NkImage::Alloc(1, 1, NkImagePixelFormat::NK_RGBA32);
-				if (img.IsValid() && (!img.Load(path, 4) || !img.IsValid())) {
-					img.Unload();
-				}
-				if (!img.IsValid()) {
-					// Frame manquante : on continue (au lieu de break) pour
-					// tenter les suivantes. mPending[i] reste INVALIDE, le
-					// DrainQueue saura la sauter via mWorkerLastAttempted.
+				if (!DecodeOne(i)) {
 					++missingCount;
-					mWorkerLastAttempted.store(i);
-					logger.Warn("[RihenIntro] Decode FAIL i={0} path={1}", i, path);
 					continue;
 				}
-				{
-					std::lock_guard<std::mutex> lock(mQueueMutex);
-					mPending[i] = traits::NkMove(img); // transfert du buffer, pas de copie
-				}
-				mWorkerLastAttempted.store(i);
 				++decoded;
 				// Log progress toutes les 30 frames pour suivre la cadence
 				// (utile en Debug ou le decode est lent).
@@ -195,6 +228,11 @@ namespace nkentseu {
 		}
 
 		void RihenIntroScene::OnUpdate(AppContext &ctx, float dt) {
+#if NK_PONG_INTRO_SANS_FILS
+			// Pas de worker sur le Web sans fils : le decode avance ici, a chaque tick, jusqu'a la derniere image.
+			if (!mWorkerDone.load())
+				DecodeStep(kDecodesPerUpdateSansFils);
+#endif
 			if (mState == State::Loading) {
 				mLoadingTime += dt;
 				// Phase Loading : decode (worker thread) + upload (main thread)

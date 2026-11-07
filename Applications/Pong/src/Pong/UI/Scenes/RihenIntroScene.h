@@ -162,6 +162,13 @@ namespace nkentseu {
 				void StartWorker();
 				void StopWorker();
 				void WorkerProc();
+				/// Decode UNE image (index @p i) dans mPending[i] ; faux si elle manque. Appele par le worker,
+				/// ou par DecodeStep la ou il n'y a pas de fils.
+				bool DecodeOne(int i);
+				/// (07/11) Web sans fils (Emscripten sans pthreads) : `std::thread` y plante au demarrage
+				/// (« thread constructor failed »). Le decode se fait alors sur le fil principal, @p n images par tick.
+				void DecodeStep(int n);
+				int mDecodeNext = 0; ///< prochaine image a decoder sans worker (Web sans fils)
 				/// Upload jusqu'a @p maxUploads textures GL depuis la file
 				/// du worker. Appel avec kUploadsPerUpdateLoading pendant Loading
 				/// (spinner fluide) ou kUploadsPerUpdate pendant Playing.
