@@ -3511,7 +3511,7 @@ namespace nkentseu {
 							NkGuiWindowMeta *wm = WinFind(ctx, node.windows[i], wmi);
 							totalTabW += ((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(wm ? wm->title : "?")
 																		  : 40.f) +
-										 22.f;
+										 22.f + ((wm && wm->closableTab) ? th : 0.f); // (08/11) + la place de la croix
 						}
 						const bool overflow = (totalTabW > r.w - addW);
 						const float32 availW = r.w - addW - (overflow ? th : 0.f);
@@ -3522,16 +3522,41 @@ namespace nkentseu {
 							int32 wmi;
 							NkGuiWindowMeta *wm = WinFind(ctx, node.windows[i], wmi);
 							const char *title = wm ? wm->title : "?";
+							// (08/11) LA CROIX D'ONGLET (opt-in : DockWindowClosableTab). Rodolf, NKCode 1.5.8 : « je ne vois pas comment
+							// fermer l'onglet mobile ». Sa place est reservee a droite du titre, que la croix soit dessinee ou non (rien
+							// ne bouge au survol) ; le corps de l'onglet et la croix sont deux boutons DISJOINTS.
+							const float32 cw = (wm && wm->closableTab) ? th : 0.f;
 							const float32 tw =
-								((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(title) : 40.f) + 22.f;
+								((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(title) : 40.f) + 22.f + cw;
 							const NkRect tab = {tx, r.y, tw, th};
 							const NkGuiId tid = node.windows[i] ^ 0xDA8u;
 							bool hov = false, hd = false;
-							const bool clicked =
-								ctx.ButtonBehavior(tid, tab, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &hd);
+							const bool clicked = ctx.ButtonBehavior(tid, {tab.x, tab.y, tab.w - cw, tab.h}, NkGuiButtonFlags::None,
+																	-1.f, -1.f, &hov, &hd);
+							bool croixHov = false, croixClic = false;
+							NkRect croixR = {0.f, 0.f, 0.f, 0.f};
+							if (cw > 0.f) {
+								croixR = {tab.x + tab.w - cw + 1.f, r.y + 4.f, cw - 6.f, th - 8.f};
+								bool cd = false;
+								croixClic = ctx.ButtonBehavior(node.windows[i] ^ 0xC105Eu, croixR, NkGuiButtonFlags::None, -1.f, -1.f,
+															   &croixHov, &cd);
+							}
 							const bool isActive = (i == active);
+							const bool survol = hov || croixHov;
 							ctx.DL().AddRectFilled(
-								tab, isActive ? ctx.theme.tabActive : (hov ? ctx.theme.tabHover : ctx.theme.tab), 0.f);
+								tab, isActive ? ctx.theme.tabActive : (survol ? ctx.theme.tabHover : ctx.theme.tab), 0.f);
+							if (cw > 0.f && (isActive || survol)) { // l'onglet actif, et les autres au survol (facon VS Code)
+								if (croixHov)
+									ctx.DL().AddRectFilled(croixR, ctx.theme.border, 3.f);
+								const float32 cx = croixR.x + croixR.w * 0.5f, cy = croixR.y + croixR.h * 0.5f, a = 3.5f;
+								const NkColor cc = croixHov ? ctx.theme.text : ctx.theme.textDisabled;
+								ctx.DL().AddLine({cx - a, cy - a}, {cx + a, cy + a}, cc, 1.4f);
+								ctx.DL().AddLine({cx - a, cy + a}, {cx + a, cy - a}, cc, 1.4f);
+								wm->tabCloseRect = croixR;
+								wm->tabCloseVue = true;
+							}
+							if (croixClic)
+								ctx.dockTabCloseWin = node.windows[i];
 							if (isActive)
 								ctx.DL().AddRectFilled({tab.x, r.y + th - 2.f, tab.w, 2.f}, ctx.theme.accent);
 							// Séparateur vertical entre onglets (distingue les en-têtes adjacents).
@@ -3540,7 +3565,7 @@ namespace nkentseu {
 							if (ctx.font && ctx.font->Valid())
 								ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
 												 {tab.x + 6.f, CenteredBaseline(ctx, tab)}, title, ctx.theme.text,
-												 tw - 10.f);
+												 tw - 10.f - cw);
 							if (clicked)
 								ctx.dockNodes[ni].activeTab = i;
 							// Onglet tenu : tiré vers le BAS = désancre ; sinon = réordonne (horizontal).
@@ -4092,6 +4117,54 @@ namespace nkentseu {
 				m = &ctx.windowMeta[ctx.windowMeta.Size() - 1];
 			}
 			m->hideSingleTab = hide;
+		}
+
+		// (08/11) LA CROIX D'ONGLET (voir NkGuiWidgets.h). La meta se cree au besoin, comme pour DockWindowHideSingleTab.
+		void DockWindowClosableTab(NkGuiContext &ctx, const char *windowTitle, bool closable) noexcept {
+			const NkGuiId wid = ctx.GetId(windowTitle);
+			int32 mi;
+			NkGuiWindowMeta *m = WinFind(ctx, wid, mi);
+			if (!m) {
+				NkGuiWindowMeta nm;
+				nm.id = wid;
+				int32 k = 0;
+				for (; windowTitle[k] && k < 47; ++k)
+					nm.title[k] = windowTitle[k];
+				nm.title[k] = 0;
+				ctx.windowMeta.PushBack(nm);
+				m = &ctx.windowMeta[ctx.windowMeta.Size() - 1];
+			}
+			m->closableTab = closable;
+		}
+
+		bool DockWindowTabCloseRect(NkGuiContext &ctx, const char *windowTitle, NkRect &out) noexcept {
+			int32 mi;
+			NkGuiWindowMeta *m = WinFind(ctx, ctx.GetId(windowTitle), mi);
+			if (!m || !m->tabCloseVue)
+				return false;
+			out = m->tabCloseRect;
+			m->tabCloseVue = false;
+			return true;
+		}
+
+		bool DockWindowTabBarShown(NkGuiContext &ctx, const char *windowTitle) noexcept {
+			const NkGuiId wid = ctx.GetId(windowTitle);
+			int32 mi;
+			const NkGuiWindowMeta *m = WinFind(ctx, wid, mi);
+			if (!m)
+				return false;
+			// La feuille qui PORTE la fenetre, lue dans l'arbre (comme DockRenderNode) : `m->dockNode` peut avoir une image de retard
+			// quand l'app vient de deplacer la fenetre (mesure du 08/11 : la croix de l'en-tete de NKCode apparaissait une fraction de
+			// seconde au demarrage, barre d'onglets pourtant dessinee).
+			for (usize ni = 0; ni < ctx.dockNodes.Size(); ++ni) {
+				const NkGuiDockNode &n = ctx.dockNodes[ni];
+				if (n.kind != 2)
+					continue;
+				for (int32 k = 0; k < n.winCount; ++k)
+					if (n.windows[k] == wid)
+						return n.winCount > 1 || !(ctx.dockHideSingleTab && m->hideSingleTab);
+			}
+			return false;
 		}
 
 		void DockWindowIntoWindow(NkGuiContext &ctx, const char *hostTitle, const char *winTitle) noexcept {

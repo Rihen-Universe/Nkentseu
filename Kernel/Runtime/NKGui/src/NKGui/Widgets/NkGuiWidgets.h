@@ -494,6 +494,16 @@ namespace nkentseu {
 		// les autres (Terminal, Sortie, sidebars) gardent TOUJOURS leurs onglets.
 		NKENTSEU_NKGUI_API void DockWindowHideSingleTab(NkGuiContext &ctx, const char *windowTitle,
 														bool hide) noexcept;
+		// (08/11) LA CROIX D'ONGLET, OPT-IN (une app qui n'appelle rien ne change pas) : l'onglet de la fenetre porte une
+		// croix, dessinee sur l'onglet actif et au survol des autres (facon VS Code) ; un clic la rend dans
+		// `ctx.dockTabCloseWin` (l'app ferme, puis remet NONE). La place de la croix est toujours reservee : rien ne bouge
+		// au survol.
+		NKENTSEU_NKGUI_API void DockWindowClosableTab(NkGuiContext &ctx, const char *windowTitle, bool closable) noexcept;
+		// La croix de l'onglet a-t-elle ete dessinee depuis la derniere lecture ? `out` : son rectangle (bancs).
+		NKENTSEU_NKGUI_API bool DockWindowTabCloseRect(NkGuiContext &ctx, const char *windowTitle, NkRect &out) noexcept;
+		// La fenetre est-elle ancree dans une feuille dont la barre d'onglets est DESSINEE (plus d'une fenetre, ou une
+		// fenetre seule qui ne masque pas sa barre) ?
+		NKENTSEU_NKGUI_API bool DockWindowTabBarShown(NkGuiContext &ctx, const char *windowTitle) noexcept;
 		// DockSpace qui remplit TOUT le viewport (responsive : suit la taille de la
 		// fenêtre OS → le dock + les fenêtres ancrées s'agrandissent avec elle).
 		// `topMargin` = hauteur réservée en haut (ex. barre de menus).

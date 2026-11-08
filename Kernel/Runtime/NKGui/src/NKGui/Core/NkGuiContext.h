@@ -612,6 +612,7 @@ namespace nkentseu {
 				}
 
 				int32 dockTabAddNode = -1; ///< feuille où « + » a été cliqué (lu par l'app après DockSpace)
+				NkGuiId dockTabCloseWin = NKGUI_ID_NONE; ///< (08/11) fenetre dont la CROIX d'onglet a ete cliquee (lue, puis remise a NONE, par l'app)
 				NkGuiId dockOverflowPopup = NKGUI_ID_NONE; ///< popup « onglets cachés » ouvert (overflow)
 				int32 dockOverflowNode = -1;			   ///< feuille dont l'overflow est ouvert
 				NkVec2 dockOverflowPos = {0.f, 0.f};

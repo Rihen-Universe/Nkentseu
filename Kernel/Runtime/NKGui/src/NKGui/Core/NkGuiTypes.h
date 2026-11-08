@@ -353,6 +353,9 @@ namespace nkentseu {
 				NkRect dockRect = {0.f, 0.f, 0.f, 0.f}; ///< zone de contenu quand dockée (posée par DockSpace)
 				bool dockActiveTab = false;				///< est l'onglet ACTIF de sa feuille ?
 				bool hideSingleTab = false; ///< seule dans sa feuille : masque la barre (panneau central uniquement)
+				bool closableTab = false;	///< (08/11) l'onglet porte une croix (OPT-IN de l'app : DockWindowClosableTab) ; un clic la rend dans ctx.dockTabCloseWin
+				NkRect tabCloseRect = {0.f, 0.f, 0.f, 0.f}; ///< (08/11) la croix telle que dessinee (bancs : DockWindowTabCloseRect)
+				bool tabCloseVue = false;	///< (08/11) la croix a ete dessinee depuis la derniere lecture
 				NkRect floatRect = {60.f, 60.f, 320.f, 220.f}; ///< taille mémorisée pour le désancrage
 				char title[48] = {}; ///< titre copié (les onglets de dock en ont besoin avant Begin)
 				int32 hostRoot = -1; ///< #3 : si >=0, cette fenêtre est un HÔTE de dock flottant (rend l'arbre)
