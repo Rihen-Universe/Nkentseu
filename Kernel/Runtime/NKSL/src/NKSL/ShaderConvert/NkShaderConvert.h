@@ -271,7 +271,11 @@ namespace nkentseu {
 	//              6 = la negation Y du generateur HLSL est RETIREE (groupe 1).
 	//                  Les cinq temoins du banc rendent les memes nombres sur
 	//                  les quatre dorsaux ; cf. le message du commit.
-	inline constexpr uint32 kNkSLGeneratorVersion = 6u;
+	//              7 = (09/11/2026) le nuanceur PBR partage recoit la carte de DETAIL
+	//                  (binding 31, opt-in) : le generateur n'a pas change, mais la
+	//                  consigne est de monter le palier a chaque changement du nuanceur
+	//                  partage -- aucun binaire d'avant ne ressert depuis le cache.
+	inline constexpr uint32 kNkSLGeneratorVersion = 7u;
 
 	class NkShaderCache {
 		public:

@@ -627,6 +627,13 @@ namespace nkentseu {
                 // d'eau. Ce champ est donc a 0 par defaut (Lagarde pur) ; le monter
                 // ajoute une pellicule d'eau franche (flaque, ruissellement).
                 float32 waterLayer = 0.f; // [0,1]
+                // ── LE MICRO-RELIEF TUILE (09/11/2026) ───────────────────────
+                // La carte de DETAIL du materiau (binding 31, NK_MATBIND_DETAIL) :
+                // repetitions par unite d'UV et force (0 = AUCUN effet, le nuanceur ne
+                // la lit pas : le rendu est celui d'avant, au pixel pres). Portes par
+                // uObj.wetParams.z et .w, deux places reservees du bloc objet.
+                float32 detailTiling = 0.f;
+                float32 detailStrength = 0.f;
                 // ── LA POSE DE L'IMAGE PRECEDENTE (17/09/2026) ────────────────
                 // Elle sert AUX VECTEURS DE MOUVEMENT, et elle vient de l'appelant
                 // parce que le moteur ne peut PAS la deduire : un NkDrawCall3D n'a

@@ -116,6 +116,12 @@ uniform ShadowSlotsUBO {
 // Carte de HAUTEUR du parallax (BLANC = haut). Repli 1x1 blanc : sans
 // echelle (triplanarParams.w = 0) la boucle n'est jamais prise.
 @binding(set=2, binding=7)  uniform sampler2D   tHeight;
+// (09/11/2026) Carte de DETAIL : le micro-relief TUILE (pores, fines rides), une
+// carte normale de 512 x 512 repetee uObj.wetParams.z fois par unite d'UV, de
+// force uObj.wetParams.w. OPT-IN : force 0 = la branche n'est jamais prise, le
+// rendu est celui d'avant au pixel pres (tests/temoin_detail_identite.py). Repli
+// 1x1 : la normale plate. Binding 31 : libre dans les sets 0 et 2 (NK_MATBIND_DETAIL).
+@binding(set=2, binding=31) uniform sampler2D   tDetail;
 // Parametres du MATERIAU (set=2 binding=8, layout exact de NkPBRParams).
 // Toujours lie : meme les draws sans materiau recoivent l'instance de repli.
 //
@@ -422,8 +428,24 @@ void main() {
         N = NkTriplanarNormalUDN(tNormal, vWorldPos, geomN, triW, invTile,
                                   uMat.normalStrength);
     } else {
-        vec3 nTs = texture(tNormal, uvP).xyz * 2.0 - 1.0;
+        vec4 nSample = texture(tNormal, uvP);
+        vec3 nTs = nSample.xyz * 2.0 - 1.0;
         nTs.xy  *= uMat.normalStrength;
+        // (09/11/2026) LE MICRO-RELIEF TUILE (opt-in, uObj.wetParams.w > 0) : ses pentes
+        // s'ajoutent a celles de la carte normale (melange UDN), ponderees par
+        //   - le MASQUE de zone, l'alpha de la carte normale (1 sans alpha : partout) ;
+        //   - le FONDU au loin : les niveaux de mip moyennent deja le relief (il s'aplatit
+        //     de lui-meme) ; au-dela de 12 texels de detail par pixel il s'efface, nul a
+        //     48 (rien au loin, pas de grain qui scintille).
+        if (uObj.wetParams.w > 0.0) {
+            vec2  uvD    = uvP * uObj.wetParams.z;
+            vec2  fwD    = fwidth(uvD);
+            float texPx  = max(fwD.x, fwD.y) * 512.0;
+            float loin   = 1.0 - smoothstep(12.0, 48.0, texPx);
+            vec3  dTs    = texture(tDetail, uvD).xyz * 2.0 - 1.0;
+            float kD     = uObj.wetParams.w * nSample.a * loin;
+            nTs = vec3(nTs.xy + dTs.xy * kD, nTs.z);
+        }
         // TBN ROBUSTE : un vTangent / vBitangent NUL (tangente colineaire a la normale,
         // ou tangentes opposees qui s'annulent a l'interpolation) faisait
         // normalize(0) = NaN -> N = NaN -> gros rectangle blanc via le bloom en mode

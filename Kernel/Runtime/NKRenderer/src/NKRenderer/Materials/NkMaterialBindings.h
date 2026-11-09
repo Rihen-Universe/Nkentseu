@@ -52,11 +52,18 @@ namespace nkentseu {
 			// Carte de masque des couches (LayeredV1). Quatre canaux = quatre
 			// masques dans une seule texture.
 			NK_MATBIND_LAYER_MASK = 9,
+			// (09/11/2026) La carte de DETAIL (micro-relief tuile : pores, fines
+			// rides), OPT-IN par materiau. 31 et pas 10 : le registre HLSL d'une
+			// texture est son binding QUEL QUE SOIT LE SET (NkSLCodeGenHLSL), et le
+			// nuanceur PBR prend deja t3..t30 sauf 25 dans ses sets 0 et 2 ; 31 est
+			// libre partout. Lue par pbr.frag.nksl seulement si uObj.wetParams.w > 0.
+			NK_MATBIND_DETAIL = 31,
 		};
 
 		// Nom du sampler tel qu'il est ECRIT dans le shader. Le banc le cherche
 		// par ce nom : renommer d'un cote sans l'autre met le banc au rouge.
 		static const char *const NK_MATBIND_LAYER_MASK_SAMPLER = "tMask";
+		static const char *const NK_MATBIND_DETAIL_SAMPLER = "tDetail";
 
 		// ─────────────────────────────────────────────────────────────────────
 		// LES SLOTS DE TEXTURE UTILISABLES PAR UN GRAPHE DE MATERIAU

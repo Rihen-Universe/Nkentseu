@@ -2057,7 +2057,11 @@ namespace nkentseu {
 				{
 					const float32 w = NkClamp(dc.wetness, 0.f, 1.f);
 					ob.wetParams = NkVec4f{w * NkClamp(dc.wetPorosity, 0.f, 1.f),
-										   w * NkClamp(dc.waterLayer, 0.f, 1.f), 0.f, 0.f};
+										   w * NkClamp(dc.waterLayer, 0.f, 1.f),
+										   // (09/11/2026) le micro-relief tuile : .z repetitions par unite
+										   // d'UV, .w force (0 = rien, le rendu d'avant au pixel pres)
+										   dc.detailTiling > 0.f ? dc.detailTiling : 0.f,
+										   dc.detailStrength > 0.f ? dc.detailStrength : 0.f};
 				}
 				// MOUILLAGE : le drawcall parle en mouillage/porosite/pellicule ;
 				// le bloc uniforme ne transporte que les DEUX produits dont la
@@ -2066,7 +2070,11 @@ namespace nkentseu {
 				{
 					const float32 w = NkClamp(dc.wetness, 0.f, 1.f);
 					ob.wetParams = NkVec4f{w * NkClamp(dc.wetPorosity, 0.f, 1.f),
-										   w * NkClamp(dc.waterLayer, 0.f, 1.f), 0.f, 0.f};
+										   w * NkClamp(dc.waterLayer, 0.f, 1.f),
+										   // (09/11/2026) le micro-relief tuile : .z repetitions par unite
+										   // d'UV, .w force (0 = rien, le rendu d'avant au pixel pres)
+										   dc.detailTiling > 0.f ? dc.detailTiling : 0.f,
+										   dc.detailStrength > 0.f ? dc.detailStrength : 0.f};
 				}
 				// MOUILLAGE : le drawcall parle en mouillage/porosite/pellicule ;
 				// le bloc uniforme ne transporte que les DEUX produits dont la
@@ -2075,7 +2083,11 @@ namespace nkentseu {
 				{
 					const float32 w = NkClamp(dc.wetness, 0.f, 1.f);
 					ob.wetParams = NkVec4f{w * NkClamp(dc.wetPorosity, 0.f, 1.f),
-										   w * NkClamp(dc.waterLayer, 0.f, 1.f), 0.f, 0.f};
+										   w * NkClamp(dc.waterLayer, 0.f, 1.f),
+										   // (09/11/2026) le micro-relief tuile : .z repetitions par unite
+										   // d'UV, .w force (0 = rien, le rendu d'avant au pixel pres)
+										   dc.detailTiling > 0.f ? dc.detailTiling : 0.f,
+										   dc.detailStrength > 0.f ? dc.detailStrength : 0.f};
 				}
 				ob.emissiveStrength = 0.f;				 // emissive via materiau (v1)
 				ob.normalStrength = matInst ? 1.f : 0.f; // normal map si materiau
@@ -3616,6 +3628,11 @@ namespace nkentseu {
 					const float32 par = matInst ? matInst->mParallaxScale : 0.f;
 					ob.triplanarParams =
 						NkVec4f{tile, mpu > 0.f ? mpu : 1.f, tile > 0.f ? 1.f : 0.f, par};
+					// (09/11/2026) le micro-relief tuile, OPT-IN (wetParams.zw, reserves) : 0, 0 sans
+					// carte de detail -- le nuanceur ne prend pas la branche, l'image d'avant.
+					// Le mouillage (.xy) reste a zero sur ce chemin, comme avant.
+					ob.wetParams.z = dc.detailTiling > 0.f ? dc.detailTiling : 0.f;
+					ob.wetParams.w = dc.detailStrength > 0.f ? dc.detailStrength : 0.f;
 				}
 
 				NkBufferHandle ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
@@ -3782,6 +3799,11 @@ namespace nkentseu {
 					const float32 par = matInst ? matInst->mParallaxScale : 0.f;
 					ob.triplanarParams =
 						NkVec4f{tile, mpu > 0.f ? mpu : 1.f, tile > 0.f ? 1.f : 0.f, par};
+					// (09/11/2026) le micro-relief tuile, OPT-IN (wetParams.zw, reserves) : 0, 0 sans
+					// carte de detail -- le nuanceur ne prend pas la branche, l'image d'avant.
+					// Le mouillage (.xy) reste a zero sur ce chemin, comme avant.
+					ob.wetParams.z = dc.detailTiling > 0.f ? dc.detailTiling : 0.f;
+					ob.wetParams.w = dc.detailStrength > 0.f ? dc.detailStrength : 0.f;
 				}
 				NkBufferHandle ubo = mUBOObjectPool[mFrameSlot][mObjectDrawIdx];
 				NkDescSetHandle os = mObjectSetPool[mFrameSlot][mObjectDrawIdx];

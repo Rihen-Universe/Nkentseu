@@ -630,6 +630,40 @@ namespace nkentseu {
 			return (p2 - p0).Cross(p1 - p0);
 		}
 
+		// (09/11/2026) LE SEUIL D'UNE NORMALE EST CELUI DE SON PROBLEME, pas celui de `NkVec3f::Len()`.
+		// `Len()` rend 0 sous 1e-6 (NkVec.h, defaut A2, garde tel quel : le tissu en depend). Le produit
+		// vectoriel d'une face est son AIRE (x 2) : une face de moins de 0,5 mm2 (en metres) sortait avec la
+		// normale de REPLI (0, 1, 0), eclairee comme un plafond. Mesure : NKAvatar au niveau 2 (deux
+		// subdivisions), 56 320 sommets sur 879 488 avec (0, 1, 0) aux plis des paupieres, des levres et des
+		// narines, rendus en TACHES BLANCHES. Ici la longueur se reprend SANS garde quand l'ancienne a echoue :
+		// le repli ne vaut plus que pour une face DEGENEREE (sinus de son angle sous kNkEmSinusDegenere) ou un
+		// sommet dont les faces S'ANNULENT (somme sous kNkEmSinusDegenere de la somme des longueurs). Au-dessus
+		// de l'ancien seuil, rien ne change (le meme `Len()`, au bit pres).
+		static const float32 kNkEmSinusDegenere = 1e-5f;
+		static inline float32 NkEmLongueurBrute(const NkVec3f &v) {
+			return sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+		}
+		// La longueur d'une normale, `Len()` d'abord ; sous son seuil, la longueur brute si elle depasse
+		// `kNkEmSinusDegenere * reference` (reference : |e1| |e2| pour une face, la somme des longueurs pour un
+		// sommet). 0 si le vecteur est vraiment degenere.
+		// CONTRE-EPREUVE : `NK_EM_NORMALES_SEUIL_LEN=1` (lu une fois) rend l'ancien seuil absolu de Len().
+		static bool NkEmNormalesSeuilLen() {
+			static const int32 v = [] {
+				const char *e = getenv("NK_EM_NORMALES_SEUIL_LEN");
+				return (e && e[0] == '1') ? 1 : 0;
+			}();
+			return v != 0;
+		}
+		static inline float32 NkEmLongueurNormale(const NkVec3f &n, float32 reference) {
+			const float32 l = n.Len();
+			if (l > 1e-8f)
+				return l;
+			if (NkEmNormalesSeuilLen())
+				return 0.f;
+			const float32 brute = NkEmLongueurBrute(n);
+			return (brute > 0.f && brute > kNkEmSinusDegenere * reference) ? brute : 0.f;
+		}
+
 		void NkEditMesh::RecomputeNormals() {
 			const uint32 nv = (uint32)verts.Size();
 			const uint32 nf = (uint32)faces.Size();
@@ -648,8 +682,9 @@ namespace nkentseu {
 					continue;
 				const NkVec3f p0 = verts[loop[0]].pos, p1 = verts[loop[1]].pos, p2 = verts[loop[2]].pos;
 				NkVec3f n = NkEmFaceCross(p0, p1, p2);
-				const float32 l = n.Len();
-				faces[f].normal = (l > 1e-8f) ? n * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
+				// (09/11/2026) le seuil de la face, pas celui de Len() (voir NkEmLongueurNormale)
+				const float32 l = NkEmLongueurNormale(n, NkEmLongueurBrute(p1 - p0) * NkEmLongueurBrute(p2 - p0));
+				faces[f].normal = (l > 0.f) ? n * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
 				fn[f] = n;
 				if (faces[f].smooth)
 					anySmooth = true;
@@ -660,6 +695,10 @@ namespace nkentseu {
 			flatAcc.Resize(nv);
 			for (uint32 i = 0; i < nv; ++i)
 				flatAcc[i] = {0.f, 0.f, 0.f};
+			// (09/11/2026) la SOMME DES LONGUEURS des normales versees a chaque sommet : la reference du seuil
+			// relatif (NkEmLongueurNormale), qui distingue des faces qui s'annulent de faces simplement petites
+			NkVector<float32> flatMag, smoothMag;
+			flatMag.Resize(nv, 0.f);
 			// 3) Accumulation SMOOTH (par sommet SOUDÉ) : seules les faces smooth y
 			//    contribuent, et toutes les copies coïncidentes partagent le résultat.
 			NkVector<uint32> canon;
@@ -668,6 +707,7 @@ namespace nkentseu {
 			if (anySmooth) {
 				BuildVertexMerge(canon);
 				smoothAcc.Resize(nv);
+				smoothMag.Resize(nv, 0.f);
 				vertSmooth.Resize(nv);
 				for (uint32 i = 0; i < nv; ++i) {
 					smoothAcc[i] = {0.f, 0.f, 0.f};
@@ -683,17 +723,22 @@ namespace nkentseu {
 				if (loop.Size() < 3)
 					continue;
 				const bool sm = anySmooth && faces[f].smooth != 0;
+				const float32 mf = NkEmLongueurBrute(fn[f]);
 				for (uint32 k = 0; k < (uint32)loop.Size(); ++k) {
 					const uint32 v = loop[k];
 					if (v >= nv)
 						continue;
 					if (sm) {
 						const uint32 c = C(v);
-						if (c < nv)
+						if (c < nv) {
 							smoothAcc[c] = smoothAcc[c] + fn[f];
+							smoothMag[c] += mf;
+						}
 						vertSmooth[v] = 1;
-					} else
+					} else {
 						flatAcc[v] = flatAcc[v] + fn[f];
+						flatMag[v] += mf;
+					}
 				}
 			}
 			// 4) Normale finale du sommet. Un sommet touché À LA FOIS par des faces flat et
@@ -703,13 +748,18 @@ namespace nkentseu {
 			//    COIN (comme Blender le ferait avec des « loops »).
 			for (uint32 i = 0; i < nv; ++i) {
 				NkVec3f n = flatAcc[i];
+				float32 somme = flatMag[i];
 				if (anySmooth && vertSmooth[i]) {
 					const uint32 c = C(i);
-					if (c < nv)
+					if (c < nv) {
 						n = n + smoothAcc[c];
+						somme += smoothMag[c];
+					}
 				}
-				const float32 l = n.Len();
-				verts[i].normal = (l > 1e-8f) ? n * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
+				// (09/11/2026) le seuil du sommet, pas celui de Len() (voir NkEmLongueurNormale). Contre-epreuve :
+				// `NK_EM_NORMALES_SEUIL_LEN=1`, l'ancien seuil absolu (les taches blanches du niveau 2 reviennent).
+				const float32 l = NkEmLongueurNormale(n, somme);
+				verts[i].normal = (l > 0.f) ? n * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
 			}
 		}
 

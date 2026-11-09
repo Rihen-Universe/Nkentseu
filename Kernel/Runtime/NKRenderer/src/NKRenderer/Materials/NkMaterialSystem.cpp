@@ -59,7 +59,13 @@ namespace nkentseu {
 				// APRES ce changement, avec cinq signatures identiques.
 				//
 				// 8 est deja pris par l'UBO materiau ; on saute donc a 9.
-				.Add(NK_MATBIND_LAYER_MASK, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS);
+				.Add(NK_MATBIND_LAYER_MASK, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS)
+				// (09/11/2026) binding 31 : la carte de DETAIL (micro-relief tuile), OPT-IN :
+				// toute instance la recoit (la normale plate 1x1 par defaut), seul le PBR la
+				// lit, et seulement quand le dessin en demande (uObj.wetParams.w > 0).
+				// Temoin d'identite : tests/temoin_detail_identite.py (NKCraft, PV3DE, Nogee,
+				// NkAnimaEditor au pixel pres, avant et apres).
+				.Add(NK_MATBIND_DETAIL, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, RHIStage::NK_ALL_GRAPHICS);
 			mInstDescLayout = mDevice->CreateDescriptorSetLayout(instLayout);
 
 			mLinearSampler = mDevice->CreateSampler(NkSamplerDesc::Linear());
@@ -663,8 +669,12 @@ namespace nkentseu {
 				// Masque des couches : blanc = masque plein. Voir le commentaire de
 				// NK_LAYER_MASK_TEX_R sur le choix de ce repli.
 				NkTextureHandle maskTex = GetTex("mask");
+				// (09/11/2026) la carte de DETAIL : la normale plate 1x1 sans carte (jamais un
+				// emplacement vide : le liant DX11 saute un SRV nul et laisserait la texture
+				// du dessin d'avant, defaut ouvert du 09/11)
+				NkTextureHandle detailTex = GetTexOr("detail", texLib->GetNormal1x1());
 
-				NkDescriptorWrite writes[7] = {};
+				NkDescriptorWrite writes[8] = {};
 				// binding 8: material UBO (binding=4 est pris par texNormal SAMPLER en GL).
 				// bufferRange depend du type material (sizeof exact).
 				{
@@ -697,7 +707,8 @@ namespace nkentseu {
 				fillTex(4, NK_MATBIND_EMISSIVE, emissiveTex);
 				fillTex(5, NK_MATBIND_HEIGHT, heightTex);
 				fillTex(6, NK_MATBIND_LAYER_MASK, maskTex);
-				mDevice->UpdateDescriptorSets(writes, 7);
+				fillTex(7, NK_MATBIND_DETAIL, detailTex);
+				mDevice->UpdateDescriptorSets(writes, 8);
 				inst->MarkClean();
 			}
 		}

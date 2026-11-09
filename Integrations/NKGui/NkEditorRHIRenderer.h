@@ -127,6 +127,7 @@ namespace nkentseu {
 				void Shutdown() override {
 					if (mDev)
 						mDev->WaitIdle();
+					LibererCapture(); // (09/11) la cible de capture, si elle a servi
 					mBackend.Destroy();
 					if (mDev) {
 						NkDeviceFactory::Destroy(mDev);
@@ -261,15 +262,53 @@ namespace nkentseu {
 				void EndFrame() override {
 					if (!mDev)
 						return;
+					bool relire = false;
 					if (mFrameOk) {
 						if (mFbW > 0 && mFbH > 0)
 							mBackend.Submit(mCmd, mMerged, mFbW, mFbH);
 						mCmd->EndRenderPass();
+						// (09/11) LA CAPTURE DEMANDEE : la MEME liste, rendue une seconde fois dans la cible de
+						// capture, puis copiee vers le tampon de relecture (voir DemanderCapture)
+						if (mCaptureDemandee && mFbW > 0 && mFbH > 0)
+							relire = EnregistrerCapture();
 						mCmd->End();
 						mDev->SubmitAndPresent(mCmd);
 					}
 					mDev->EndFrame(mFrame);
 					mFrameOk = false;
+					mCaptureDemandee = false;
+					if (relire)
+						LireCapture();
+				}
+
+				// ── (09/11) L'IMAGE ENTIERE, INTERFACE COMPRISE, RELUE SUR LE GPU ───────
+				// NKCraft photographiait sa fenetre par PrintWindow, qui demande a la FENETRE de se
+				// redessiner : une fenetre jamais montree (NK_FENETRE_CACHEE=1) ne rend rien, la photo
+				// echoue (agent archviz, 09/11, journal e1_interface_dx11). Ici, rien ne passe par l'OS :
+				// la liste fusionnee de l'image est rendue une seconde fois, telle quelle, dans une cible
+				// hors ecran du format de la chaine d'echange (meme pipeline : la meme geometrie, les memes
+				// textures), puis copiee vers un tampon de relecture et lue apres la presentation -- comme
+				// NkOffscreenTarget::ReadbackPixels lit la vue 3D (Demo3DHostCaptureView). Une demande vaut
+				// pour UNE image : la prochaine EndFrame. Le cout (une attente du GPU) n'est paye que la.
+				void DemanderCapture() noexcept {
+					mCaptureDemandee = true;
+				}
+				/// Vrai si une image a ete relue et pas encore oubliee.
+				bool CaptureDisponible() const noexcept {
+					return mCapturePrete;
+				}
+				/// L'image relue : RGBA8, la ligne du HAUT en premier, alpha opaque.
+				const uint8 *CapturePixels() const noexcept {
+					return mCapturePrete ? mCapturePx.Data() : nullptr;
+				}
+				uint32 CaptureLargeur() const noexcept {
+					return mCapturePrete ? mCapW : 0u;
+				}
+				uint32 CaptureHauteur() const noexcept {
+					return mCapturePrete ? mCapH : 0u;
+				}
+				void OublierCapture() noexcept {
+					mCapturePrete = false;
 				}
 
 				bool UploadFontGray8(uint32 texId, const uint8 *px, int32 w, int32 h) override {
@@ -299,8 +338,146 @@ namespace nkentseu {
 				}
 
 			private:
+				/// (09/11) La cible de capture a la taille de la chaine d'echange (refaite si elle change).
+				bool PreparerCapture(uint32 w, uint32 h) {
+					if (mCapTex.IsValid() && mCapRP.IsValid() && mCapFB.IsValid() && mCapBuf.IsValid() && mCapW == w &&
+						mCapH == h)
+						return true;
+					LibererCapture();
+					const NkGPUFormat fc = mDev->GetSwapchainFormat();
+					const NkGPUFormat fp = mDev->GetSwapchainDepthFormat();
+					NkTextureDesc d;
+					d.type = NkTextureType::NK_TEX2D;
+					d.format = fc;
+					d.width = w;
+					d.height = h;
+					d.depth = 1;
+					d.arrayLayers = 1;
+					d.mipLevels = 1;
+					d.bindFlags = NkBindFlags::NK_RENDER_TARGET | NkBindFlags::NK_SHADER_RESOURCE;
+					d.usage = NkResourceUsage::NK_DEFAULT;
+					d.debugName = "NkEditorCapture_Couleur";
+					mCapTex = mDev->CreateTexture(d);
+					// la profondeur, si la passe de la chaine d'echange en a une : la meme forme de passe pour le
+					// meme pipeline (Vulkan exige des passes compatibles)
+					if (fp != NkGPUFormat::NK_UNDEFINED) {
+						NkTextureDesc p = d;
+						p.format = fp;
+						p.bindFlags = NkBindFlags::NK_DEPTH_STENCIL;
+						p.debugName = "NkEditorCapture_Profondeur";
+						mCapProf = mDev->CreateTexture(p);
+					}
+					NkRenderPassDesc rpd;
+					rpd.AddColor(NkAttachmentDesc::Color(fc));
+					if (mCapProf.IsValid())
+						rpd.SetDepth(NkAttachmentDesc::Depth(fp));
+					mCapRP = mDev->CreateRenderPass(rpd);
+					NkFramebufferDesc fbd;
+					fbd.width = w;
+					fbd.height = h;
+					fbd.renderPass = mCapRP;
+					fbd.colorAttachments.PushBack(mCapTex);
+					if (mCapProf.IsValid())
+						fbd.depthAttachment = mCapProf;
+					fbd.debugName = "NkEditorCapture";
+					mCapFB = mDev->CreateFramebuffer(fbd);
+					NkBufferDesc bd;
+					bd.sizeBytes = (uint64)((w * 4u + 255u) & ~255u) * h;
+					bd.type = NkBufferType::NK_STAGING;
+					bd.usage = NkResourceUsage::NK_READBACK;
+					mCapBuf = mDev->CreateBuffer(bd);
+					mCapW = w;
+					mCapH = h;
+					if (!mCapTex.IsValid() || !mCapRP.IsValid() || !mCapFB.IsValid() || !mCapBuf.IsValid()) {
+						logger.Errorf("[NkEditorRHI] capture : la cible %ux%u n'a pas pu etre creee\n", w, h);
+						LibererCapture();
+						return false;
+					}
+					return true;
+				}
+
+				void LibererCapture() {
+					if (!mDev)
+						return;
+					if (mCapFB.IsValid())
+						mDev->DestroyFramebuffer(mCapFB);
+					if (mCapRP.IsValid())
+						mDev->DestroyRenderPass(mCapRP);
+					if (mCapBuf.IsValid())
+						mDev->DestroyBuffer(mCapBuf);
+					if (mCapTex.IsValid())
+						mDev->DestroyTexture(mCapTex);
+					if (mCapProf.IsValid())
+						mDev->DestroyTexture(mCapProf);
+					mCapW = mCapH = 0u;
+				}
+
+				/// Enregistre, sur le command buffer de l'image, la seconde passe et la copie. Faux si la cible manque.
+				bool EnregistrerCapture() {
+					const uint32 w = mDev->GetSwapchainWidth(), h = mDev->GetSwapchainHeight();
+					if (w == 0u || h == 0u || !PreparerCapture(w, h))
+						return false;
+					mCmd->TextureBarrier(mCapTex, NkResourceState::NK_UNDEFINED, NkResourceState::NK_RENDER_TARGET);
+					mCmd->SetClearColor(0.f, 0.f, 0.f, 1.f);
+					if (!mCmd->BeginRenderPass(mCapRP, mCapFB, NkRect2D{0, 0, (int32)w, (int32)h}))
+						return false;
+					mCmd->SetViewport(NkViewport(0.f, 0.f, (float32)w, (float32)h));
+					mCmd->SetScissor(NkRect2D(0u, 0u, w, h));
+					// la MEME liste : le backend reecrit les memes sommets au meme endroit (le contrat « une fois
+					// par image » tient : le contenu ne change pas)
+					mBackend.Submit(mCmd, mMerged, mFbW, mFbH);
+					mCmd->EndRenderPass();
+					mCmd->TextureBarrier(mCapTex, NkResourceState::NK_RENDER_TARGET, NkResourceState::NK_TRANSFER_SRC);
+					NkBufferTextureCopyRegion r{};
+					r.width = w;
+					r.height = h;
+					r.depth = 1;
+					r.bufferRowPitch = 0;
+					mCmd->CopyTextureToBuffer(mCapTex, mCapBuf, r);
+					mCmd->TextureBarrier(mCapTex, NkResourceState::NK_TRANSFER_SRC, NkResourceState::NK_SHADER_READ);
+					return true;
+				}
+
+				/// Apres la presentation : attend le GPU, lit le tampon, le range en RGBA8 (haut en premier).
+				void LireCapture() {
+					mDev->WaitIdle();
+					const uint32 w = mCapW, h = mCapH;
+					const NkGraphicsApi api = mDev->GetApi();
+					const bool bas = api == NkGraphicsApi::NK_GFX_API_OPENGL; // OpenGL range la ligne du BAS d'abord
+					const uint32 pas = (api == NkGraphicsApi::NK_GFX_API_DX12) ? ((w * 4u + 255u) & ~255u) : w * 4u;
+					const NkGPUFormat fc = mDev->GetSwapchainFormat();
+					const bool bgra = fc == NkGPUFormat::NK_BGRA8_UNORM || fc == NkGPUFormat::NK_BGRA8_SRGB;
+					NkMappedMemory m = mDev->MapBuffer(mCapBuf);
+					if (!m.IsValid()) {
+						mCapturePrete = false;
+						return;
+					}
+					mCapturePx.Resize((usize)w * h * 4u);
+					const uint8 *src = (const uint8 *)m.ptr;
+					for (uint32 y = 0; y < h; ++y) {
+						const uint8 *s = src + (uint64)(bas ? (h - 1u - y) : y) * pas;
+						uint8 *o = mCapturePx.Data() + (uint64)y * w * 4u;
+						for (uint32 x = 0; x < w; ++x) {
+							o[4u * x + 0u] = s[4u * x + (bgra ? 2u : 0u)];
+							o[4u * x + 1u] = s[4u * x + 1u];
+							o[4u * x + 2u] = s[4u * x + (bgra ? 0u : 2u)];
+							o[4u * x + 3u] = 255u;
+						}
+					}
+					mDev->UnmapBuffer(mCapBuf);
+					mCapturePrete = true;
+				}
+
 				NkIDevice *mDev = nullptr;
 				NkICommandBuffer *mCmd = nullptr;
+				// (09/11) la capture relue sur le GPU
+				bool mCaptureDemandee = false, mCapturePrete = false;
+				NkTextureHandle mCapTex, mCapProf;
+				NkRenderPassHandle mCapRP;
+				NkFramebufferHandle mCapFB;
+				NkBufferHandle mCapBuf;
+				uint32 mCapW = 0u, mCapH = 0u;
+				NkVector<uint8> mCapturePx;
 				NkGuiRHIBackend mBackend;
 				/// Toutes les listes de la frame, dans l'ordre de soumission : le
 				/// backend n'en accepte qu'une (tampon de sommets partage).
