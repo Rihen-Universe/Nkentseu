@@ -18,6 +18,70 @@ namespace nkentseu {
 		namespace {
 			// Contexte courant per-thread (non-singleton, comme NkUIContext).
 			thread_local NkGuiContext *gCurrentContext = nullptr;
+
+			/// (09/11) LES POPUPS EN DERNIER : les etendues [debut[i], fin[i]) des index de `L` (croissantes, disjointes)
+			/// passent a la fin, dans leur ordre ; le reste garde le sien. Les sommets ne bougent pas (les index sont
+			/// absolus) ; une commande a cheval sur une limite est coupee en deux, avec la meme decoupe, la meme texture
+			/// et le meme melange. Chaque index appartient a une commande (Tri l'ajoute a la commande courante) : la
+			/// derniere commande finit donc toujours au dernier index, et ce qui s'ajoute ensuite (l'infobulle) s'y
+			/// enchaine comme avant. Etendues incoherentes : rien ne bouge.
+			void NkGuiPopupsEnDernier(NkGuiDrawList &L, const uint32 *debut, const uint32 *fin, int32 n) noexcept {
+				const uint32 N = static_cast<uint32>(L.idx.Size());
+				uint32 prec = 0;
+				for (int32 i = 0; i < n; ++i) {
+					if (debut[i] < prec || fin[i] < debut[i] || fin[i] > N)
+						return;
+					prec = fin[i];
+				}
+				// Les morceaux dans le NOUVEL ordre : ce qui n'est pas un popup, puis les popups.
+				uint32 de[2 * NkGuiContext::PopupPlanMax + 1], a[2 * NkGuiContext::PopupPlanMax + 1];
+				int32 m = 0;
+				uint32 c = 0;
+				for (int32 i = 0; i < n; ++i) {
+					de[m] = c;
+					a[m] = debut[i];
+					++m;
+					c = fin[i];
+				}
+				de[m] = c;
+				a[m] = N;
+				++m;
+				bool deplace = false; // un morceau hors popup apres un popup : sinon l'ordre est deja le bon
+				for (int32 k = 1; k < m; ++k)
+					deplace = deplace || a[k] > de[k];
+				if (!deplace)
+					return;
+				for (int32 i = 0; i < n; ++i) {
+					de[m] = debut[i];
+					a[m] = fin[i];
+					++m;
+				}
+				NkVector<uint32> idx;
+				idx.Reserve(N);
+				NkVector<NkGuiDrawCmd> cmds;
+				cmds.Reserve(L.cmds.Size() + static_cast<usize>(2 * m));
+				uint32 base = 0;
+				for (int32 k = 0; k < m; ++k) {
+					if (a[k] <= de[k])
+						continue;
+					for (uint32 q = de[k]; q < a[k]; ++q)
+						idx.PushBack(L.idx[q]);
+					for (usize j = 0; j < L.cmds.Size(); ++j) {
+						const NkGuiDrawCmd &o = L.cmds[j];
+						const uint32 lo = o.idxOffset > de[k] ? o.idxOffset : de[k];
+						const uint32 hi = (o.idxOffset + o.idxCount) < a[k] ? (o.idxOffset + o.idxCount) : a[k];
+						if (lo >= hi)
+							continue;
+						NkGuiDrawCmd p = o;
+						p.idxOffset = base + (lo - de[k]);
+						p.idxCount = hi - lo;
+						cmds.PushBack(p);
+					}
+					base += a[k] - de[k];
+				}
+				L.idx = traits::NkMove(idx);
+				L.cmds = traits::NkMove(cmds);
+			}
 		} // namespace
 
 		void SetCurrentContext(NkGuiContext *ctx) noexcept {
@@ -159,6 +223,10 @@ namespace nkentseu {
 			} // #3 (dockDL=-2 : sentinelle « feuille non rendue »)
 			dl.Reset();
 			dlOverlay.Reset();
+			dlDessusPanneaux.Reset();						  // (09/11) les decorations de panneaux
+			dlDessusPanneaux.thickScale = dlOverlay.thickScale; // l'echelle des traits que l'hote a posee
+			popupPlanN = 0;
+			popupPlanOuvert = false;
 			modalDepth = 0; // la pile de modales se recompte a chaque frame
 			// Le relevé d'introspection est un enregistrement DE CETTE TRAME :
 			// il se vide avec les listes de dessin, jamais après coup. `Clear`
@@ -170,6 +238,11 @@ namespace nkentseu {
 		}
 
 		void NkGuiContext::EndFrame() noexcept {
+			// (09/11) LES POPUPS AU PREMIER PLAN, juste avant l'infobulle (voir `popupPlanDebut`). SAUF si une modale a ete
+			// peinte cette image (`modalDepth`) : la modale est la surface du dessus (un popup ouvert dedans est deja peint
+			// apres son fond), et l'ordre de ces images-la reste celui d'avant, a l'identique.
+			if (popupsAuPremierPlan && popupPlanN > 0 && modalDepth == 0)
+				NkGuiPopupsEnDernier(dlOverlay, popupPlanDebut, popupPlanFin, popupPlanN);
 			// (Q8) L'INFOBULLE, EN DERNIER : rien ne se peint plus apres elle.
 			if (tooltipPose && font && font->Valid()) {
 				tooltipPose = false;
@@ -197,6 +270,8 @@ namespace nkentseu {
 				}
 				for (int32 i = 0; i < winCount; ++i)
 					dl.Append(winDL[order[i]]);
+				// (09/11) les decorations des panneaux : sur les fenetres, sous l'overlay (voir `dlDessusPanneaux`)
+				dl.Append(dlDessusPanneaux);
 
 				const float32 th = ItemHeight();
 				hoveredWindowId = NKGUI_ID_NONE;
@@ -211,6 +286,7 @@ namespace nkentseu {
 				}
 			} else {
 				hoveredWindowId = NKGUI_ID_NONE;
+				dl.Append(dlDessusPanneaux); // (09/11) sans fenetre : apres la couche principale, sous l'overlay
 			}
 
 			// ── LE FOCUS DE PANNEAU (10/10), RESOLU EN FIN D'IMAGE : le panneau atteint

@@ -279,6 +279,12 @@ namespace nkentseu {
 				NkGuiInput &InputModale() noexcept { return inputModaleValide ? inputModale : input; }
 				NkGuiDrawList dl;		 ///< couche principale (rendue en 1er)
 				NkGuiDrawList dlOverlay; ///< couche popups/overlay (rendue PAR-DESSUS)
+				/// (09/11) LA COUCHE DES DECORATIONS DE PANNEAUX : au-dessus des fenetres (elle est fusionnee dans `dl` APRES
+				/// elles, a EndFrame), SOUS tout l'overlay (menus, menus contextuels, palettes, modales, infobulle). Un contour
+				/// ou des coins arrondis poses sur les panneaux (les ilots de NKCode) s'y peignent. Peints dans `dlOverlay`,
+				/// ils passaient par-dessus les menus ouverts (Rodolf, 09/11 : « on peut voir les traits en arriere non lies
+				/// au menu ») : l'overlay est peint dans l'ordre ou le code passe, et la barre de menus passe en premier.
+				NkGuiDrawList dlDessusPanneaux;
 				NkGuiLayout layout;
 
 				// ── PLACEMENT EXPLICITE (2026-08-18) ──────────────────────────────
@@ -309,6 +315,19 @@ namespace nkentseu {
 				/// Remis a zero au debut de chaque frame, comme les draw-lists.
 				int32 modalDepth = 0;
 				int32 curPopupLevel = -1;		   ///< niveau dessiné (-1 = principale)
+				// (09/11) LES POPUPS AU PREMIER PLAN. Un popup se peint dans `dlOverlay` au moment ou son code passe : un
+				// menu de la barre, au DEBUT de l'image. Tout ce que l'image peignait ensuite dans l'overlay (les ilots de
+				// NKCode, les surcouches de panneau, les sous-fenetres d'extension, le bord de la fenetre) passait donc
+				// PAR-DESSUS le menu ouvert. BeginPopupLevel et EndPopup (niveau 0) notent ici l'etendue, dans les index de
+				// `dlOverlay`, de chaque popup peint ; EndFrame la deplace a la FIN de l'overlay, avant l'infobulle (seule
+				// a rester au-dessus). Le popup garde tout ce qui a ete peint pendant lui (sous-menus, surlignages). Une
+				// image ou une modale est peinte (`modalDepth`) garde l'ordre du code : la modale reste le dessus.
+				static constexpr int32 PopupPlanMax = 4;
+				uint32 popupPlanDebut[PopupPlanMax] = {}; ///< index de `dlOverlay` ou commence chaque popup de l'image
+				uint32 popupPlanFin[PopupPlanMax] = {};	  ///< et ou il finit
+				int32 popupPlanN = 0;					  ///< popups notes cette image
+				bool popupPlanOuvert = false;			  ///< un popup de niveau 0 est en train de se peindre
+				bool popupsAuPremierPlan = true; ///< false : l'ordre d'avant le 09/11 (contre-epreuve des bancs)
 				int32 comboNav = 0;				   ///< item surligné au clavier dans un combo ouvert
 				bool comboEnter = false;		   ///< Entrée pressée dans le combo (consommé par l'appelant)
 				// Hook : actions de panneau dessinées sur la BARRE D'ONGLETS du dock (à

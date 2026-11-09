@@ -5563,6 +5563,12 @@ namespace nkentseu {
 			ctx.popupRects[level] = rect;
 			if (level == 0)
 				ctx.popupAnchor = anchor;
+			// (09/11) le popup de niveau 0 note ou il commence dans l'overlay : EndFrame le peindra en dernier
+			// (NkGuiContext::popupPlanDebut). Un popup ouvert depuis un autre popup est deja dans son etendue.
+			if (level == 0 && ctx.curPopupLevel < 0 && !ctx.popupPlanOuvert && ctx.popupPlanN < NkGuiContext::PopupPlanMax) {
+				ctx.popupPlanDebut[ctx.popupPlanN] = static_cast<uint32>(ctx.dlOverlay.idx.Size());
+				ctx.popupPlanOuvert = true;
+			}
 			ctx.popupSaved[level] = ctx.layout;
 			ctx.curPopupLevel = level; // → ctx.DL() = overlay
 			// Clip EN PREMIER, intersect=false : un popup est une surface de PREMIER
@@ -5635,6 +5641,11 @@ namespace nkentseu {
 			ctx.DL().PopClipRect();
 			ctx.layout = ctx.popupSaved[level]; // restaure le layout du parent
 			ctx.curPopupLevel = level - 1;		// revient au parent / principale
+			if (level == 0 && ctx.popupPlanOuvert) { // (09/11) l'etendue du popup s'arrete ici (voir BeginPopupLevel)
+				ctx.popupPlanFin[ctx.popupPlanN] = static_cast<uint32>(ctx.dlOverlay.idx.Size());
+				++ctx.popupPlanN;
+				ctx.popupPlanOuvert = false;
+			}
 		}
 
 		bool BeginCombo(NkGuiContext &ctx, const char *label, const char *preview, int32 itemCount,
