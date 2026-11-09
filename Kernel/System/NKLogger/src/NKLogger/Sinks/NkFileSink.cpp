@@ -42,6 +42,8 @@
 #endif
 #include <windows.h>
 #include <direct.h>
+#include <io.h> // (09/11) _get_osfhandle : le journal ne se transmet pas aux programmes lances
+#include "NKPlatform/NkEnv.h"
 #else
 #include <sys/stat.h>
 #endif
@@ -487,6 +489,21 @@ namespace nkentseu {
 		if (m_FileStream == nullptr) {
 			return false;
 		}
+
+#if defined(_WIN32)
+		// (09/11/2026) LE JOURNAL NE SE TRANSMET PAS AUX PROGRAMMES LANCES. fopen ouvre une poignee HERITABLE : chaque
+		// programme lance avec heritage (adb, hdc, git, un shell...) en recevait une copie, et un serveur qui survit a
+		// l'application (le serveur adb) gardait logs/app.log ouvert. Mesure chez Rodolf (Restart Manager) : adb.exe
+		// tenait le journal de NKCode et bloquait sa mise a jour. Contre-epreuve : NK_JOURNAL_HERITABLE=1 (l'ancien geste).
+		{
+			const char *ancien = ::nkentseu::env::GetEnvVar("NK_JOURNAL_HERITABLE");
+			if (!(ancien && ancien[0] == '1')) {
+				const intptr_t os = ::_get_osfhandle(::_fileno(m_FileStream));
+				if (os != -1)
+					::SetHandleInformation(reinterpret_cast<HANDLE>(os), HANDLE_FLAG_INHERIT, 0);
+			}
+		}
+#endif
 
 		// Désactivation du buffering C stdio pour persistance immédiate
 		// _IONBF : no buffering, chaque fwrite va directement au système
