@@ -43,6 +43,8 @@ namespace nkentseu {
 				float32 emission = 0.f;		///< radiance emise = couleur x emission (unites de scene)
 				int32 classe = -1;			///< carte procedurale (NkMatieresProcedurales), -1 aucune
 				float32 tuile = 1.f;		///< metres par tuile de la carte
+				float32 lustre = 0.f;		///< (10/11) lustre des fibres (sheen) : 0 aucun, 1 velours
+				float32 lustreRug = 0.4f;	///< rugosite du lustre (Charlie) : petite = reflet rasant serre
 		};
 
 		struct NkScSource {

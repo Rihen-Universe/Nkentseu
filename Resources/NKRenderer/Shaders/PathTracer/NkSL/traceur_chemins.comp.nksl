@@ -19,11 +19,14 @@
     vec4 drap;
     vec4 off0;
     vec4 off1;
-    vec4 cartes[13];
+    vec4 cartes[16]; // (10/11) 16 classes : + tissu, velours, placage ; cartes[12].w = la regularisation
 } P;
 layout(local_size_x = 8, local_size_y = 8) in;
 
 uint gEtat;
+// (10/11) le lustre des fibres de la surface courante (Surf l'ecrit, EvalBsdf le lit) : m2.z, m2.w
+float gLustre;
+float gLustreRug;
 uint Pcg() {
     gEtat = gEtat * 747796405u + 2891336453u;
     uint w = ((gEtat >> ((gEtat >> 28u) + 4u)) ^ gEtat) * 277803737u;
@@ -178,6 +181,8 @@ void Surf(int tri, float b1, float b2, vec3 o, vec3 d, float th, out vec3 p, out
     vec4 m2 = S.d[bm + 2];
     vec4 m3 = S.d[bm + 3];
     verre = m1.y > 0.5;
+    gLustre = m2.z;
+    gLustreRug = m2.w;
     rug = max(m0.w, 0.03);
     met = m1.x;
     alb = m0.xyz;
@@ -235,7 +240,18 @@ vec3 EvalBsdf(vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo, vec3 wi
     float spec = DGgx(max(0.0, dot(ns, h)), a2) * G1(nl, a2) * G1(nv, a2) / (4.0 * nl * nv + 1e-8);
     float invPi = 1.0 / 3.14159265;
     vec3 kd = alb * (vec3(1.0, 1.0, 1.0) - F) * ((1.0 - met) * invPi);
-    return (kd + F * spec) * nl;
+    // (10/11) le lustre des fibres : Charlie + Neubelt, comme NkTraceurChemins.cpp et pbr.frag.nksl
+    vec3 lus = vec3(0.0, 0.0, 0.0);
+    if (gLustre > 0.0) {
+        float nhs = max(0.0, dot(ns, h));
+        float al = max(gLustreRug, 0.07);
+        float inv = 1.0 / al;
+        float sin2 = max(0.0, 1.0 - nhs * nhs);
+        float Dc = (2.0 + inv) * pow(max(sin2, 1e-8), 0.5 * inv) / 6.28318531;
+        float Vn = 1.0 / (4.0 * (nl + nv - nl * nv) + 1e-6);
+        lus = (alb * 0.5 + vec3(0.5, 0.5, 0.5)) * (gLustre * Dc * Vn);
+    }
+    return (kd + F * spec + lus) * nl;
 }
 float ProbaSpec(float rug, float met) {
     return met > 0.5 ? 1.0 : (rug < 0.3 ? 0.4 : 0.15);

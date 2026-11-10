@@ -95,7 +95,7 @@ namespace nkentseu {
 				NkVector<uint32> cartes;
 				int32 offNoeuds = 0, offTris = 0, offSommets = 0, offMats = 0, offSources = 0, nSources = 0;
 				float32 puissanceTotale = 0.f;
-				int32 carteOff[13] = {0}, carteW[13] = {0}, carteH[13] = {0};
+				int32 carteOff[16] = {0}, carteW[16] = {0}, carteH[16] = {0}; // (10/11) 16 classes au plus (kMatClasses)
 				float32 soleilDir[3] = {0.f, 1.f, 0.f}, soleilE[3] = {0.f, 0.f, 0.f};
 				float32 zenith[3] = {0.f, 0.f, 0.f}, horizon[3] = {0.f, 0.f, 0.f};
 				float32 cielIntensite = 1.f;

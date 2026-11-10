@@ -424,13 +424,14 @@ namespace nkentseu {
 									  {"carrelage", kMatCarrelage}, {"carreau", kMatCarrelage}, {"ceramique", kMatCeramique},
 									  {"marbre", kMatCeramique},   {"quartz", kMatCeramique},  {"metal", kMatMetal},
 									  {"laiton", kMatMetal},	   {"plante", kMatFeuillage},  {"gazon", kMatHerbe},
-									  {"terre_vegetale", kMatHerbe}, {"cuir", kMatCuir},	   {"tissu", kMatCuir},
-									  {"laine", kMatCuir},		   {"terre_cuite", kMatPierre},
-									  // (10/11/2026, signale par l'archviz) les PLACAGES (placage_chene_clair...)
-									  // et les TEXTILES (textile_lin_blanc...) n'avaient AUCUNE carte : leurs
-									  // noms ne contenaient aucun mot de la liste. Placage : le fil du bois ;
-									  // textile : en attendant une vraie trame, le grain du cuir/tissu.
-									  {"placage", kMatBois},	   {"textile", kMatCuir}};
+									  {"terre_vegetale", kMatHerbe}, {"cuir", kMatCuir},
+									  // (10/11/2026, pour le film de l'archviz) les ETOFFES et les PLACAGES ont
+									  // leurs classes : velours AVANT textile (« textile_velours_vert » contient
+									  // les deux) ; toile, laine, voilage, abat-jour : la trame ; placage : le fil
+									  // continu des grands panneaux (le bois, lui, reste en lames)
+									  {"velours", kMatVelours},	   {"textile", kMatTissu},	   {"tissu", kMatTissu},
+									  {"laine", kMatTissu},		   {"voilage", kMatTissu},	   {"abat_jour", kMatTissu},
+									  {"placage", kMatPlacage},	   {"terre_cuite", kMatPierre}};
 				for (usize i = 0; i < sizeof(k) / sizeof(k[0]); ++i)
 					if (Contient(nom, k[i].mot)) {
 						tuile = NkMatiereDe(k[i].classe).tuileM;
@@ -608,6 +609,16 @@ namespace nkentseu {
 				m.transmission = (float32)jm.Num(jm.Get(v, "transmission"), 0.0);
 				m.emission = (float32)jm.Num(jm.Get(v, "emission"), 0.0);
 				m.classe = (m.transmission > 0.5f || m.emission > 0.f) ? -1 : ClasseDe(m.nom, m.tuile);
+				// (10/11) le LUSTRE des fibres : le velours le porte pleinement (reflet rasant serre), une
+				// toile un peu ; « lustre » dans la bibliotheque l'emporte s'il est ecrit
+				if (m.classe == kMatVelours) {
+					m.lustre = 1.f;
+					m.lustreRug = 0.3f;
+				} else if (m.classe == kMatTissu) {
+					m.lustre = 0.35f;
+					m.lustreRug = 0.5f;
+				}
+				m.lustre = (float32)jm.Num(jm.Get(v, "lustre"), (float64)m.lustre);
 				s.mats.PushBack(m);
 			}
 			const int32 nBib = (int32)s.mats.Size();

@@ -19,7 +19,7 @@ namespace nkentseu {
 
 		namespace {
 			// La version des cartes : la monter regenere tout (le nom de fichier la porte).
-			constexpr int32 kVersionCartes = 1;
+			constexpr int32 kVersionCartes = 3; // (10/11) 2 : tissu, velours, placage ; 3 : la couture du bois
 
 			// ── CONTRE-EPREUVE DU BANC : un bruit qui NE se replie PAS ──────────
 			// Vrai : le reseau de germes n'est plus pris modulo sa periode, la carte
@@ -41,6 +41,10 @@ namespace nkentseu {
 				{"peinture", 1.5f, 0.55f, 0.f, 0.3f, true, false},
 				{"verre", 1.0f, 0.02f, 0.f, 0.0f, false, false},
 				{"emissif", 1.0f, 0.50f, 0.f, 0.0f, false, false},
+				// (10/11/2026) tuiles : 12 cm de trame (96 fils), 15 cm de velours, 2,40 m de placage
+				{"tissu", 0.12f, 0.92f, 0.f, 0.9f, true, false},
+				{"velours", 0.15f, 0.95f, 0.f, 0.25f, true, false},
+				{"placage", 2.4f, 0.45f, 0.f, 0.35f, true, false},
 			};
 
 			inline int32 Plancher(float32 x) {
@@ -194,10 +198,16 @@ namespace nkentseu {
 						const float32 ul = u * 5.f;	 // cinq lames de 20 cm par tuile de 1 m
 						const int32 lame = Plancher(ul);
 						const float32 pu = ul - (float32)lame;
-						const float32 decal = Alea(Mod(lame, 5), 0, 83u);
+						// (10/11) le decalage des abouts reste loin du bord de la tuile (5 % a 95 %) : un about
+						// coupe par le bord (lame 2 : decalage 0,4 %) mettait la rampe du joint SUR la ligne
+						// mesuree -- le banc y lisait une couture (v 14,3) qui n'en etait pas une
+						const float32 decal = 0.05f + 0.9f * Alea(Mod(lame, 5), 0, 83u);
 						const float32 pv = Frac(v * 2.f + decal); // lames de 50 cm, abouts decales
 						const int32 troncon = Plancher(v * 2.f + decal);
-						const float32 tl = 0.84f + 0.28f * Alea(Mod(lame, 5), Mod(troncon, 3), 89u);
+						// (10/11) modulo DEUX : la tuile porte deux rangs de lames (v x 2) ; modulo trois, la lame
+						// coupee par le bord de la tuile changeait de nuance d'un cote a l'autre (couture v 19,2
+						// au banc des matieres)
+						const float32 tl = 0.84f + 0.28f * Alea(Mod(lame, 5), Mod(troncon, 2), 89u);
 						const float32 fil = Fbm(u, v, 160, 4, 3, 97u);
 						const float32 cerne =
 							0.5f + 0.5f * math::NkSin(6.2831853f * (pu * 3.f + 2.2f * Fbm(u, v, 10, 2, 3, 101u)));
@@ -288,6 +298,78 @@ namespace nkentseu {
 						p.rug = 0.50f;
 						break;
 					}
+					case kMatTissu: {
+						// TOILE (armure unie) : 96 fils de chaine (le long de v) et 96 de trame (le long
+						// de u) par tuile ; au croisement (i, j), la chaine passe dessus si i + j est pair.
+						// Chaque fil a un profil rond, une epaisseur qui varie le long de lui-meme (les
+						// FLAMMES du lin, la chenille) et sa propre nuance ; un duvet fin par-dessus.
+						const int32 N = 96;
+						const float32 x = u * (float32)N, y = v * (float32)N;
+						const int32 ix = Plancher(x), iy = Plancher(y);
+						const float32 fx = x - (float32)ix, fy = y - (float32)iy;
+						const bool chaineDessus = ((Mod(ix, N) + Mod(iy, N)) & 1) == 0;
+						// les flammes : l'epaisseur d'un fil varie lentement le long de lui
+						const float32 flC = 0.75f + 0.5f * Valeur((float32)Mod(ix, N) / (float32)N, v, N, 6, 191u);
+						const float32 flT = 0.75f + 0.5f * Valeur(u, (float32)Mod(iy, N) / (float32)N, 6, N, 193u);
+						const float32 sC = math::NkSin(3.14159265f * Borne(0.5f + (fx - 0.5f) / Borne(flC, 0.5f, 1.2f), 0.f, 1.f));
+						const float32 sT = math::NkSin(3.14159265f * Borne(0.5f + (fy - 0.5f) / Borne(flT, 0.5f, 1.2f), 0.f, 1.f));
+						// l'ondulation : le fil du dessus bombe au milieu du croisement
+						const float32 bombe = math::NkSin(3.14159265f * (chaineDessus ? fy : fx));
+						const float32 hC = math::NkSqrt(Borne(sC, 0.f, 1.f)) * (chaineDessus ? 0.7f + 0.3f * bombe : 0.45f);
+						const float32 hT = math::NkSqrt(Borne(sT, 0.f, 1.f)) * (chaineDessus ? 0.45f : 0.7f + 0.3f * bombe);
+						const bool chaine = hC >= hT;
+						const float32 h = chaine ? hC : hT;
+						const float32 nuance = 0.92f + 0.12f * (chaine ? Alea(Mod(ix, N), 0, 197u) : Alea(0, Mod(iy, N), 199u));
+						const float32 duvet = Fbm(u, v, 256, 256, 2, 211u);
+						const float32 a = nuance * (0.80f + 0.20f * h) * (0.94f + 0.12f * (duvet - 0.5f));
+						Gris(p, a, 1.f, 1.f, 1.f);
+						p.h = 0.85f * h + 0.15f * duvet;
+						p.rug = 0.90f + 0.08f * (duvet - 0.5f);
+						p.occ = 0.62f + 0.38f * h;
+						break;
+					}
+					case kMatVelours: {
+						// VELOURS : un poil tres fin (bruit a haute frequence) et la MOIRE d'ecrasement --
+						// des plages ou le poil est couche autrement, plus claires ou plus sombres. Le
+						// relief est faible : c'est le lustre (sheen) du traceur et du temps reel qui fait
+						// le velours, la carte ne porte que ses variations.
+						const float32 poil = Fbm(u, v, 192, 192, 2, 223u);
+						const float32 moire = Fbm(u, v, 3, 3, 4, 227u);
+						const float32 a = (0.86f + 0.22f * (moire - 0.5f)) * (0.95f + 0.10f * (poil - 0.5f));
+						Gris(p, a, 1.f, 1.f, 1.f);
+						p.h = 0.5f + 0.25f * (moire - 0.5f) + 0.15f * (poil - 0.5f);
+						p.rug = 0.95f;
+						p.occ = 0.92f + 0.08f * poil;
+						break;
+					}
+					case kMatPlacage: {
+						// PLACAGE : une tuile de 2,40 m (un grand panneau entier), douze LES de 20 cm
+						// ASSORTIS EN LIVRE (un le sur deux est le miroir de son voisin, comme les feuilles
+						// tranchees d'une meme bille) ; le FIL suit v sur toute la tuile, sans lame ni about :
+						// plus de damier. Joints de les a peine visibles ; pores en traits le long du fil.
+						const int32 nLes = 12;
+						const float32 ul = u * (float32)nLes;
+						const int32 le = Plancher(ul);
+						float32 pu = ul - (float32)le;
+						const int32 paire = Mod(le, nLes) / 2;
+						if (Mod(le, 2) == 1)
+							pu = 1.f - pu; // le miroir du le voisin
+						// la bille : meme figure pour les deux les d'une paire, nuance par paire
+						const float32 uu = ((float32)paire + pu) / (float32)(nLes / 2);
+						const float32 onde = Fbm(uu, v, 3, 2, 3, 233u); // le fil ondule doucement
+						const float32 fil = 0.5f + 0.5f * math::NkSin(6.2831853f * (pu * 28.f + 3.f * onde));
+						const float32 cerne = 0.5f + 0.5f * math::NkSin(6.2831853f * (pu * 7.f + 1.5f * onde + 0.3f * Fbm(uu, v, 4, 8, 3, 239u)));
+						const float32 pores = Valeur(uu, v, 900, 12, 241u);
+						const float32 nuance = 0.95f + 0.10f * Alea(paire, 0, 251u);
+						const float32 joint = 1.f - Marche(0.0f, 0.004f, pu) * Marche(1.0f, 0.996f, pu);
+						const float32 a = nuance * (0.86f - 0.10f * cerne * cerne - 0.05f * fil - 0.06f * Marche(0.75f, 0.95f, pores)) *
+										  (1.f - 0.12f * joint);
+						Gris(p, a, 1.f, 0.97f, 0.93f);
+						p.h = 0.6f + 0.06f * fil - 0.08f * Marche(0.75f, 0.95f, pores) - 0.1f * joint;
+						p.rug = 0.42f + 0.10f * (fil - 0.5f) + 0.15f * Marche(0.75f, 0.95f, pores);
+						p.occ = 1.f - 0.2f * joint;
+						break;
+					}
 					case kMatPeinture:
 					default: {
 						Gris(p, 0.96f + 0.08f * (Fbm(u, v, 6, 6, 3, 173u) - 0.5f), 1.f, 1.f, 1.f);
@@ -353,6 +435,9 @@ namespace nkentseu {
 				return true;
 			if (taille < 16)
 				taille = 16;
+			// (10/11) le placage couvre 2,40 m : deux fois plus de pixels pour que son fil reste net
+			if (classe == kMatPlacage && taille < 2048)
+				taille *= 2;
 			char ch[3][512];
 			for (int32 k = 0; k < 3; ++k)
 				NkMatiereChemin(classe, dossier, k, ch[k], 512);

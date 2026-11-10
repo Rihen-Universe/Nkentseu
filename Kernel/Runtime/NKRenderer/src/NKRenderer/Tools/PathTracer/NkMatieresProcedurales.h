@@ -52,6 +52,10 @@ namespace nkentseu {
 			kMatPeinture,	  ///< teintes sombres ou colorees non classees
 			kMatVerre,		  ///< vitrages : pas de carte, transmission par l'opacite
 			kMatEmissif,	  ///< bandeaux, spots, ecrans : pas de carte
+			// (10/11/2026, pour le film de l'archviz) les etoffes et les placages
+			kMatTissu,		  ///< lin, chenille, bouclette, plaid : une TRAME (fils de chaine et de trame, flammes du lin)
+			kMatVelours,	  ///< velours : poil fin, moire d'ecrasement ; le lustre fait le reste
+			kMatPlacage,	  ///< grands panneaux : fil continu sur 2,4 m, lies assortis en livre, sans lames ni damier
 			kMatClasses
 		};
 

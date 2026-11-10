@@ -403,6 +403,7 @@ namespace nkentseu {
 			struct Surface {
 					V3 p, ng, ns, albedo, emis;
 					float32 rug, metal;
+					float32 lustre = 0.f, lustreRug = 0.4f; // (10/11) le lustre des fibres (tissu, velours)
 					bool verre;
 					int32 mat;
 			};
@@ -425,6 +426,8 @@ namespace nkentseu {
 				S.metal = m.metal;
 				S.albedo = Mk(m.couleur[0], m.couleur[1], m.couleur[2]);
 				S.emis = S.albedo * m.emission;
+				S.lustre = m.lustre;
+				S.lustreRug = m.lustreRug;
 				if (!sansCartes && m.classe >= 0 && m.classe < kMatClasses && g.cartes[m.classe].w > 0) {
 					const Carte &c = g.cartes[m.classe];
 					const float32 *UV = g.s.UV.Data();
@@ -484,7 +487,19 @@ namespace nkentseu {
 				const float32 spec = DGgx(Max(0.f, Dot(S.ns, h)), a2) * G1(nl, a2) * G1(nv, a2) / (4.f * nl * nv + 1e-8f);
 				const float32 invPi = g.mutationBanc ? 1.f : 1.f / kPi;
 				const V3 kd = Mul(S.albedo, V3{1.f, 1.f, 1.f} - F) * ((1.f - S.metal) * invPi);
-				return (kd + F * spec) * nl;
+				V3 lustre{0.f, 0.f, 0.f};
+				if (S.lustre > 0.f) {
+					// (10/11/2026) LE LUSTRE DES FIBRES (sheen) : distribution « Charlie » (Estevez et Kulla
+					// 2017) et visibilite de Neubelt -- la meme que pbr.frag.nksl. Teinte : la couleur
+					// eclaircie de moitie (le reflet des fibres est plus clair que leur fond).
+					const float32 nh = Max(0.f, Dot(S.ns, h));
+					const float32 al = Max(S.lustreRug, 0.07f), inv = 1.f / al;
+					const float32 sin2 = Max(0.f, 1.f - nh * nh);
+					const float32 D = (2.f + inv) * (float32)math::NkPow((float64)sin2, (float64)(0.5f * inv)) / (2.f * kPi);
+					const float32 Vn = 1.f / (4.f * (nl + nv - nl * nv) + 1e-6f);
+					lustre = (S.albedo * 0.5f + V3{0.5f, 0.5f, 0.5f}) * (S.lustre * D * Vn);
+				}
+				return (kd + F * spec + lustre) * nl;
 			}
 			float32 ProbaSpec(const Surface &S) {
 				return S.metal > 0.5f ? 1.f : (S.rug < 0.3f ? 0.4f : 0.15f);
@@ -1327,7 +1342,7 @@ namespace nkentseu {
 				const bool carte = m.classe >= 0 && m.classe < kMatClasses && g.cartes[m.classe].w > 0;
 				pousse(m.couleur[0], m.couleur[1], m.couleur[2], m.rugosite);
 				pousse(m.metal, m.transmission, m.emission, carte ? (float32)m.classe : -1.f);
-				pousse(m.tuile, carte && NkMatiereDe(m.classe).couleurPropre ? 1.f : 0.f, 0.f, 0.f);
+				pousse(m.tuile, carte && NkMatiereDe(m.classe).couleurPropre ? 1.f : 0.f, m.lustre, m.lustreRug); // (10/11) z, w : le lustre
 				if (carte)
 					pousse(g.cartes[m.classe].moy[0], g.cartes[m.classe].moy[1], g.cartes[m.classe].moy[2], 0.f);
 				else

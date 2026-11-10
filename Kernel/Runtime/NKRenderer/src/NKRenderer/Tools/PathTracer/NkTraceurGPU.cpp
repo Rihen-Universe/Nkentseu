@@ -34,7 +34,7 @@ namespace nkentseu {
 					float32 sol[4], solE[4], zen[4], hor[4];
 					float32 drap[4];
 					float32 off0[4], off1[4];
-					float32 cartes[13][4];
+					float32 cartes[16][4]; // (10/11) 16 classes (tissu, velours, placage)
 			};
 
 			void Pose(float32 *v, float32 a, float32 b, float32 c, float32 d) {
@@ -185,7 +185,7 @@ namespace nkentseu {
 			Pose(pr.off0, (float32)pq.offNoeuds, (float32)pq.offTris, (float32)pq.offSommets, (float32)pq.offMats);
 			Pose(pr.off1, (float32)pq.offSources, (float32)pq.nSources, pq.puissanceTotale, (float32)pq.offCiel);
 			// cartes[12].w (libre) : (10/11) la regularisation contre les lucioles (NkTcReglages.regulariser)
-			for (int32 c = 0; c < 13; ++c)
+			for (int32 c = 0; c < 16; ++c)
 				Pose(pr.cartes[c], (float32)pq.carteOff[c], (float32)pq.carteW[c], (float32)pq.carteH[c],
 					 c == 12 && r.regulariser ? 1.f : 0.f);
 			const float64 msPrep = (NkChrono::Now() - t0).ToMilliseconds();
