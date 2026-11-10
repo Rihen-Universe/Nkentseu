@@ -97,7 +97,8 @@ namespace nkentseu {
 		/// `n` rayons depuis `o` dans les directions `dirs` (n x 3). Par rayon : la radiance arrivante
 		/// `rad3` (n x 3 ; rayon « secondaire » : ni emission vue ni disque solaire, la lumiere aux
 		/// impacts et le ciel compris), la distance du premier impact bornee a `dmax` (`dist`, une vitre
-		/// compte comme un mur) et `dos` = 1 si le rayon frappe l'arriere d'une surface opaque. Ajoute
+		/// compte comme un mur) et `dos` = 1 si le rayon frappe l'arriere d'une surface opaque, 2 s'il
+		/// s'echappe vers le ciel sans rien toucher, 0 sinon. Ajoute
 		/// les rayons lances a `*rayons`. Sans etat partage : appelable depuis plusieurs fils.
 		bool NkTcRayonsSonde(const float32 o[3], const float32 *dirs, int32 n, uint64 graine, float32 dmax,
 							 const NkTcReglages &r, float32 *rad3, float32 *dist, uint8 *dos, uint64 *rayons);

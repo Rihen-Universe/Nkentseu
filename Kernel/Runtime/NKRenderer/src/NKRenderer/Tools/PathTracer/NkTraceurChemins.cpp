@@ -1134,8 +1134,9 @@ namespace nkentseu {
 				Impact h;
 				++c.rayons;
 				float32 t = dmax;
-				uint8 arriere = 0;
+				uint8 arriere = 2; // 2 : le rayon s'echappe vers le ciel (aucun impact)
 				if (Tracer(g, po, d, 1e6f, h)) {
+					arriere = 0;
 					t = Min(h.t, dmax);
 					const Tri &tr = g.tris.Data()[h.tri];
 					const NkScMateriau &m = g.s.mats.Data()[tr.mat];

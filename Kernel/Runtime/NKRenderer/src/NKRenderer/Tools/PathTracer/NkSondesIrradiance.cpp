@@ -217,7 +217,8 @@ namespace nkentseu {
 		}
 
 		// ── la cuisson ─────────────────────────────────────────────────────────────────
-		bool NkSdCuire(const NkSdGrille &g, const NkSdReglages &r, NkSdVolume &v, NkSdStats *st) {
+		bool NkSdCuire(const NkSdGrille &g, const NkSdReglages &r, NkSdVolume &v, NkSdStats *st,
+					   threading::NkThreadPool *groupe) {
 			const NkElapsedTime t0 = NkChrono::Now();
 			if (g.nx < 2 || g.ny < 2 || g.nz < 2 || r.rayons < 16)
 				return false;
@@ -274,20 +275,29 @@ namespace nkentseu {
 					return;
 				}
 				rayonsSonde[(usize)k] = ry;
-				int32 nDos = 0;
-				for (int32 i = 0; i < n; ++i)
-					nDos += dos[(usize)i] ? 1 : 0;
+				int32 nDos = 0, nCiel = 0;
+				for (int32 i = 0; i < n; ++i) {
+					nDos += dos[(usize)i] == 1u ? 1 : 0;
+					nCiel += dos[(usize)i] == 2u ? 1 : 0;
+				}
+				// la part du ciel de TOUTE la sphere : ~0,5 dehors pres d'un mur, < 0,1 dans une piece meme
+				// pres d'une grande baie -- c'est elle qui dit « dedans / dehors » au temps reel
+				const float32 cielTotal = (float32)nCiel / (float32)n;
 				const bool active = (float32)nDos < r.seuilDos * (float32)n;
 				eteinte[(usize)k] = active ? 0u : 1u;
 				const float32 kE = 4.f * kPiSd / (float32)n;
 				for (int32 t = 0; t < T * T; ++t) {
 					const float32 *nt = dirTexel + t * 3;
-					float32 E[3] = {0.f, 0.f, 0.f}, sw = 0.f, sd = 0.f, sd2 = 0.f;
+					float32 E[3] = {0.f, 0.f, 0.f}, sw = 0.f, sd = 0.f, sd2 = 0.f, sc = 0.f, sct = 0.f;
 					for (int32 i = 0; i < n; ++i) {
 						const float32 *w = dirs + i * 3;
 						const float32 c = nt[0] * w[0] + nt[1] * w[1] + nt[2] * w[2];
 						if (c <= 0.f)
 							continue;
+						// la part du ciel (ponderee en cosinus) : 1 dehors a decouvert, ~0 dans une piece
+						sct += c;
+						if (dos[(usize)i] == 2u)
+							sc += c;
 						const float32 ce = mutation ? 1.f : c;
 						E[0] += rad[(usize)i * 3] * ce;
 						E[1] += rad[(usize)i * 3 + 1] * ce;
@@ -306,17 +316,18 @@ namespace nkentseu {
 					v.texels[ii] = NkSdVersDemi(E[0] * kE);
 					v.texels[ii + 1] = NkSdVersDemi(E[1] * kE);
 					v.texels[ii + 2] = NkSdVersDemi(E[2] * kE);
-					v.texels[ii + 3] = NkSdVersDemi(active ? 1.f : 0.f);
+					// a : la part du ciel S(n) dans [0, 1] ; -1 : sonde eteinte (enfermee dans un mur)
+					v.texels[ii + 3] = NkSdVersDemi(active ? (sct > 0.f ? sc / sct : 0.f) : -1.f);
 					const usize iv = Index(v, ix * kSdTuile + 1 + tx, iz * kSdTuile + 1 + ty, iy * 2 + 1);
 					v.texels[iv] = NkSdVersDemi(mu);
 					v.texels[iv + 1] = NkSdVersDemi(mu2);
-					v.texels[iv + 2] = 0;
+					v.texels[iv + 2] = NkSdVersDemi(cielTotal);
 					v.texels[iv + 3] = NkSdVersDemi(1.f);
 				}
 				Bords(v, ix * kSdTuile, iz * kSdTuile, iy * 2);
 				Bords(v, ix * kSdTuile, iz * kSdTuile, iy * 2 + 1);
 			};
-			threading::NkThreadPool &pool = threading::NkThreadPool::GetGlobal();
+			threading::NkThreadPool &pool = groupe ? *groupe : threading::NkThreadPool::GetGlobal();
 			for (debut = 0; debut < total; debut += lot) {
 				pool.ParallelFor((nk_size)lot, sonde, (nk_size)4);
 				pool.Join();
@@ -463,12 +474,12 @@ namespace nkentseu {
 							const float32 aev = ev < 0.f ? -ev : ev;
 							if (aev > pireVis)
 								pireVis = aev;
-							if (a[3] < 0.5f)
+							if (a[3] < 0.99f || b[2] < 0.99f) // active ET part du ciel 1 (tous les rayons s'echappent)
 								actives = 0.f;
 						}
 					verdict(pire < 0.03f, "four blanc : |E/pi - 1| max (8 sondes x 64)", (float64)pire, 0.0);
 					verdict(pireVis < 0.01f, "four blanc : visibilite = borne (ecart relatif)", (float64)pireVis, 0.0);
-					verdict(actives > 0.5f, "four blanc : toutes les sondes actives", (float64)actives, 1.0);
+					verdict(actives > 0.5f, "four blanc : actives, part du ciel = 1", (float64)actives, 1.0);
 				} else
 					verdict(false, "four blanc : cuisson", 0.0, 1.0);
 			} else
@@ -503,13 +514,16 @@ namespace nkentseu {
 					NkSdTexel(v, 1, 0, 0, 0, 1 + tm % kSdTexels, 1 + tm / kSdTexels, am);
 					NkSdTexel(v, 1, 0, 0, 0, 1 + tp % kSdTexels, 1 + tp / kSdTexels, ap);
 					NkSdTexel(v, 1, 0, 0, 1, 1 + tm % kSdTexels, 1 + tm / kSdTexels, vm);
-					verdict(a0[3] < 0.5f, "mur : la sonde de dos est eteinte", (float64)a0[3], 0.0);
-					verdict(am[3] > 0.5f, "mur : la sonde de face est active", (float64)am[3], 1.0);
+					verdict(a0[3] < -0.5f, "mur : la sonde de dos est eteinte (a = -1)", (float64)a0[3], -1.0);
+					verdict(am[3] > -0.5f, "mur : la sonde de face est active", (float64)am[3], 0.0);
+					verdict(am[3] < 0.10f, "mur : part du ciel vers -x (le mur)", (float64)am[3], 0.0);
+					verdict(ap[3] > 0.85f, "mur : part du ciel vers +x (le ciel)", (float64)ap[3], 1.0);
 					const float32 em = am[1] / kPiSd;
 					verdict(em > 0.45f && em < 0.56f, "mur : E(-x)/pi (mur de radiance 0,5)", (float64)em, 0.5);
 					const float32 ep = ap[1] / kPiSd;
 					verdict(ep > 0.90f && ep < 1.10f, "mur : E(+x)/pi (le ciel, un peu de mur)", (float64)ep, 1.0);
 					verdict(vm[0] > 0.66f && vm[0] < 0.80f, "mur : distance moyenne vers -x (0,7 m)", (float64)vm[0], 0.7);
+					verdict(vm[2] > 0.45f && vm[2] < 0.55f, "mur : part du ciel de la sphere (moitie)", (float64)vm[2], 0.5);
 				} else
 					verdict(false, "mur : cuisson", 0.0, 1.0);
 			} else

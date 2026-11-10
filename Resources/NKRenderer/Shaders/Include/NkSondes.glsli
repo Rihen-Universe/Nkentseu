@@ -2,20 +2,21 @@
 // =============================================================================
 // NkSondes.glsli  — (10/11/2026) LES SONDES D'IRRADIANCE cuites par le traceur
 //
-// Le volume (NKRenderer/Tools/PathTracer/NkSondesIrradiance.h) occupe le binding
-// 27 (tVoxelOpacity) quand les sondes sont en marche, et l'UBO camera porte la
-// grille : voxelMin = (premiere sonde, pas), voxelMax = (derniere sonde, mode),
-// mode 2 avec visibilite, 3 sans (contre-epreuve de la fuite). Texture 3D :
+// Le volume (NKRenderer/Tools/PathTracer/NkSondesIrradiance.h) est au binding 1
+// (tSondes), a cote de la grille voxel (27), et l'UBO camera porte sa grille :
+// sondeMin = (premiere sonde, pas), sondeMax = (derniere sonde, mode) ; mode 0 :
+// pas de sondes ; 2, 3, 4 : voir NkSondesEclairement. Texture 3D :
 // largeur nx x 10, hauteur nz x 10, profondeur 2 x ny ; une carte octaedrique de
-// 8 x 8 texels (+ 1 de bord) par sonde ; tranche 2j : irradiance E (rgb, a = sonde
-// active), 2j+1 : visibilite (moyenne, moyenne du carre de la distance).
+// 8 x 8 texels (+ 1 de bord) par sonde ; tranche 2j : irradiance E (rgb ; a = part
+// du ciel dans [0, 1], -1 : sonde eteinte), 2j+1 : visibilite (moyenne, moyenne du
+// carre de la distance).
 // Les conventions (octaedre replie sur Y, plan (x, z)) sont celles de
 // NkSdOctEncoder : les deux cotes doivent rester d'accord.
 // L'eclairement d'un point (Majercik et al. 2019) : les huit sondes de la cellule,
 // ponderees en trilineaire, par la face (une sonde derriere la surface compte
 // peu) et par la borne de Chebyshev de leur visibilite (une sonde que la
 // geometrie cache du point ne compte pas : la lumiere ne traverse pas un mur).
-// Demande : uCam, tVoxelOpacity declares avant l'inclusion.
+// Demande : uCam (avec sondeMin, sondeMax) et tSondes declares avant l'inclusion.
 // =============================================================================
 #ifndef NK_SONDES_GLSLI
 #define NK_SONDES_GLSLI
@@ -35,24 +36,39 @@ vec2 NkSdOct(vec3 sdOd) {
 vec4 NkSdLire(vec3 sdLip, vec2 sdLoct, float sdLtr, vec3 sdLdims) {
     vec2 sdLt = vec2(sdLip.x, sdLip.z) * 10.0 + vec2(1.0, 1.0) + (sdLoct * 0.5 + vec2(0.5, 0.5)) * 8.0;
     vec3 sdLuvw = vec3(sdLt.x / sdLdims.x, sdLt.y / sdLdims.y, (sdLip.y * 2.0 + sdLtr + 0.5) / sdLdims.z);
-    return texture(tVoxelOpacity, sdLuvw);
+    return texture(tSondes, sdLuvw);
 }
 
-// rgb = l'irradiance E au point (unites de scene), a = la somme des poids (0 : aucune sonde)
-vec4 NkSondesEclairement(vec3 sdPos, vec3 sdNor, vec3 sdVue) {
-    float sdPas = max(uCam.voxelMin.w, 1e-3);
-    vec3 sdO = uCam.voxelMin.xyz;
-    vec3 sdN = floor((uCam.voxelMax.xyz - sdO) / sdPas + vec3(0.5, 0.5, 0.5)) + vec3(1.0, 1.0, 1.0);
+// rgb = l'irradiance E au point (unites de scene) ; a = « DEHORS » : la part du ciel de toute la
+// sphere des sondes voisines (~0,5 dehors pres d'un mur, < 0,1 dans une piece ; 1 hors de la
+// grille) : pbr.frag y fond le terme d'avant (ciel + grille voxel).
+// Modes (sondeMax.w) : 2 visibilite + fondu, 3 sans visibilite (contre-epreuve de la fuite),
+// 4 visibilite sans fondu (contre-epreuve de la facade), 5 sans reflexion par les sondes
+// (contre-epreuve des reflets).
+// LA REFLEXION (`sdRefl`, `sdReflet`) : les MEMES sondes, lues dans la direction du reflet R :
+// rgb = E(R) (E(R)/pi : la radiance moyenne de ce que R voit -- la piece), a = la part du ciel
+// S(R) dans ce lobe (la ou R voit le ciel par une baie, l'IBL du ciel reste juste).
+vec4 NkSondesEclairement(vec3 sdPos, vec3 sdNor, vec3 sdVue, vec3 sdRefl, out vec4 sdReflet) {
+    float sdPas = max(uCam.sondeMin.w, 1e-3);
+    vec3 sdO = uCam.sondeMin.xyz;
+    vec3 sdN = floor((uCam.sondeMax.xyz - sdO) / sdPas + vec3(0.5, 0.5, 0.5)) + vec3(1.0, 1.0, 1.0);
     vec3 sdDims = vec3(sdN.x * 10.0, sdN.z * 10.0, sdN.y * 2.0);
-    float sdVis = uCam.voxelMax.w < 2.5 ? 1.0 : 0.0;
+    float sdVis = (uCam.sondeMax.w < 2.5 || uCam.sondeMax.w > 3.5) ? 1.0 : 0.0;
     // le biais : vers la normale et vers l'oeil (Majercik 2019), une fraction du sdPas
     vec3 sdPb = sdPos + (sdNor * 0.6 + sdVue * 0.4) * (0.3 * sdPas);
-    vec3 sdG = clamp((sdPb - sdO) / sdPas, vec3(0.0, 0.0, 0.0), sdN - vec3(1.0, 1.0, 1.0));
+    vec3 sdGb = (sdPb - sdO) / sdPas;
+    // hors de la grille (l'enveloppe et sa marge) : le ciel, tout simplement
+    float sdHors = (any(lessThan(sdGb, vec3(0.0, 0.0, 0.0))) || any(greaterThan(sdGb, sdN - vec3(1.0, 1.0, 1.0)))) ? 1.0 : 0.0;
+    vec3 sdG = clamp(sdGb, vec3(0.0, 0.0, 0.0), sdN - vec3(1.0, 1.0, 1.0));
     vec3 sdB = min(floor(sdG), sdN - vec3(2.0, 2.0, 2.0));
     vec3 sdF = sdG - sdB;
     vec2 sdOctN = NkSdOct(sdNor);
+    vec2 sdOctR = NkSdOct(sdRefl);
     vec3 sdSomme = vec3(0.0, 0.0, 0.0);
+    vec3 sdSommeR = vec3(0.0, 0.0, 0.0);
     float sdSw = 0.0;
+    float sdCiel = 0.0;
+    float sdCielR = 0.0;
     for (int sdK = 0; sdK < 8; sdK++) {
         float sdFi = float(sdK);
         vec3 sdOff = vec3(sdFi - 2.0 * floor(sdFi * 0.5), floor(sdFi * 0.5) - 2.0 * floor(sdFi * 0.25), floor(sdFi * 0.25));
@@ -67,7 +83,8 @@ vec4 NkSondesEclairement(vec3 sdPos, vec3 sdNor, vec3 sdVue) {
         // la visibilite : la borne de Chebyshev sur la distance sonde -> point
         vec3 sdDd = sdPb - sdPp;
         float sdD = max(length(sdDd), 1e-4);
-        vec2 sdM = NkSdLire(sdIp, NkSdOct(sdDd / sdD), 1.0, sdDims).rg;
+        vec3 sdMv = NkSdLire(sdIp, NkSdOct(sdDd / sdD), 1.0, sdDims).rgb;
+        vec2 sdM = sdMv.rg;
         float sdVar = abs(sdM.y - sdM.x * sdM.x);
         float sdEcart = max(sdD - sdM.x, 0.0);
         float sdCheb = sdVar / (sdVar + sdEcart * sdEcart + 1e-6);
@@ -77,11 +94,18 @@ vec4 NkSondesEclairement(vec3 sdPos, vec3 sdNor, vec3 sdVue) {
         // les poids minuscules sont ecrases (Majercik 2019) : moins de bruit de fuite
         if (sdW < 0.2) sdW *= sdW * sdW * 25.0;
         vec4 sdIrr = NkSdLire(sdIp, sdOctN, 0.0, sdDims);
-        sdW *= sdIrr.a >= 0.5 ? 1.0 : 0.0; // une sonde enfermee dans un mur est eteinte
+        sdW *= sdIrr.a >= -0.5 ? 1.0 : 0.0; // a = -1 : une sonde enfermee dans un mur est eteinte
         sdSomme += sdIrr.rgb * sdW;
+        // « dedans / dehors » : la part du ciel de TOUTE la sphere de la sonde (b de la visibilite)
+        sdCiel += sdMv.b * sdW;
+        vec4 sdIrrR = NkSdLire(sdIp, sdOctR, 0.0, sdDims);
+        sdSommeR += sdIrrR.rgb * sdW;
+        sdCielR += max(sdIrrR.a, 0.0) * sdW;
         sdSw += sdW;
     }
-    return vec4(sdSw > 0.0 ? sdSomme / sdSw : vec3(0.0, 0.0, 0.0), sdSw);
+    sdReflet = sdSw > 0.0 ? vec4(sdSommeR / sdSw, sdCielR / sdSw) : vec4(0.0, 0.0, 0.0, 1.0);
+    float sdS = sdSw > 0.0 ? sdCiel / sdSw : 1.0;
+    return vec4(sdSw > 0.0 ? sdSomme / sdSw : vec3(0.0, 0.0, 0.0), max(sdS, sdHors));
 }
 
 #endif // NK_SONDES_GLSLI

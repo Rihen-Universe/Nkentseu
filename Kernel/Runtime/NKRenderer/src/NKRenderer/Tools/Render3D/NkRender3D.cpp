@@ -33,7 +33,7 @@ namespace nkentseu {
 		// 864 depuis l'ajout du BROUILLARD AU SOL (un vec4 en fin de bloc) :
 		// 848 auparavant. Le static_assert d'UploadUBOs verifie l'accord.
 		// (09/11/2026) 896 : les BORNES DE LA GRILLE VOXEL (deux vec4 en fin de bloc).
-		static constexpr uint32 kPBRCamUBOSize = 896;
+		static constexpr uint32 kPBRCamUBOSize = 928; // (10/11/2026) + sondeMin, sondeMax
 
 		NkRender3D::~NkRender3D() {
 			Shutdown();
@@ -342,7 +342,11 @@ namespace nkentseu {
 				.Add(28, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
 				// Tables LTC (lumieres surfaciques) : 29 = M^-1, 30 = norm/Fresnel.
 				.Add(29, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
-				.Add(30, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+				.Add(30, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS)
+				// (10/11/2026) binding=1 = tSondes (sampler3D RGBA16F) : le volume des sondes
+				// d'irradiance cuites par le traceur (NkSondes.glsli) ; libre en DX11 (t1), en
+				// Vulkan (set 0) et en OpenGL (unite 1).
+				.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
 			mGlobalLayout = mDevice->CreateDescriptorSetLayout(frameLayout);
 
 			// Object set layout (set 1) : Object UBO(1) + Bones/Instance UBO(4).
@@ -390,9 +394,23 @@ namespace nkentseu {
 			// global set (main ou mirror) avec un UBO Camera donne. Toutes les
 			// autres ressources (lights, shadow, env, voxel, cookies) sont
 			// identiques entre les rings main et mirror.
+			// (10/11/2026) binding 1 : le volume des SONDES (NkSondes.glsli). Un volume VIDE de
+			// 1x1x1 texel tant qu'aucune cuisson ne le remplace (SetSondes) : le nuanceur ne le lit
+			// qu'avec sondeMax.w > 1,5, mais Vulkan veut un descripteur valide.
+			if (!mSondesVide.IsValid()) {
+				NkTextureDesc tdv = NkTextureDesc::Tex3D(1u, 1u, 1u, NkGPUFormat::NK_RGBA16_FLOAT);
+				tdv.debugName = "SondesVide";
+				mSondesVide = mDevice->CreateTexture(tdv);
+				const uint16 zero4[4] = {0u, 0u, 0u, 0u};
+				if (mSondesVide.IsValid())
+					mDevice->WriteTexture(mSondesVide, zero4);
+				mSondesVideSamp = mDevice->CreateSampler(NkSamplerDesc::Clamp());
+			}
 			auto preBindGlobalSet = [&](NkDescSetHandle gs, NkBufferHandle cameraUBO, uint32 i) {
 				if (!gs.IsValid())
 					return;
+				if (mSondesVide.IsValid() && mSondesVideSamp.IsValid())
+					mDevice->BindTextureSampler(gs, 1, mSondesVide, mSondesVideSamp);
 				mDevice->BindUniformBuffer(gs, 0, cameraUBO);
 				mDevice->BindUniformBuffer(gs, 2, mUBOLightsRing[i]);
 
@@ -2568,11 +2586,10 @@ namespace nkentseu {
 		// skip ce binding car mVoxelAO=nullptr a ce moment).
 		void NkRender3D::SetVoxelAO(NkVoxelAOSystem *vao) {
 			mVoxelAO = vao;
-			if (!mVoxelAO && !mSondesActives)
+			if (!mVoxelAO)
 				return;
-			// (10/11/2026) les sondes en marche gardent le binding 27 (voir SetSondes)
-			NkTextureHandle tex = mSondesActives ? mSondesTex : mVoxelAO->GetVoxelTexture();
-			NkSamplerHandle samp = mSondesActives ? mSondesSamp : mVoxelAO->GetVoxelSampler();
+			NkTextureHandle tex = mVoxelAO->GetVoxelTexture();
+			NkSamplerHandle samp = mVoxelAO->GetVoxelSampler();
 			if (!tex.IsValid() || !samp.IsValid())
 				return;
 			for (uint32 i = 0; i < mFramesInFlight; i++) {
@@ -2588,8 +2605,8 @@ namespace nkentseu {
 			logger.Info("[NkRender3D] VoxelAO texture bind a set=0 binding=27\n");
 		}
 
-		// (10/11/2026) LES SONDES D'IRRADIANCE prennent le binding 27 (voir NkRender3D.h). Une texture
-		// invalide les eteint : la grille voxel reprend sa place.
+		// (10/11/2026) LES SONDES D'IRRADIANCE au binding 1 (voir NkRender3D.h), a cote de la grille
+		// voxel (27) : les deux vivent ensemble. Une texture invalide les eteint (le volume vide).
 		void NkRender3D::SetSondes(NkTextureHandle tex, NkSamplerHandle samp, const NkVec4f &premiere,
 								   const NkVec4f &derniere) {
 			const bool actives = tex.IsValid() && samp.IsValid();
@@ -2598,8 +2615,19 @@ namespace nkentseu {
 			mSondesSamp = actives ? samp : NkSamplerHandle{};
 			mSondesPremiere = premiere;
 			mSondesDerniere = derniere;
-			SetVoxelAO(mVoxelAO);
-			logger.Info("[NkRender3D] sondes d'irradiance {0} au binding 27\n", actives ? "liees" : "deliees");
+			const NkTextureHandle t1 = actives ? tex : mSondesVide;
+			const NkSamplerHandle s1 = actives ? samp : mSondesVideSamp;
+			if (!t1.IsValid() || !s1.IsValid())
+				return;
+			for (uint32 i = 0; i < mFramesInFlight; i++) {
+				NkDescSetHandle gs = (i < mGlobalSetRing.Size()) ? mGlobalSetRing[i] : NkDescSetHandle{};
+				if (gs.IsValid())
+					mDevice->BindTextureSampler(gs, 1, t1, s1);
+				NkDescSetHandle gsm = (i < mGlobalSetMirrorRing.Size()) ? mGlobalSetMirrorRing[i] : NkDescSetHandle{};
+				if (gsm.IsValid())
+					mDevice->BindTextureSampler(gsm, 1, t1, s1);
+			}
+			logger.Info("[NkRender3D] sondes d'irradiance {0} au binding 1\n", actives ? "liees" : "deliees");
 		}
 
 		// Remplace À CHAUD la boule matcap (binding 28). Permet à l'utilisateur de charger
@@ -2780,6 +2808,12 @@ namespace nkentseu {
 					// voxelMin.w = taille d'un voxel (le pas des cones en depend).
 					NkVec4f voxelMin;
 					NkVec4f voxelMax;
+					// (10/11/2026) LA GRILLE DES SONDES (NkSondes.glsli), EN FIN de struct :
+					// sondeMin = (premiere sonde, pas), sondeMax = (derniere sonde, mode) ; mode 0 :
+					// pas de sondes (le chemin d'avant), 2/3/4 : voir NkSondes.glsli. La grille
+					// voxel garde voxelMin/voxelMax : les deux vivent ensemble.
+					NkVec4f sondeMin;
+					NkVec4f sondeMax;
 			};
 
 			// L'ALLOCATION ET L'ECRITURE DOIVENT S'ACCORDER. Sans cette
@@ -2913,11 +2947,10 @@ namespace nkentseu {
 							mCtx.time * mCtx.fogWindSpeed};
 			// (09/11/2026) bornes de la grille voxel : lues par le nuanceur PBR
 			// seulement si voxelMax.w = 1 (bornes posees par l'application).
-			if (mSondesActives) {
-				// (10/11/2026) la grille des sondes (voxelMax.w = 2 ou 3 : NkSondes.glsli)
-				cb.voxelMin = mSondesPremiere;
-				cb.voxelMax = mSondesDerniere;
-			} else if (mVoxelAO && mVoxelAO->HasCustomBounds()) {
+			// (10/11/2026) la grille des sondes (sondeMax.w = mode, 0 : eteintes)
+			cb.sondeMin = mSondesActives ? mSondesPremiere : NkVec4f{0.f, 0.f, 0.f, 1.f};
+			cb.sondeMax = mSondesActives ? mSondesDerniere : NkVec4f{0.f, 0.f, 0.f, 0.f};
+			if (mVoxelAO && mVoxelAO->HasCustomBounds()) {
 				const NkVoxelAOConfig &vc = mVoxelAO->GetConfig();
 				const float32 vsx = (vc.maxBounds.x - vc.minBounds.x) / (float32)(vc.resX ? vc.resX : 1u);
 				cb.voxelMin = {vc.minBounds.x, vc.minBounds.y, vc.minBounds.z, vsx};

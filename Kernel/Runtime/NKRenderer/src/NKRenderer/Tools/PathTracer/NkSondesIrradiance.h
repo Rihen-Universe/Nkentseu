@@ -12,11 +12,13 @@
 //  Une grille reguliere de sondes sur la scene ; chaque sonde lance des rayons du
 //  traceur de chemins (NkTcRayonsSonde : la lumiere multiple, le ciel, le soleil et
 //  les sources aux impacts) et garde deux cartes OCTAEDRIQUES de 8 x 8 texels :
-//    - l'irradiance E(n) = integrale de L(w) max(0, n.w) dw (RGB ; a = sonde active,
-//      0 si elle est enfermee dans un mur : trop de rayons frappent l'arriere des
-//      surfaces) ;
+//    - l'irradiance E(n) = integrale de L(w) max(0, n.w) dw (RGB ; a = la PART DU CIEL
+//      S(n), ponderee en cosinus, dans [0, 1] -- le temps reel y fond le terme de ciel
+//      dehors ; -1 si la sonde est enfermee dans un mur : trop de rayons frappent
+//      l'arriere des surfaces) ;
 //    - la visibilite : moyenne et moyenne du carre de la distance au premier impact,
-//      autour de chaque direction (lobe cos^32). Le temps reel en tire une borne de
+//      autour de chaque direction (lobe cos^32) ; b = la part du ciel de toute la
+//      sphere (« dedans / dehors », constante sur la carte). Le temps reel en tire une borne de
 //      Chebyshev : une sonde que la geometrie cache du point ne l'eclaire pas -- c'est
 //      ce qui empeche la lumiere de traverser un mur fin (Majercik et al. 2019,
 //      « Dynamic Diffuse Global Illumination with Ray-Traced Irradiance Fields »).
@@ -32,6 +34,9 @@
 #include "NKRenderer/Tools/PathTracer/NkTraceurChemins.h"
 
 namespace nkentseu {
+	namespace threading {
+		class NkThreadPool;
+	}
 	namespace renderer {
 
 		constexpr int32 kSdTexels = 8;			   ///< texels interieurs par cote d'une carte
@@ -65,8 +70,10 @@ namespace nkentseu {
 		/// jusqu'a tenir dans `budget` sondes et dans les bornes d'une texture 3D (2048).
 		bool NkSdPlacer(const float32 mn[3], const float32 mx[3], float32 pasMin, int32 budget, NkSdGrille &g);
 
-		/// Cuit le volume sur la scene PREPAREE du traceur (NkTcPreparer), en parallele.
-		bool NkSdCuire(const NkSdGrille &g, const NkSdReglages &r, NkSdVolume &v, NkSdStats *st);
+		/// Cuit le volume sur la scene PREPAREE du traceur (NkTcPreparer), en parallele sur `groupe`
+		/// (nullptr : le groupe global ; un groupe a part pour une cuisson en tache de fond).
+		bool NkSdCuire(const NkSdGrille &g, const NkSdReglages &r, NkSdVolume &v, NkSdStats *st,
+					   threading::NkThreadPool *groupe = nullptr);
 
 		/// Lecture d'un texel (convertie en flottants) : `tranche` 0 irradiance, 1 visibilite.
 		void NkSdTexel(const NkSdVolume &v, int32 ix, int32 iy, int32 iz, int32 tranche, int32 tx, int32 ty, float32 out[4]);

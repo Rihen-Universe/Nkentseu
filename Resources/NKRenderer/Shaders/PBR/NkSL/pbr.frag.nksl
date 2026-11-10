@@ -44,6 +44,10 @@ uniform CameraUBO {
     // si l'application les a posees ; voxelMin.w = taille d'un voxel. Voir NkVoxelAO.glsli.
     vec4  voxelMin;
     vec4  voxelMax;
+    // (10/11/2026) la grille des sondes d'irradiance (NkRender3D, PBRCamUBO) : sondeMax.w = mode,
+    // 0 sans sondes. Voir Include/NkSondes.glsli.
+    vec4  sondeMin;
+    vec4  sondeMax;
 } uCam;
 
 @binding(set=1, binding=1)
@@ -206,6 +210,7 @@ uniform MaterialUBO {
 @binding(set=0, binding=10) uniform sampler2D   tBRDFLUT;
 @binding(set=0, binding=26) uniform samplerCube tSkyEnvCube;
 @binding(set=0, binding=27) uniform sampler3D   tVoxelOpacity;
+@binding(set=0, binding=1)  uniform sampler3D   tSondes;   // (10/11/2026) les sondes d'irradiance (NkSondes.glsli)
 @binding(set=0, binding=11) uniform sampler2DShadow tShadowAtlas;
 @binding(set=0, binding=12) uniform sampler2D       tShadowAtlasRaw;
 #include "Include/NkShadowAtlas.glsli"
@@ -243,7 +248,7 @@ float SampleLight3DCubeCookie(int idx, vec3 dir) {
 // (09/11/2026) ce nuanceur declare voxelMin / voxelMax : la grille suit la scene.
 // ⚠ LA CLE DU CACHE (.nksc) SE CALCULE SUR CE TEXTE, PAS SUR LES INCLUSIONS : toute
 // modification de Include/NkVoxelAO.glsli doit monter cette revision, sinon le cache
-// ressert l'ancien nuanceur. Revision de l'inclusion : 4 (10/11 : les sondes, NkSondes.glsli).
+// ressert l'ancien nuanceur. Revision de l'inclusion : 8 (10/11 : sondes au binding 1, dedans/dehors, reflexion ; NkSondes.glsli).
 #define NK_VOXEL_BORNES_UCAM 1
 #include "Include/NkVoxelAO.glsli"
 #include "Include/NkSondes.glsli"
@@ -902,18 +907,32 @@ void main() {
     // sont déjà contraints. Sans occluder injecté, voxGI.xyz vaut 0 et ce terme
     // disparaît : le rendu par défaut est strictement inchangé.
     amb += kDi * albedo * voxGI.xyz * ao * uCam.iblStrength;
-    // (10/11/2026) LES SONDES D'IRRADIANCE (voxelMax.w = 2 ou 3, Include/NkSondes.glsli) : le diffus
+    // (10/11/2026) LES SONDES D'IRRADIANCE (sondeMax.w >= 2, Include/NkSondes.glsli) : le diffus
     // ambiant EST l'irradiance cuite par le traceur (le ciel, la lumiere multiple ; la lumiere directe
-    // reste celle des lumieres ci-dessus) ; le speculaire de l'IBL est attenue dans la meme proportion
-    // que le diffus (une piece fermee ne reflete pas le ciel). Sans sondes : rien ne change.
-    if (uCam.voxelMax.w > 1.5) {
-        vec3 Esd = NkSondesEclairement(vWorldPos, N, V).rgb;
-        vec3 irrCiel = irr * uCam.iblStrength * uCam.iblColor.rgb;
-        float lumSd = dot(Esd * (1.0 / PI), vec3(0.2126, 0.7152, 0.0722));
-        float lumCiel = max(dot(irrCiel, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
-        float occSpec = clamp(lumSd / lumCiel, 0.0, 1.0);
-        amb = (kDi * albedo * Esd * (1.0 / PI)
-               + pref * (Fi * brdf.x + brdf.y) * uCam.iblStrength * uCam.iblColor.rgb * occSpec) * ao;
+    // reste celle des lumieres ci-dessus). Sans sondes : rien ne change.
+    if (uCam.sondeMax.w > 1.5) {
+        vec4 sdRf;
+        vec4 sdE = NkSondesEclairement(vWorldPos, N, V, R, sdRf);
+        vec3 Esd = sdE.rgb;
+        vec3 cielSpec = pref * uCam.iblStrength * uCam.iblColor.rgb;
+        vec3 envSpec;
+        if (uCam.sondeMax.w > 4.5) {
+            // mode 5 (contre-epreuve) : le reflet d'avant, le ciel attenue comme le diffus
+            vec3 irrCiel = irr * uCam.iblStrength * uCam.iblColor.rgb;
+            float lumSd = dot(Esd * (1.0 / PI), vec3(0.2126, 0.7152, 0.0722));
+            float lumCiel = max(dot(irrCiel, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
+            envSpec = cielSpec * clamp(lumSd / lumCiel, 0.0, 1.0);
+        } else {
+            // LA REFLEXION PAR LES SONDES : la ou le reflet R ne voit pas le ciel, il voit la piece --
+            // E(R)/pi, la radiance moyenne autour de R ; la ou il voit le ciel (une baie), l'IBL.
+            envSpec = mix(sdRf.rgb * (1.0 / PI), cielSpec, clamp(sdRf.a, 0.0, 1.0));
+        }
+        vec3 ambSd = (kDi * albedo * Esd * (1.0 / PI) + envSpec * (Fi * brdf.x + brdf.y)) * ao;
+        // LE FONDU (10/11) : dehors -- la part du ciel de la sphere des sondes, ou hors de la grille --
+        // le terme d'avant (ciel + grille voxel) reprend la main : des sondes ne rendent jamais
+        // l'exterieur pire que sans elles. Mode 4 : sans fondu (contre-epreuve).
+        float fondu = (uCam.sondeMax.w < 3.5 || uCam.sondeMax.w > 4.5) ? smoothstep(0.001, 0.01, sdE.a) : 0.0;
+        amb = mix(ambSd, amb, fondu);
     }
 
     vec3 ccContrib = vec3(0.0);
