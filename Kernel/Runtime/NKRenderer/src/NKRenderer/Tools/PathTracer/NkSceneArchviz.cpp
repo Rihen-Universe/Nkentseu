@@ -7,6 +7,9 @@
 
 #include "NKRenderer/Tools/PathTracer/NkSceneArchviz.h"
 #include "NKRenderer/Tools/PathTracer/NkMatieresProcedurales.h"
+#include "NKRenderer/Materials/NkPeintureCarrosserie.h"
+#include "NKMemory/NkAllocator.h"
+#include "NKPlatform/NkEnv.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKContainers/String/NkString.h"
@@ -449,8 +452,243 @@ namespace nkentseu {
 					char fichier[520];
 					float32 o[3];
 					char doc[96];
+					// (10/11/2026) LA ROTATION de la partie (`rotation rx ry rz`, degres) : R = Rz Ry Rx, autour
+					// de l'origine de la piece, puis la translation `origine` -- la convention de l'atelier
+					// (HostSetNodeEuler, Z*Y*X ; l'export d'essai_rotation : y 90 donne x' = z, z' = -x)
+					float32 R[9];
+					bool tourne;
 			};
 		} // namespace
+
+		// =====================================================================
+		//  (10/11/2026) L'ATTRIBUTION DES MATIERES, partagee par le traceur et le temps reel
+		//  (le code est celui de NkScArchvizCharger, deplace ici tel quel)
+		// =====================================================================
+		struct NkScAttribution::Interne {
+				Json jm;
+				int32 jpieces = -1;
+				struct Regle {
+						Regex doc, piece;
+						int32 mat;
+				};
+				NkVector<Regle> regles;
+				NkVector<Doc> docs;
+		};
+
+		NkScAttribution::~NkScAttribution() {
+			Fermer();
+		}
+
+		void NkScAttribution::Fermer() {
+			if (mI) {
+				mI->~Interne();
+				memory::NkFree(mI);
+				mI = nullptr;
+			}
+			mats.Clear();
+			nBib = parNom = parRegle = parMtl = 0;
+			jsonLu = false;
+		}
+
+		bool NkScAttribution::Ouvrir(const char *assemblage, const char *matieres) {
+			Fermer();
+			void *place = memory::NkAlloc((nk_size)sizeof(Interne));
+			if (!place)
+				return false;
+			mI = new (place) Interne();
+			// ── les documents : `scene X` de <dossier>/<document>.nkscene ──────
+			char dossier[520];
+			Copier(dossier, 520, assemblage ? assemblage : "");
+			{
+				int32 n = 0, der = -1;
+				while (dossier[n]) {
+					if (dossier[n] == '/' || dossier[n] == '\\')
+						der = n;
+					++n;
+				}
+				if (der >= 0)
+					dossier[der] = 0;
+				else
+					Copier(dossier, 520, ".");
+			}
+			{
+				const NkVector<NkString> fs = NkDirectory::GetFiles(dossier, "*.nkscene");
+				for (usize i = 0; i < fs.Size(); ++i) {
+					const char *chemin = fs[i].CStr();
+					char cheminComplet[600];
+					// GetFiles peut rendre un nom seul ou un chemin : on accepte les deux
+					if (Contient(chemin, "/") || Contient(chemin, "\\"))
+						Copier(cheminComplet, 600, chemin);
+					else
+						NkSnprintf(cheminComplet, sizeof(cheminComplet), "%s/%s", dossier, chemin);
+					const NkString t = NkFile::ReadAllText(cheminComplet);
+					const char *c = t.CStr();
+					char l[512], mot[64];
+					for (int32 k = 0; k < 12 && c && *c; ++k) {
+						c = Ligne(c, l, 512);
+						const char *q = Mot(l, mot, 64);
+						if (Egal(mot, "scene")) {
+							Doc d;
+							(void)Mot(q, d.scene, 96);
+							// le document : le nom du fichier sans dossier ni extension
+							const char *b = cheminComplet;
+							for (const char *x = cheminComplet; *x; ++x)
+								if (*x == '/' || *x == '\\')
+									b = x + 1;
+							int32 n = 0;
+							while (b[n] && !(b[n] == '.' && Egal(b + n, ".nkscene")))
+								++n;
+							Copier(d.doc, 96, b, n);
+							mI->docs.PushBack(d);
+							break;
+						}
+					}
+				}
+			}
+			// ── les matieres ───────────────────────────────────────────────────
+			Json &jm = mI->jm;
+			const NkString tm = NkFile::ReadAllText(matieres ? matieres : "");
+			const int32 rm = tm.Empty() ? -1 : jm.Lire(tm.CStr());
+			const int32 bib = jm.Get(rm, "bibliotheque"), jregles = jm.Get(rm, "regles");
+			mI->jpieces = jm.Get(rm, "pieces");
+			for (int32 k = 0; k < jm.Nb(bib); ++k) {
+				NkScMateriau m;
+				Copier(m.nom, 48, jm.Txt(jm.Cle(bib, k)));
+				const int32 v = jm.ValK(bib, k);
+				jm.Vec3(jm.Get(v, "couleur"), m.couleur);
+				m.rugosite = (float32)jm.Num(jm.Get(v, "rugosite"), 0.8);
+				m.metal = (float32)jm.Num(jm.Get(v, "metal"), 0.0);
+				m.transmission = (float32)jm.Num(jm.Get(v, "transmission"), 0.0);
+				m.emission = (float32)jm.Num(jm.Get(v, "emission"), 0.0);
+				m.classe = (m.transmission > 0.5f || m.emission > 0.f) ? -1 : ClasseDe(m.nom, m.tuile);
+				// (10/11) le LUSTRE des fibres : le velours le porte pleinement (reflet rasant serre), une
+				// toile un peu ; « lustre » dans la bibliotheque l'emporte s'il est ecrit
+				if (m.classe == kMatVelours) {
+					m.lustre = 1.f;
+					m.lustreRug = 0.3f;
+				} else if (m.classe == kMatTissu) {
+					m.lustre = 0.35f;
+					m.lustreRug = 0.5f;
+				}
+				m.lustre = (float32)jm.Num(jm.Get(v, "lustre"), (float64)m.lustre);
+				// (10/11) la peinture de carrosserie (agent vehicules : « vernis », « paillettes » ; la
+				// rugosite du vernis, la densite ou la taille des paillettes s'il les ecrit) : les
+				// parametres du type NK_CAR_PAINT (NkPeintureCarrosserie.h). Densite par defaut 1 : les
+				// paillettes les plus fines (0,5 mm).
+				m.vernis = (float32)jm.Num(jm.Get(v, "vernis"), 0.0);
+				m.vernisRug = (float32)jm.Num(jm.Get(v, "vernis_rugosite"), 0.03);
+				m.paillettes = (float32)jm.Num(jm.Get(v, "paillettes"), 0.0);
+				m.paillettesDensite = (float32)jm.Num(jm.Get(v, "paillettes_densite"), 1.0);
+				if (jm.Get(v, "paillettes_taille_mm") >= 0)
+					m.paillettesDensite = NkCpDensiteDepuisTaille((float32)(jm.Num(jm.Get(v, "paillettes_taille_mm"), 0.5) * 1e-3));
+				m.vernis = m.vernis < 0.f ? 0.f : (m.vernis > 1.f ? 1.f : m.vernis);
+				m.paillettes = m.paillettes < 0.f ? 0.f : (m.paillettes > 1.f ? 1.f : m.paillettes);
+				m.paillettesDensite = m.paillettesDensite < 0.f ? 0.f : (m.paillettesDensite > 1.f ? 1.f : m.paillettesDensite);
+				mats.PushBack(m);
+			}
+			nBib = (int32)mats.Size();
+			// regles compilees une fois
+			mI->regles.Resize((usize)jm.Nb(jregles));
+			for (int32 k = 0; k < jm.Nb(jregles); ++k) {
+				const int32 r = jm.Elem(jregles, k);
+				mI->regles[(usize)k].doc.Compiler(jm.Txt(jm.Elem(r, 0)));
+				mI->regles[(usize)k].piece.Compiler(jm.Txt(jm.Elem(r, 1)));
+				mI->regles[(usize)k].mat = -1;
+				const char *nm = jm.Txt(jm.Elem(r, 2));
+				for (int32 i = 0; i < nBib; ++i)
+					if (Egal(mats[(usize)i].nom, nm)) {
+						mI->regles[(usize)k].mat = i;
+						break;
+					}
+			}
+			jsonLu = rm >= 0 && jm.ok;
+			return rm >= 0 || !mI->docs.Empty();
+		}
+
+		void NkScAttribution::Document(const char *scene, char *doc, int32 cap) const {
+			if (cap <= 0)
+				return;
+			// `doc` entre avec le document courant de la piece (vide au debut) : un objet inconnu le garde
+			// (la regle de NkScArchvizCharger depuis le 09/11)
+			if (mI)
+				for (usize d = 0; d < mI->docs.Size(); ++d)
+					if (Egal(mI->docs[d].scene, scene))
+						Copier(doc, cap, mI->docs[d].doc);
+			if (!doc[0])
+				Copier(doc, cap, scene);
+		}
+
+		int32 NkScAttribution::Index(const char *nom) const {
+			for (int32 i = 0; i < nBib; ++i)
+				if (Egal(mats[(usize)i].nom, nom))
+					return i;
+			return -1;
+		}
+
+		int32 NkScAttribution::Repli(const float32 *kd) {
+			// matieres de repli (teinte du .mtl), une par teinte
+			for (usize i = (usize)nBib; i < mats.Size(); ++i)
+				if (mats[i].couleur[0] == kd[0] && mats[i].couleur[1] == kd[1] && mats[i].couleur[2] == kd[2])
+					return (int32)i;
+			NkScMateriau m;
+			NkSnprintf(m.nom, sizeof(m.nom), "repli_%d", (int)(mats.Size() - (usize)nBib));
+			m.couleur[0] = kd[0];
+			m.couleur[1] = kd[1];
+			m.couleur[2] = kd[2];
+			m.classe = kMatEnduit;
+			m.tuile = NkMatiereDe(kMatEnduit).tuileM;
+			mats.PushBack(m);
+			return (int32)mats.Size() - 1;
+		}
+
+		int32 NkScAttribution::Matiere(const char *doc, const char *piece, const float32 *kd) {
+			if (mI) {
+				Json &jm = mI->jm;
+				const int32 dp = jm.Get(mI->jpieces, doc);
+				if (dp >= 0) {
+					const int32 v = jm.Get(dp, piece);
+					if (v >= 0) {
+						const int32 i = Index(jm.Txt(v));
+						if (i >= 0) {
+							++parNom;
+							return i;
+						}
+					}
+				}
+				for (usize k = 0; k < mI->regles.Size(); ++k)
+					if (mI->regles[k].mat >= 0 && mI->regles[k].doc.Cherche(doc) && mI->regles[k].piece.Cherche(piece)) {
+						++parRegle;
+						return mI->regles[k].mat;
+					}
+			}
+			++parMtl;
+			return Repli(kd);
+		}
+
+		void NkScRotationEuler(const float32 deg[3], float32 R[9]) {
+			const float32 k = 0.017453292519943295f;
+			const float32 cx = math::NkCos(deg[0] * k), sx = math::NkSin(deg[0] * k);
+			const float32 cy = math::NkCos(deg[1] * k), sy = math::NkSin(deg[1] * k);
+			const float32 cz = math::NkCos(deg[2] * k), sz = math::NkSin(deg[2] * k);
+			// Rz Ry Rx (lignes)
+			R[0] = cz * cy;
+			R[1] = cz * sy * sx - sz * cx;
+			R[2] = cz * sy * cx + sz * sx;
+			R[3] = sz * cy;
+			R[4] = sz * sy * sx + cz * cx;
+			R[5] = sz * sy * cx - cz * sx;
+			R[6] = -sy;
+			R[7] = cy * sx;
+			R[8] = cy * cx;
+			const char *mu = env::GetEnvVar("NK_ROTATION_MUTATION");
+			if (mu && mu[0] == '1') {
+				// contre-epreuve : la transposee (la rotation inverse)
+				float32 t;
+				t = R[1]; R[1] = R[3]; R[3] = t;
+				t = R[2]; R[2] = R[6]; R[6] = t;
+				t = R[5]; R[5] = R[7]; R[7] = t;
+			}
+		}
 
 		bool NkScRegexCherche(const char *motif, const char *texte) {
 			Regex r;
@@ -502,20 +740,7 @@ namespace nkentseu {
 		bool NkScArchvizCharger(NkScArchviz &s, const char *assemblage, const char *matieres, const char *lumieres,
 								const char *ambiance, float32 terrain) {
 			// ── l'assemblage : pieces, origines ───────────────────────────────
-			char dossier[520];
-			Copier(dossier, 520, assemblage);
-			{
-				int32 n = 0, der = -1;
-				while (dossier[n]) {
-					if (dossier[n] == '/' || dossier[n] == '\\')
-						der = n;
-					++n;
-				}
-				if (der >= 0)
-					dossier[der] = 0;
-				else
-					Copier(dossier, 520, ".");
-			}
+			// (le dossier de l'assemblage, ou vivent les documents, est lu par NkScAttribution::Ouvrir)
 			NkVector<Piece> pieces;
 			{
 				const NkString t = NkFile::ReadAllText(assemblage);
@@ -546,6 +771,22 @@ namespace nkentseu {
 						o = Reel32(o, p.o[1]);
 						(void)Reel32(o, p.o[2]);
 					}
+					// (10/11) la rotation de la partie (ignoree jusqu'ici : l'archviz tournait ses motos a
+					// la main avant l'export)
+					{
+						float32 deg[3] = {0.f, 0.f, 0.f};
+						const char *r = f;
+						while (*r && !Commence(r, "rotation "))
+							++r;
+						if (*r) {
+							r += 9;
+							r = Reel32(r, deg[0]);
+							r = Reel32(r, deg[1]);
+							(void)Reel32(r, deg[2]);
+						}
+						NkScRotationEuler(deg, p.R);
+						p.tourne = deg[0] != 0.f || deg[1] != 0.f || deg[2] != 0.f;
+					}
 					int32 n = 0;
 					while (p.fichier[n])
 						++n;
@@ -558,123 +799,25 @@ namespace nkentseu {
 					pieces.PushBack(p);
 				}
 			}
-			// ── les documents : `scene X` de <dossier>/<document>.nkscene ──────
-			NkVector<Doc> docs;
-			{
-				const NkVector<NkString> fs = NkDirectory::GetFiles(dossier, "*.nkscene");
-				for (usize i = 0; i < fs.Size(); ++i) {
-					const char *chemin = fs[i].CStr();
-					char cheminComplet[600];
-					// GetFiles peut rendre un nom seul ou un chemin : on accepte les deux
-					if (Contient(chemin, "/") || Contient(chemin, "\\"))
-						Copier(cheminComplet, 600, chemin);
-					else
-						NkSnprintf(cheminComplet, sizeof(cheminComplet), "%s/%s", dossier, chemin);
-					const NkString t = NkFile::ReadAllText(cheminComplet);
-					const char *c = t.CStr();
-					char l[512], mot[64];
-					for (int32 k = 0; k < 12 && c && *c; ++k) {
-						c = Ligne(c, l, 512);
-						const char *q = Mot(l, mot, 64);
-						if (Egal(mot, "scene")) {
-							Doc d;
-							(void)Mot(q, d.scene, 96);
-							// le document : le nom du fichier sans dossier ni extension
-							const char *b = cheminComplet;
-							for (const char *x = cheminComplet; *x; ++x)
-								if (*x == '/' || *x == '\\')
-									b = x + 1;
-							int32 n = 0;
-							while (b[n] && !(b[n] == '.' && Egal(b + n, ".nkscene")))
-								++n;
-							Copier(d.doc, 96, b, n);
-							docs.PushBack(d);
-							break;
-						}
-					}
-				}
-			}
-			// ── les matieres ───────────────────────────────────────────────────
-			Json jm;
-			const NkString tm = NkFile::ReadAllText(matieres);
-			const int32 rm = tm.Empty() ? -1 : jm.Lire(tm.CStr());
-			const int32 bib = jm.Get(rm, "bibliotheque"), jpieces = jm.Get(rm, "pieces"), jregles = jm.Get(rm, "regles");
-			for (int32 k = 0; k < jm.Nb(bib); ++k) {
-				NkScMateriau m;
-				Copier(m.nom, 48, jm.Txt(jm.Cle(bib, k)));
-				const int32 v = jm.ValK(bib, k);
-				jm.Vec3(jm.Get(v, "couleur"), m.couleur);
-				m.rugosite = (float32)jm.Num(jm.Get(v, "rugosite"), 0.8);
-				m.metal = (float32)jm.Num(jm.Get(v, "metal"), 0.0);
-				m.transmission = (float32)jm.Num(jm.Get(v, "transmission"), 0.0);
-				m.emission = (float32)jm.Num(jm.Get(v, "emission"), 0.0);
-				m.classe = (m.transmission > 0.5f || m.emission > 0.f) ? -1 : ClasseDe(m.nom, m.tuile);
-				// (10/11) le LUSTRE des fibres : le velours le porte pleinement (reflet rasant serre), une
-				// toile un peu ; « lustre » dans la bibliotheque l'emporte s'il est ecrit
-				if (m.classe == kMatVelours) {
-					m.lustre = 1.f;
-					m.lustreRug = 0.3f;
-				} else if (m.classe == kMatTissu) {
-					m.lustre = 0.35f;
-					m.lustreRug = 0.5f;
-				}
-				m.lustre = (float32)jm.Num(jm.Get(v, "lustre"), (float64)m.lustre);
-				s.mats.PushBack(m);
-			}
-			const int32 nBib = (int32)s.mats.Size();
-			auto indexMat = [&](const char *nom) -> int32 {
-				for (int32 i = 0; i < nBib; ++i)
-					if (Egal(s.mats[(usize)i].nom, nom))
-						return i;
-				return -1;
-			};
-			// regles compilees une fois
-			struct Regle {
-					Regex doc, piece;
-					int32 mat;
-			};
-			NkVector<Regle> regles;
-			regles.Resize((usize)jm.Nb(jregles));
-			for (int32 k = 0; k < jm.Nb(jregles); ++k) {
-				const int32 r = jm.Elem(jregles, k);
-				regles[(usize)k].doc.Compiler(jm.Txt(jm.Elem(r, 0)));
-				regles[(usize)k].piece.Compiler(jm.Txt(jm.Elem(r, 1)));
-				regles[(usize)k].mat = indexMat(jm.Txt(jm.Elem(r, 2)));
-			}
-			// matieres de repli (teinte du .mtl), une par teinte
-			auto matRepli = [&](const float32 *kd) -> int32 {
-				for (usize i = (usize)nBib; i < s.mats.Size(); ++i)
-					if (s.mats[i].couleur[0] == kd[0] && s.mats[i].couleur[1] == kd[1] && s.mats[i].couleur[2] == kd[2])
-						return (int32)i;
-				NkScMateriau m;
-				NkSnprintf(m.nom, sizeof(m.nom), "repli_%d", (int)(s.mats.Size() - (usize)nBib));
-				m.couleur[0] = kd[0];
-				m.couleur[1] = kd[1];
-				m.couleur[2] = kd[2];
-				m.classe = kMatEnduit;
-				m.tuile = NkMatiereDe(kMatEnduit).tuileM;
-				s.mats.PushBack(m);
-				return (int32)s.mats.Size() - 1;
-			};
+			// ── les documents et les matieres : L'ATTRIBUTION partagee avec le temps reel (10/11) ──
+			NkScAttribution at;
+			(void)at.Ouvrir(assemblage, matieres);
 			auto matDe = [&](const char *doc, const char *piece, const float32 *kd) -> int32 {
-				const int32 dp = jm.Get(jpieces, doc);
-				if (dp >= 0) {
-					const int32 v = jm.Get(dp, piece);
-					if (v >= 0) {
-						const int32 i = indexMat(jm.Txt(v));
-						if (i >= 0) {
-							++s.piecesParNom;
-							return i;
-						}
-					}
+				const int32 m = at.Matiere(doc, piece, kd);
+				// la piece attribuee, une fois par (document, groupe, matiere) : le banc des matieres exactes
+				bool vu = false;
+				for (usize k = s.attribues.Size(); k > 0 && !vu; --k) {
+					const NkScAttribue &x = s.attribues[k - 1];
+					vu = x.mat == m && Egal(x.doc, doc) && Egal(x.piece, piece);
 				}
-				for (usize k = 0; k < regles.Size(); ++k)
-					if (regles[k].mat >= 0 && regles[k].doc.Cherche(doc) && regles[k].piece.Cherche(piece)) {
-						++s.piecesParRegle;
-						return regles[k].mat;
-					}
-				++s.piecesParMtl;
-				return matRepli(kd);
+				if (!vu) {
+					NkScAttribue x;
+					Copier(x.doc, 96, doc);
+					Copier(x.piece, 128, piece);
+					x.mat = m;
+					s.attribues.PushBack(x);
+				}
+				return m;
 			};
 			// ── la geometrie, piece par piece ─────────────────────────────────
 			int32 triangles = 0;
@@ -732,16 +875,20 @@ namespace nkentseu {
 					if (Egal(mot, "o")) {
 						char sc[96];
 						(void)Mot(q, sc, 96);
-						for (usize d = 0; d < docs.Size(); ++d)
-							if (Egal(docs[d].scene, sc))
-								Copier(pc.doc, 96, docs[d].doc);
-						if (!pc.doc[0])
-							Copier(pc.doc, 96, sc);
+						at.Document(sc, pc.doc, 96);
 					} else if (Egal(mot, "v") || Egal(mot, "vn")) {
 						float32 x, y, z;
 						q = Reel32(q, x);
 						q = Reel32(q, y);
 						(void)Reel32(q, z);
+						if (pc.tourne) {
+							const float32 *R = pc.R;
+							const float32 rx = R[0] * x + R[1] * y + R[2] * z, ry = R[3] * x + R[4] * y + R[5] * z,
+										  rz = R[6] * x + R[7] * y + R[8] * z;
+							x = rx;
+							y = ry;
+							z = rz;
+						}
 						if (mot[1] == 'n') {
 							VN.PushBack(x);
 							VN.PushBack(y);
@@ -854,10 +1001,10 @@ namespace nkentseu {
 			}
 			// ── le terrain ─────────────────────────────────────────────────────
 			if (terrain > 0.f && triangles > 0) {
-				int32 mt = indexMat("gazon");
+				int32 mt = at.Index("gazon");
 				if (mt < 0) {
 					const float32 vert[3] = {0.12f, 0.20f, 0.06f};
-					mt = matRepli(vert);
+					mt = at.Repli(vert);
 				}
 				const float32 cx = 0.5f * (s.mn[0] + s.mx[0]), cz = 0.5f * (s.mn[2] + s.mx[2]), y = s.mn[1] - 0.02f;
 				// EN DALLES de 20 x 20 : deux triangles de 300 m avaient une boite qui contenait
@@ -996,10 +1143,16 @@ namespace nkentseu {
 				s.cielIntensite = (float32)jl.Num(jl.Get(ci, "intensite"), 1.0);
 				s.expositionEV = (float32)jl.Num(jl.Get(amb, "exposition_EV"), 10.0);
 			}
+			// (10/11) les matieres de l'attribution partagee, et son compte rendu
+			s.mats = at.mats;
+			s.piecesParNom = at.parNom;
+			s.piecesParRegle = at.parRegle;
+			s.piecesParMtl = at.parMtl;
+			const int32 nBib = at.nBib;
 			NkPrintfSortie("[scene] %d piece(s), %d triangle(s) ; matieres : %d nommees, %d par nom d'objet, %d par regle, %d par "
 						   "repli .mtl ; %d source(s) (ambiance %s, %d hors scene) ; json %s/%s\n",
 						   (int)pieces.Size(), (int)triangles, (int)nBib, (int)s.piecesParNom, (int)s.piecesParRegle,
-						   (int)s.piecesParMtl, (int)s.sources.Size(), ambiance, (int)horsScene, jm.ok ? "ok" : "ERREUR",
+						   (int)s.piecesParMtl, (int)s.sources.Size(), ambiance, (int)horsScene, at.jsonLu ? "ok" : "ERREUR",
 						   jl.ok ? "ok" : "ERREUR");
 			return triangles > 0;
 		}

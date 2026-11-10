@@ -45,6 +45,12 @@ namespace nkentseu {
 				float32 tuile = 1.f;		///< metres par tuile de la carte
 				float32 lustre = 0.f;		///< (10/11) lustre des fibres (sheen) : 0 aucun, 1 velours
 				float32 lustreRug = 0.4f;	///< rugosite du lustre (Charlie) : petite = reflet rasant serre
+				// (10/11/2026) LA PEINTURE DE CARROSSERIE : les parametres du type NK_CAR_PAINT (gabarit
+				// mTmplCarPaint), lus comme le temps reel les lit -- NKRenderer/Materials/NkPeintureCarrosserie.h
+				float32 vernis = 0.f;			 ///< clearcoat : poids de la couche vernie, 0 aucune
+				float32 vernisRug = 0.03f;		 ///< clearcoatRough : rugosite du vernis
+				float32 paillettes = 0.f;		 ///< sheen de la carrosserie : quantite de paillettes, 0 aucune
+				float32 paillettesDensite = 1.f; ///< anisotropy de la carrosserie : densite 0..1 (25 a 0,5 mm)
 		};
 
 		struct NkScSource {
@@ -57,6 +63,48 @@ namespace nkentseu {
 				float32 intensite = 0.f; ///< intensite radiante (unites de scene / sr)
 				float32 puissance = 0.f; ///< P = lumens x 1e-3 (echantillonnage)
 				char objet[64] = {0};
+		};
+
+		/// (10/11/2026) une piece attribuee : son document, son groupe, l'index de sa matiere
+		struct NkScAttribue {
+				char doc[96] = {0};
+				char piece[128] = {0};
+				int32 mat = -1;
+		};
+
+		/// (10/11/2026) L'ATTRIBUTION DES MATIERES d'une scene de l'archviz (materiaux_scene.json :
+		/// pieces nommees, puis regles re.search dans l'ordre, puis une matiere de repli par teinte du .mtl)
+		/// et LES DOCUMENTS de l'assemblage (`o <scene>` d'une piece -> le .nkscene qui declare
+		/// `scene <scene>`). UNE seule logique, lue par le traceur (NkScArchvizCharger) ET par le temps
+		/// reel (NKCraft, mode realiste) : la meme matiere pour le meme objet des deux cotes.
+		class NkScAttribution {
+			public:
+				NkScAttribution() = default;
+				~NkScAttribution();
+				NkScAttribution(const NkScAttribution &) = delete;
+				NkScAttribution &operator=(const NkScAttribution &) = delete;
+				/// lit les documents du dossier de `assemblage` et la bibliotheque `matieres` ; faux si rien
+				/// n'a pu etre lu (une bibliotheque absente laisse les replis seuls)
+				bool Ouvrir(const char *assemblage, const char *matieres);
+				void Fermer();
+				/// le document d'un objet `o <scene>` (le nom du .nkscene qui le declare) ; `doc` entre avec
+				/// le document courant de la piece (vide au debut) : inconnu, il le garde, ou prend <scene>
+				void Document(const char *scene, char *doc, int32 cap) const;
+				/// l'index (dans `mats`) de la matiere d'une piece ; `kd` : la teinte du .mtl (le repli)
+				int32 Matiere(const char *doc, const char *piece, const float32 *kd);
+				/// l'index d'une matiere de la bibliotheque par son nom, -1 sinon
+				int32 Index(const char *nom) const;
+				/// la matiere de repli d'une teinte (creee au besoin ; sans compte)
+				int32 Repli(const float32 *kd);
+
+				NkVector<NkScMateriau> mats; ///< la bibliotheque, puis les replis crees
+				int32 nBib = 0;
+				int32 parNom = 0, parRegle = 0, parMtl = 0;
+				bool jsonLu = false; ///< la bibliotheque a ete lue sans erreur
+
+			private:
+				struct Interne;
+				Interne *mI = nullptr;
 		};
 
 		struct NkScArchviz {
@@ -84,6 +132,9 @@ namespace nkentseu {
 				float32 mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
 				// le compte rendu de l'attribution (preuve : le meme compte que la reference Cycles)
 				int32 piecesParNom = 0, piecesParRegle = 0, piecesParMtl = 0;
+				// (10/11) les pieces attribuees, une entree par (document, groupe, matiere) : le banc des
+				// matieres exactes les compare a celles du temps reel
+				NkVector<NkScAttribue> attribues;
 		};
 
 		/// Charge la scene. `assemblage` : le .nkscene ; `matieres` / `lumieres` : les deux JSON ;
@@ -91,6 +142,12 @@ namespace nkentseu {
 		/// Ecrit le compte rendu sur la sortie. Rend faux si la geometrie manque.
 		bool NkScArchvizCharger(NkScArchviz &s, const char *assemblage, const char *matieres, const char *lumieres,
 								const char *ambiance, float32 terrain);
+
+		/// (10/11/2026) LA ROTATION D'UNE PARTIE (`rotation rx ry rz`, degres) en matrice 3x3 (lignes) :
+		/// R = Rz Ry Rx, la convention de l'atelier (HostSetNodeEuler) ; v' = R v + origine. Lue par le
+		/// traceur et le temps reel (NKCraft, mode realiste). NK_ROTATION_MUTATION=1 : la rotation inverse
+		/// (contre-epreuve de son banc).
+		void NkScRotationEuler(const float32 deg[3], float32 R[9]);
 
 		/// Recherche d'une expression reguliere (sous-ensemble ^ $ | ( ) . [..] \d) dans un texte
 		/// (semantique de re.search). Expose pour son banc.

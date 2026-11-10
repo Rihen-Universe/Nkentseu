@@ -56,6 +56,7 @@ namespace nkentseu {
 				// contre-epreuves
 				bool sansSoleil = false, sansCiel = false, sansSources = false, unRebond = false;
 				bool sansCartes = false;
+				bool sansVernis = false; ///< (10/11) contre-epreuve : ni vernis ni paillettes (la base seule)
 				// (10/11/2026) LES LUCIOLES des surfaces sombres et brillantes (ecrans, bureaux noirs) :
 				// le disque solaire et l'emission ne comptent plus par un rebond GGX (la lumiere directe
 				// les compte deja : double compte et pics geants), la rugosite est regularisee apres le
@@ -100,6 +101,10 @@ namespace nkentseu {
 				float32 zenith[3] = {0.f, 0.f, 0.f}, horizon[3] = {0.f, 0.f, 0.f};
 				float32 cielIntensite = 1.f;
 				int32 offCiel = 0, cielW = 0, cielH = 0; ///< (10/11) le ciel en table, a la suite de la scene
+				/// (10/11) le vernis et les paillettes, un vec4 par matiere (vernis, rugosite du vernis,
+				/// paillettes, taille) a la suite ; 0 : aucune matiere vernie (le nuanceur lit
+				/// cartes[13].w, a 0 dans les executables d'avant : la base seule, comme avant)
+				int32 offVernis = 0;
 		};
 		bool NkTcEmpaqueter(NkTcPaquet &p);
 		/// La fin commune (moyennes, exposition, image brute, debruiteur, image) depuis les sommes de la

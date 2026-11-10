@@ -184,10 +184,16 @@ namespace nkentseu {
 			Pose(pr.drap, r.sansSoleil ? 1.f : 0.f, r.sansCiel ? 1.f : 0.f, r.sansSources ? 1.f : 0.f, r.sansCartes ? 1.f : 0.f);
 			Pose(pr.off0, (float32)pq.offNoeuds, (float32)pq.offTris, (float32)pq.offSommets, (float32)pq.offMats);
 			Pose(pr.off1, (float32)pq.offSources, (float32)pq.nSources, pq.puissanceTotale, (float32)pq.offCiel);
-			// cartes[12].w (libre) : (10/11) la regularisation contre les lucioles (NkTcReglages.regulariser)
-			for (int32 c = 0; c < 16; ++c)
-				Pose(pr.cartes[c], (float32)pq.carteOff[c], (float32)pq.carteW[c], (float32)pq.carteH[c],
-					 c == 12 && r.regulariser ? 1.f : 0.f);
+			// cartes[12].w (libre) : (10/11) la regularisation contre les lucioles (NkTcReglages.regulariser) ;
+			// cartes[13].w : (10/11) le decalage du vernis et des paillettes (0 : aucun, ou `sansVernis`)
+			for (int32 c = 0; c < 16; ++c) {
+				float32 w = 0.f;
+				if (c == 12 && r.regulariser)
+					w = 1.f;
+				if (c == 13 && !r.sansVernis)
+					w = (float32)pq.offVernis;
+				Pose(pr.cartes[c], (float32)pq.carteOff[c], (float32)pq.carteW[c], (float32)pq.carteH[c], w);
+			}
 			const float64 msPrep = (NkChrono::Now() - t0).ToMilliseconds();
 			// LES PASSES : 1 echantillon par pixel et par bande de 200 lignes par envoi (un envoi
 			// trop long declencherait la remise a zero du pilote, TDR ~2 s sous Windows)

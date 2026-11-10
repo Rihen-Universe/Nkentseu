@@ -27,6 +27,12 @@ uint gEtat;
 // (10/11) le lustre des fibres de la surface courante (Surf l'ecrit, EvalBsdf le lit) : m2.z, m2.w
 float gLustre;
 float gLustreRug;
+// (10/11) le vernis (clearcoat, normale lisse ns) et la normale de la BASE (paillettes) de la surface
+// courante : P.cartes[13].w = decalage d'un vec4 par matiere (vernis, rugosite, paillettes, taille) ;
+// 0 (executables d'avant) : ni vernis ni paillettes, la base seule comme avant
+float gVernis;
+float gVernisRug;
+vec3 gNb;
 uint Pcg() {
     gEtat = gEtat * 747796405u + 2891336453u;
     uint w = ((gEtat >> ((gEtat >> 28u) + 4u)) ^ gEtat) * 277803737u;
@@ -158,6 +164,24 @@ float Lin(uint c) {
     float x = float(c) / 255.0;
     return x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4);
 }
+// (10/11) LES PAILLETTES : une cellule cubique de cote `taille` = une paillette, de normale tiree autour
+// de n (amplitude 0,6 x quantite par axe) ; le meme hachage entier que NkTraceurChemins.cpp
+vec3 NormalePaillette(vec3 p, vec3 n, float q, float taille) {
+    ivec3 c = ivec3(floor(p * (1.0 / taille)));
+    uint e = (uint(c.x) * 73856093u) ^ (uint(c.y) * 19349663u) ^ (uint(c.z) * 83492791u);
+    e = e * 747796405u + 2891336453u;
+    uint w1 = ((e >> ((e >> 28u) + 4u)) ^ e) * 277803737u;
+    w1 = (w1 >> 22u) ^ w1;
+    e = e * 747796405u + 2891336453u;
+    uint w2 = ((e >> ((e >> 28u) + 4u)) ^ e) * 277803737u;
+    w2 = (w2 >> 22u) ^ w2;
+    e = e * 747796405u + 2891336453u;
+    uint w3 = ((e >> ((e >> 28u) + 4u)) ^ e) * 277803737u;
+    w3 = (w3 >> 22u) ^ w3;
+    vec3 r = vec3(float(w1 >> 8u), float(w2 >> 8u), float(w3 >> 8u)) * (2.0 / 16777216.0) - vec3(1.0, 1.0, 1.0);
+    vec3 t = normalize(n + r * (0.6 * q));
+    return dot(t, n) > 0.1 ? t : n;
+}
 // Surface au point d'impact : p, ng, ns, albedo, emission, rugosite, metal, verre
 void Surf(int tri, float b1, float b2, vec3 o, vec3 d, float th, out vec3 p, out vec3 ng, out vec3 ns, out vec3 alb,
           out vec3 emis, out float rug, out float met, out bool verre) {
@@ -215,6 +239,15 @@ void Surf(int tri, float b1, float b2, vec3 o, vec3 d, float th, out vec3 p, out
     }
     if (!verre && dot(ns, d) > 0.0) ns = ns - ng * (2.0 * dot(ns, ng));
     ns = normalize(ns);
+    gNb = ns;
+    gVernis = 0.0;
+    gVernisRug = 0.03;
+    if (P.cartes[13].w > 0.5 && !verre) {
+        vec4 vv = S.d[int(P.cartes[13].w) + mat];
+        gVernis = vv.x;
+        gVernisRug = max(vv.y, 0.03);
+        if (vv.z > 0.0) gNb = NormalePaillette(p, ns, vv.z, vv.w);
+    }
 }
 float DGgx(float nh, float a2) {
     float d = nh * nh * (a2 - 1.0) + 1.0;
@@ -228,7 +261,8 @@ vec3 Schlick(vec3 f0, float c) {
     float k5 = k * k * k * k * k;
     return f0 + (vec3(1.0, 1.0, 1.0) - f0) * k5;
 }
-vec3 EvalBsdf(vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo, vec3 wi) {
+// la BASE autour de la normale donnee (ns, ou celle de la paillette gNb)
+vec3 EvalBase(vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo, vec3 wi) {
     float nl = dot(ns, wi);
     float nv = dot(ns, wo);
     if (nl <= 0.0 || nv <= 0.0 || dot(ng, wi) <= 0.0) return vec3(0.0, 0.0, 0.0);
@@ -253,10 +287,32 @@ vec3 EvalBsdf(vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo, vec3 wi
     }
     return (kd + F * spec + lus) * nl;
 }
+// (10/11) la base (normale de paillette), puis le vernis (normale lisse) : la base x (1 - albedo du
+// vernis vu), comme NkTraceurChemins.cpp et le Principled de Cycles
+vec3 EvalBsdf(vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo, vec3 wi) {
+    if (gVernis <= 0.0) return EvalBase(ng, gNb, alb, rug, met, wo, wi);
+    float nl = dot(ns, wi);
+    float nv = dot(ns, wo);
+    if (nl <= 0.0 || nv <= 0.0 || dot(ng, wi) <= 0.0) return vec3(0.0, 0.0, 0.0);
+    vec3 base = EvalBase(ng, gNb, alb, rug, met, wo, wi);
+    vec3 h = normalize(wo + wi);
+    float r2 = gVernisRug * gVernisRug;
+    float a2 = r2 * r2;
+    float kh = 1.0 - max(0.0, dot(wo, h));
+    float Fc = 0.04 + 0.96 * kh * kh * kh * kh * kh;
+    float sc = DGgx(max(0.0, dot(ns, h)), a2) * G1(nl, a2) * G1(nv, a2) / (4.0 * nl * nv + 1e-8);
+    float kv = 1.0 - clamp(nv, 0.0, 1.0);
+    float att = 1.0 - gVernis * (0.04 + 0.96 * kv * kv * kv * kv * kv);
+    float c = gVernis * Fc * sc * nl;
+    return base * att + vec3(c, c, c);
+}
 float ProbaSpec(float rug, float met) {
     return met > 0.5 ? 1.0 : (rug < 0.3 ? 0.4 : 0.15);
 }
-float PdfBsdf(vec3 ns, float rug, float met, vec3 wo, vec3 wi) {
+float ProbaVernis() {
+    return gVernis > 0.0 ? min(0.5, 0.2 + 0.3 * gVernis) : 0.0;
+}
+float PdfBase(vec3 ns, float rug, float met, vec3 wo, vec3 wi) {
     float nl = dot(ns, wi);
     if (nl <= 0.0) return 0.0;
     vec3 h = normalize(wo + wi);
@@ -267,7 +323,21 @@ float PdfBsdf(vec3 ns, float rug, float met, vec3 wo, vec3 wi) {
     float pSpec = DGgx(nh, a2) * nh / (4.0 * max(1e-6, dot(wo, h)));
     return ps * pSpec + (1.0 - ps) * nl / 3.14159265;
 }
-vec3 TirerBsdf(vec3 ns, float rug, float met, vec3 wo) {
+float PdfBsdf(vec3 ns, float rug, float met, vec3 wo, vec3 wi) {
+    float pb = PdfBase(gNb, rug, met, wo, wi);
+    if (gVernis <= 0.0) return pb;
+    float pc = 0.0;
+    if (dot(ns, wi) > 0.0) {
+        vec3 h = normalize(wo + wi);
+        float r2 = gVernisRug * gVernisRug;
+        float a2 = r2 * r2;
+        float nh = max(0.0, dot(ns, h));
+        pc = DGgx(nh, a2) * nh / (4.0 * max(1e-6, dot(wo, h)));
+    }
+    float pv = ProbaVernis();
+    return (1.0 - pv) * pb + pv * pc;
+}
+vec3 TirerBase(vec3 ns, float rug, float met, vec3 wo) {
     vec3 t;
     vec3 b;
     BaseDe(ns, t, b);
@@ -285,6 +355,26 @@ vec3 TirerBsdf(vec3 ns, float rug, float met, vec3 wo) {
     float rr = sqrt(u1);
     float ph = 6.28318531 * u2;
     return normalize(t * (rr * cos(ph)) + b * (rr * sin(ph)) + ns * sqrt(max(0.0, 1.0 - u1)));
+}
+vec3 TirerBsdf(vec3 ns, float rug, float met, vec3 wo) {
+    // sans vernis : aucun tirage de plus (les rendus d'avant restent identiques)
+    if (gVernis > 0.0) {
+        if (Rnd() < ProbaVernis()) {
+            vec3 t;
+            vec3 b;
+            BaseDe(ns, t, b);
+            float u1 = Rnd();
+            float u2 = Rnd();
+            float r2 = gVernisRug * gVernisRug;
+            float a2 = r2 * r2;
+            float ct = sqrt(max(0.0, (1.0 - u1) / (1.0 + (a2 - 1.0) * u1)));
+            float st = sqrt(max(0.0, 1.0 - ct * ct));
+            float ph = 6.28318531 * u2;
+            vec3 h = t * (st * cos(ph)) + b * (st * sin(ph)) + ns * ct;
+            return h * (2.0 * dot(wo, h)) - wo;
+        }
+    }
+    return TirerBase(gNb, rug, met, wo);
 }
 // (10/11/2026) le ciel en table (NkHosekCielTable) : off1.w = decalage dans la scene (0 : degrade),
 // hor.w = largeur, solE.w = hauteur ; bilineaire, periodique en phi (meme lecture que le processeur)
@@ -432,7 +522,10 @@ vec3 Chemin(vec3 o, vec3 d, out vec3 aAlb, out vec3 aNrm, out float aZ) {
         // (10/11) contre les lucioles (P.cartes[12].w = 1) : rugosite regularisee apres le premier
         // rebond, emission vue apres un rebond ecretee (comme NkTraceurChemins.cpp)
         bool regul = P.cartes[12].w > 0.5;
-        if (regul && rebond > 0 && !verre) rug = max(rug, 0.3);
+        if (regul && rebond > 0 && !verre) {
+            rug = max(rug, 0.3);
+            gVernisRug = max(gVernisRug, 0.3);
+        }
         if (spec && LumC(emis) > 0.0) {
             vec3 e = beta * emis;
             if (regul && rebond > 0) {

@@ -504,6 +504,47 @@ void main() {
     vec3 camPosForV = uCam.camPos.xyz;
     if (uCam.reflectionFlags.x > 0.5) camPosForV.y = -camPosForV.y;
     vec3 V    = normalize(camPosForV - vWorldPos);
+    // (10/11/2026) LA NORMALE DU VERNIS : Ncc, LISSE (la « Coat Normal » de Cycles) ; la base peut s'en
+    // ecarter (les paillettes de la carrosserie, ci-dessous). Hors carrosserie : Ncc = N, rien ne change.
+    vec3 Ncc = N;
+#ifdef NK_PEINTURE_CARROSSERIE
+    {
+        // LA CARROSSERIE (type NK_CAR_PAINT, gabarit mTmplCarPaint, CarPaint/NkSL/carpaint.frag.nksl) : les
+        // deux curseurs que ce type reaffectait deja -- uMat.sheen = la QUANTITE de paillettes (leur
+        // inclinaison : 0,6 x quantite par axe), uMat.anisotropy = leur DENSITE (cote d'une paillette :
+        // 1 / (40 x 50^densite) m, de 25 a 0,5 mm). La MEME definition que le traceur de chemins
+        // (NKRenderer/Materials/NkPeintureCarrosserie.h) et le meme hachage des cellules.
+        float cpQ = clamp(uMat.sheen, 0.0, 1.0);
+        if (cpQ > 0.0) {
+            float cpTaille = 1.0 / (40.0 * pow(50.0, clamp(uMat.anisotropy, 0.0, 1.0)));
+            ivec3 cpC = ivec3(floor(vWorldPos * (1.0 / cpTaille)));
+            uint cpE = (uint(cpC.x) * 73856093u) ^ (uint(cpC.y) * 19349663u) ^ (uint(cpC.z) * 83492791u);
+            cpE = cpE * 747796405u + 2891336453u;
+            uint cpW1 = ((cpE >> ((cpE >> 28u) + 4u)) ^ cpE) * 277803737u;
+            cpW1 = (cpW1 >> 22u) ^ cpW1;
+            cpE = cpE * 747796405u + 2891336453u;
+            uint cpW2 = ((cpE >> ((cpE >> 28u) + 4u)) ^ cpE) * 277803737u;
+            cpW2 = (cpW2 >> 22u) ^ cpW2;
+            cpE = cpE * 747796405u + 2891336453u;
+            uint cpW3 = ((cpE >> ((cpE >> 28u) + 4u)) ^ cpE) * 277803737u;
+            cpW3 = (cpW3 >> 22u) ^ cpW3;
+            vec3 cpR = vec3(float(cpW1 >> 8u), float(cpW2 >> 8u), float(cpW3 >> 8u)) * (2.0 / 16777216.0) - vec3(1.0);
+            float cpK = 0.6 * cpQ;
+            vec3 cpNf = normalize(N + cpR * cpK);
+            if (dot(cpNf, N) < 0.1) cpNf = N;
+            // LE NIVEAU DE DETAIL : plus de deux paillettes par pixel, la moyenne -- le lobe de la base
+            // elargi de la dispersion des paillettes (alpha GGX ~ 0,816 x 0,6 x quantite, en quadrature) ;
+            // une paillette plus grande que le pixel : la paillette elle-meme (l'eclat).
+            float cpPied = max(length(dFdx(vWorldPos)), length(dFdy(vWorldPos)));
+            float cpVu = 1.0 - smoothstep(0.5, 2.0, cpPied / cpTaille);
+            float cpAf = 0.816 * cpK;
+            float cpA = rog * rog;
+            float rogMoy = sqrt(sqrt(cpA * cpA + cpAf * cpAf));
+            N = normalize(mix(N, cpNf, cpVu));
+            rog = mix(min(rogMoy, 1.0), rog, cpVu);
+        }
+    }
+#endif
     vec3 F0   = mix(vec3(0.04), albedo, met);
 
     // ── MOUILLAGE ────────────────────────────────────────────────────────
@@ -801,6 +842,8 @@ void main() {
         // ── ANISOTROPIE (GGX elliptique, parametrage Filament) ──────────
         // at/ab etirent le lobe le long de la tangente ou de la bitangente ;
         // 0 = isotrope (le D classique reste alors seul juge).
+#ifndef NK_PEINTURE_CARROSSERIE
+        // (la carrosserie lit anisotropy et sheen comme ses paillettes : ni lobe elliptique ni voile)
         if (abs(uMat.anisotropy) > 1e-3) {
             float ra = rogL * rogL;
             float at = max(ra * (1.0 + uMat.anisotropy), 1e-4);
@@ -823,6 +866,7 @@ void main() {
             float Vn = 1.0 / (4.0 * (NdL + NdVs - NdL * NdVs) + 1e-4);
             spec += vec3(uMat.sheen) * Dc * Vn;
         }
+#endif
         vec3 kD   = (1.0-F)*(1.0-met);
         vec3 contrib;
         // Energie effective : pour la surfacique, l'irradiance equivalente est
@@ -847,6 +891,22 @@ void main() {
             }
         } else {
             contrib = (kD*albedo/PI + spec) * rad * NdL;
+        }
+        // (10/11/2026) LE VERNIS EN LUMIERE DIRECTE (clearcoat) : il n'avait que l'ambiance -- au soleil,
+        // une carrosserie vernie n'avait pas son reflet net. Lobe GGX dielectrique (F0 = 0,04) de la
+        // rugosite du vernis (elargi par la taille de la source, comme la base), et la base attenuee de
+        // l'albedo du vernis vu (le Principled de Cycles ; le traceur NkTraceurChemins fait de meme).
+        // Le vernis suit la normale LISSE Ncc (la base peut suivre une paillette).
+        if (uMat.clearcoat > 0.0) {
+            float ccNdL = max(dot(Ncc, L), 0.0);
+            float ccNdV = max(dot(Ncc, V), 1e-4);
+            float ccAl = NkGgxAlpha(max(uMat.clearcoatRough, 0.03));
+            if (areaE < 0.0) ccAl = NkGgxAlphaSource(ccAl, tanSrc);
+            float ccD = NkGgxD(max(dot(Ncc, H), 0.0), ccAl);
+            float ccV = NkSmithGgxVis(ccNdV, ccNdL, ccAl);
+            float ccF = F_Schlick(max(dot(H, V), 0.0), vec3(0.04)).x * uMat.clearcoat;
+            float ccAtt = 1.0 - uMat.clearcoat * F_Schlick(ccNdV, vec3(0.04)).x;
+            contrib = contrib * ccAtt + vec3(ccD * ccV * ccF) * radEff * ccNdL;
         }
         // DIFFUSION SOUS LA SURFACE, ICI et plus dans une boucle a part
         // (2026-08-09) : l'ancienne boucle recalculait L mais ni att ni
@@ -910,6 +970,10 @@ void main() {
     // (10/11/2026) LES SONDES D'IRRADIANCE (sondeMax.w >= 2, Include/NkSondes.glsli) : le diffus
     // ambiant EST l'irradiance cuite par le traceur (le ciel, la lumiere multiple ; la lumiere directe
     // reste celle des lumieres ci-dessus). Sans sondes : rien ne change.
+    // (10/11) le reflet par les sondes, garde pour le vernis (a = la part du ciel ; 1 : le ciel seul) et
+    // le fondu dedans / dehors (1 : dehors, le terme d'avant)
+    vec4 sdRfCC = vec4(0.0, 0.0, 0.0, 1.0);
+    float sdFonduCC = 1.0;
     if (uCam.sondeMax.w > 1.5) {
         vec4 sdRf;
         vec4 sdE = NkSondesEclairement(vWorldPos, N, V, R, sdRf);
@@ -926,6 +990,7 @@ void main() {
             // LA REFLEXION PAR LES SONDES : la ou le reflet R ne voit pas le ciel, il voit la piece --
             // E(R)/pi, la radiance moyenne autour de R ; la ou il voit le ciel (une baie), l'IBL.
             envSpec = mix(sdRf.rgb * (1.0 / PI), cielSpec, clamp(sdRf.a, 0.0, 1.0));
+            sdRfCC = sdRf;
         }
         vec3 ambSd = (kDi * albedo * Esd * (1.0 / PI) + envSpec * (Fi * brdf.x + brdf.y)) * ao;
         // LE FONDU (10/11) : dehors -- la part du ciel de la sphere des sondes, ou hors de la grille --
@@ -933,20 +998,36 @@ void main() {
         // l'exterieur pire que sans elles. Mode 4 : sans fondu (contre-epreuve).
         float fondu = (uCam.sondeMax.w < 3.5 || uCam.sondeMax.w > 4.5) ? smoothstep(0.001, 0.01, sdE.a) : 0.0;
         amb = mix(ambSd, amb, fondu);
+        sdFonduCC = fondu;
     }
 
     vec3 ccContrib = vec3(0.0);
     if (uMat.clearcoat > 0.0) {
-        float ccR = uMat.clearcoatRough;
-        vec3  Fcc = F_Schlick(max(dot(N,V),0.0), vec3(0.04)) * uMat.clearcoat;
         // SANS ENVIRONNEMENT CHARGE, MEME REGLE QUE L'AMBIANT (hasEnv) : le
         // vernis reflechit une ambiance UNIFORME ponderee par l'intensite IBL,
         // au lieu d'echantillonner un prefilter au contenu indefini. Sans ce
         // repli, « Vernis » ne faisait RIEN dans une scene sans HDRI.
-        vec3  prefCC = mix(vec3(uCam.iblStrength) * uCam.iblColor.rgb,
-                           textureLod(tEnvPrefilter, R, ccR*4.0).rgb, hasEnv);
-        vec2  brdfCC = texture(tBRDFLUT, vec2(max(dot(N,V),0.0), ccR)).rg;
-        ccContrib = prefCC * (Fcc * brdfCC.x + brdfCC.y);
+        //
+        // (10/11/2026) LE VERNIS DE CARROSSERIE, refait : (1) le ciel du vernis comme celui de la base
+        // (miroir net sous 0,05 de rugosite, intensite et teinte de l'IBL, occultation) -- il ignorait
+        // l'intensite IBL ; (2) le LUT pris avec F0 = 0,04 et le tout pondere par le poids (il prenait
+        // F(n.v) pour F0, et le terme de biais n'etait pas pondere) ; (3) dedans, le reflet par les
+        // SONDES (une carrosserie au garage ne reflete pas le ciel) ; (4) la base attenuee de ce que
+        // le vernis renvoie (l'energie se conserve ; Cycles fait de meme).
+        float ccR = max(uMat.clearcoatRough, 0.03);
+        float ccNdV = max(dot(Ncc, V), 0.0);
+        vec3  Rcc = reflect(-V, Ncc);
+        vec3  ccMir = texture(tSkyEnvCube, Rcc).rgb;
+        vec3  ccRgh = textureLod(tEnvPrefilter, Rcc, ccR * 4.0).rgb;
+        float ccMix = 1.0 - smoothstep(0.05, 0.50, ccR);
+        vec3  ccCiel = mix(vec3(1.0), mix(ccRgh, ccMir, ccMix), hasEnv) * uCam.iblStrength * uCam.iblColor.rgb;
+        vec3  ccSd = mix(sdRfCC.rgb * (1.0 / PI), ccCiel, clamp(sdRfCC.a, 0.0, 1.0));
+        vec3  ccEnv = mix(ccSd, ccCiel, sdFonduCC);
+        vec2  brdfCC = texture(tBRDFLUT, vec2(ccNdV, ccR)).rg;
+        float ccAlb = (0.04 * brdfCC.x + brdfCC.y) * uMat.clearcoat;
+        float ccOcc = mix(ao, ao * voxAO, sdFonduCC);
+        ccContrib = ccEnv * (ccAlb * ccOcc);
+        amb *= (1.0 - ccAlb);
     }
 
     // (la diffusion sous la surface est accumulee DANS la boucle de lumieres,

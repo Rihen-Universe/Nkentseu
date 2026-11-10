@@ -7,6 +7,7 @@
 
 #include "NKRenderer/Tools/PathTracer/NkTraceurChemins.h"
 #include "NKRenderer/Tools/PathTracer/NkMatieresProcedurales.h"
+#include "NKRenderer/Materials/NkPeintureCarrosserie.h"
 #include "NKImage/Core/NkImage.h"
 #include "NKThreading/NkThreadPool.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -122,6 +123,7 @@ namespace nkentseu {
 					NkVector<float32> cdfSources;
 					float32 puissanceTotale = 0.f;
 					bool mutationBanc = false; // contre-epreuve du banc : Lambert sans 1/pi
+					bool mutationVernis = false; // (10/11) contre-epreuve : la base n'est plus attenuee par le vernis
 			};
 			Scene &G() {
 				static Scene g;
@@ -404,10 +406,36 @@ namespace nkentseu {
 					V3 p, ng, ns, albedo, emis;
 					float32 rug, metal;
 					float32 lustre = 0.f, lustreRug = 0.4f; // (10/11) le lustre des fibres (tissu, velours)
+					// (10/11) le vernis (clearcoat, normale lisse ns) et la normale de la BASE `nb`
+					// (inclinee par les paillettes ; = ns sans paillettes)
+					float32 vernis = 0.f, vernisRug = 0.03f;
+					V3 nb;
 					bool verre;
 					int32 mat;
 			};
-			void Surf(const Scene &g, const Impact &h, V3 o, V3 d, bool sansCartes, Surface &S) {
+			// (10/11/2026) LES PAILLETTES : une cellule cubique de cote `taille` (monde) = une paillette, de
+			// normale tiree au hasard autour de n (amplitude 0,6 x quantite par axe, cube [-1, 1]^3). Le
+			// meme hachage que traceur_chemins.comp.nksl (entiers 32 bits) : memes paillettes des deux cotes.
+			constexpr float32 kPaillettesIncl = kNkCpInclinaison; // NkPeintureCarrosserie.h
+			inline uint32 PcgPaillette(uint32 &e) {
+				e = e * 747796405u + 2891336453u;
+				const uint32 w = ((e >> ((e >> 28u) + 4u)) ^ e) * 277803737u;
+				return (w >> 22u) ^ w;
+			}
+			V3 NormalePaillette(V3 p, V3 n, float32 quantite, float32 taille) {
+				const float32 inv = 1.f / taille;
+				const int32 ix = (int32)math::NkFloor(p.x * inv), iy = (int32)math::NkFloor(p.y * inv),
+							iz = (int32)math::NkFloor(p.z * inv);
+				uint32 e = ((uint32)ix * 73856093u) ^ ((uint32)iy * 19349663u) ^ ((uint32)iz * 83492791u);
+				const float32 k = kPaillettesIncl * quantite;
+				const float32 rx = (float32)(PcgPaillette(e) >> 8u) * (1.f / 16777216.f) * 2.f - 1.f;
+				const float32 ry = (float32)(PcgPaillette(e) >> 8u) * (1.f / 16777216.f) * 2.f - 1.f;
+				const float32 rz = (float32)(PcgPaillette(e) >> 8u) * (1.f / 16777216.f) * 2.f - 1.f;
+				const V3 t = Norm(n + Mk(rx, ry, rz) * k);
+				// une paillette ne se retourne pas : trop couchee, elle reprend la normale lisse
+				return Dot(t, n) > 0.1f ? t : n;
+			}
+			void Surf(const Scene &g, const Impact &h, V3 o, V3 d, bool sansCartes, bool sansVernis, Surface &S) {
 				const Tri &t = g.tris.Data()[h.tri];
 				const float32 w0 = 1.f - h.b1 - h.b2;
 				S.p = o + d * h.t;
@@ -460,6 +488,15 @@ namespace nkentseu {
 					ns = ns - ng * (Dot(ns, ng) * 2.f); // normale de rendu tournee vers le rayon
 				S.ng = ng;
 				S.ns = Norm(ns);
+				S.nb = S.ns;
+				S.vernis = 0.f;
+				S.vernisRug = 0.03f;
+				if (!sansVernis && !S.verre) {
+					S.vernis = m.vernis;
+					S.vernisRug = Max(m.vernisRug, 0.03f);
+					if (m.paillettes > 0.f)
+						S.nb = NormalePaillette(S.p, S.ns, m.paillettes, NkCpTaillePaillette(m.paillettesDensite));
+				}
 			}
 
 			// GGX (Trowbridge-Reitz), Smith separable, Schlick
@@ -475,16 +512,17 @@ namespace nkentseu {
 				const float32 k5 = k * k * k * k * k;
 				return f0 + (V3{1.f, 1.f, 1.f} - f0) * k5;
 			}
-			// BSDF opaque : valeur f x cos(wi)
-			V3 EvalBsdf(const Scene &g, const Surface &S, V3 wo, V3 wi) {
-				const float32 nl = Dot(S.ns, wi), nv = Dot(S.ns, wo);
+			// BSDF opaque de la BASE : valeur f x cos(wi), autour de la normale `n` (S.ns, ou la normale
+			// de la paillette S.nb). Avec n = S.ns : le calcul d'avant, au bit pres.
+			V3 EvalBase(const Scene &g, const Surface &S, V3 n, V3 wo, V3 wi) {
+				const float32 nl = Dot(n, wi), nv = Dot(n, wo);
 				if (nl <= 0.f || nv <= 0.f || Dot(S.ng, wi) <= 0.f)
 					return V3{0.f, 0.f, 0.f};
 				const V3 f0 = Schlick(V3{0.04f, 0.04f, 0.04f}, 1.f) * (1.f - S.metal) + S.albedo * S.metal;
 				const V3 h = Norm(wo + wi);
 				const float32 a2 = (S.rug * S.rug) * (S.rug * S.rug);
 				const V3 F = Schlick(f0, Max(0.f, Dot(wo, h)));
-				const float32 spec = DGgx(Max(0.f, Dot(S.ns, h)), a2) * G1(nl, a2) * G1(nv, a2) / (4.f * nl * nv + 1e-8f);
+				const float32 spec = DGgx(Max(0.f, Dot(n, h)), a2) * G1(nl, a2) * G1(nv, a2) / (4.f * nl * nv + 1e-8f);
 				const float32 invPi = g.mutationBanc ? 1.f : 1.f / kPi;
 				const V3 kd = Mul(S.albedo, V3{1.f, 1.f, 1.f} - F) * ((1.f - S.metal) * invPi);
 				V3 lustre{0.f, 0.f, 0.f};
@@ -492,7 +530,7 @@ namespace nkentseu {
 					// (10/11/2026) LE LUSTRE DES FIBRES (sheen) : distribution « Charlie » (Estevez et Kulla
 					// 2017) et visibilite de Neubelt -- la meme que pbr.frag.nksl. Teinte : la couleur
 					// eclaircie de moitie (le reflet des fibres est plus clair que leur fond).
-					const float32 nh = Max(0.f, Dot(S.ns, h));
+					const float32 nh = Max(0.f, Dot(n, h));
 					const float32 al = Max(S.lustreRug, 0.07f), inv = 1.f / al;
 					const float32 sin2 = Max(0.f, 1.f - nh * nh);
 					const float32 D = (2.f + inv) * (float32)math::NkPow((float64)sin2, (float64)(0.5f * inv)) / (2.f * kPi);
@@ -501,34 +539,95 @@ namespace nkentseu {
 				}
 				return (kd + F * spec + lustre) * nl;
 			}
+			// (10/11/2026) l'albedo directionnel du vernis (dielectrique n = 1,5, F0 = 0,04), vu sous nv : ce
+			// que la couche renvoie, et donc ce qu'elle retire a la base (Cycles : la base x (1 - albedo du
+			// vernis vu), mesure le 10/11 : le reflet large d'une base noire sous un vernis garde 94 %)
+			inline float32 AlbedoVernis(float32 nv) {
+				const float32 k = 1.f - (nv < 0.f ? 0.f : (nv > 1.f ? 1.f : nv));
+				return 0.04f + 0.96f * k * k * k * k * k;
+			}
+			// BSDF opaque : valeur f x cos(wi) -- la base (normale de paillette), puis le vernis (normale lisse)
+			V3 EvalBsdf(const Scene &g, const Surface &S, V3 wo, V3 wi) {
+				if (S.vernis <= 0.f)
+					return EvalBase(g, S, S.nb, wo, wi);
+				const float32 nl = Dot(S.ns, wi), nv = Dot(S.ns, wo);
+				if (nl <= 0.f || nv <= 0.f || Dot(S.ng, wi) <= 0.f)
+					return V3{0.f, 0.f, 0.f};
+				const V3 base = EvalBase(g, S, S.nb, wo, wi);
+				const V3 h = Norm(wo + wi);
+				const float32 a2 = (S.vernisRug * S.vernisRug) * (S.vernisRug * S.vernisRug);
+				const float32 kh = 1.f - Max(0.f, Dot(wo, h));
+				const float32 Fc = 0.04f + 0.96f * kh * kh * kh * kh * kh;
+				const float32 sc = DGgx(Max(0.f, Dot(S.ns, h)), a2) * G1(nl, a2) * G1(nv, a2) / (4.f * nl * nv + 1e-8f);
+				const float32 att = g.mutationVernis ? 1.f : 1.f - S.vernis * AlbedoVernis(nv);
+				const float32 c = S.vernis * Fc * sc * nl;
+				return base * att + V3{c, c, c};
+			}
 			float32 ProbaSpec(const Surface &S) {
 				return S.metal > 0.5f ? 1.f : (S.rug < 0.3f ? 0.4f : 0.15f);
 			}
-			float32 PdfBsdf(const Surface &S, V3 wo, V3 wi) {
-				const float32 nl = Dot(S.ns, wi);
+			// la part des tirages donnee au lobe du vernis (net : il porte le reflet du ciel)
+			inline float32 ProbaVernis(const Surface &S) {
+				return S.vernis > 0.f ? Min(0.5f, 0.2f + 0.3f * S.vernis) : 0.f;
+			}
+			float32 PdfBase(const Surface &S, V3 n, V3 wo, V3 wi) {
+				const float32 nl = Dot(n, wi);
 				if (nl <= 0.f)
 					return 0.f;
 				const V3 h = Norm(wo + wi);
 				const float32 a2 = (S.rug * S.rug) * (S.rug * S.rug);
-				const float32 nh = Max(0.f, Dot(S.ns, h));
+				const float32 nh = Max(0.f, Dot(n, h));
 				const float32 ps = ProbaSpec(S);
 				const float32 pSpec = DGgx(nh, a2) * nh / (4.f * Max(1e-6f, Dot(wo, h)));
 				return ps * pSpec + (1.f - ps) * nl / kPi;
 			}
-			V3 TirerBsdf(const Surface &S, V3 wo, Rng &r) {
+			float32 PdfBsdf(const Surface &S, V3 wo, V3 wi) {
+				const float32 pb = PdfBase(S, S.nb, wo, wi);
+				if (S.vernis <= 0.f)
+					return pb;
+				float32 pc = 0.f;
+				if (Dot(S.ns, wi) > 0.f) {
+					const V3 h = Norm(wo + wi);
+					const float32 a2 = (S.vernisRug * S.vernisRug) * (S.vernisRug * S.vernisRug);
+					const float32 nh = Max(0.f, Dot(S.ns, h));
+					pc = DGgx(nh, a2) * nh / (4.f * Max(1e-6f, Dot(wo, h)));
+				}
+				const float32 pv = ProbaVernis(S);
+				return (1.f - pv) * pb + pv * pc;
+			}
+			// un tirage GGX autour de n, de rugosite rug (u1, u2 donnes)
+			V3 TirerGgx(V3 n, float32 rug, V3 wo, float32 u1, float32 u2) {
 				V3 t, b;
-				Base(S.ns, t, b);
+				Base(n, t, b);
+				const float32 a2 = (rug * rug) * (rug * rug);
+				const float32 ct = Racine((1.f - u1) / (1.f + (a2 - 1.f) * u1));
+				const float32 st = Racine(1.f - ct * ct);
+				const float32 ph = 2.f * kPi * u2;
+				const V3 h = t * (st * math::NkCos(ph)) + b * (st * math::NkSin(ph)) + n * ct;
+				return h * (2.f * Dot(wo, h)) - wo;
+			}
+			V3 TirerBase(const Surface &S, V3 n, V3 wo, Rng &r) {
+				V3 t, b;
+				Base(n, t, b);
 				const float32 u1 = r.F(), u2 = r.F();
 				if (r.F() < ProbaSpec(S)) {
 					const float32 a2 = (S.rug * S.rug) * (S.rug * S.rug);
 					const float32 ct = Racine((1.f - u1) / (1.f + (a2 - 1.f) * u1));
 					const float32 st = Racine(1.f - ct * ct);
 					const float32 ph = 2.f * kPi * u2;
-					const V3 h = t * (st * math::NkCos(ph)) + b * (st * math::NkSin(ph)) + S.ns * ct;
+					const V3 h = t * (st * math::NkCos(ph)) + b * (st * math::NkSin(ph)) + n * ct;
 					return h * (2.f * Dot(wo, h)) - wo;
 				}
 				const float32 rr = Racine(u1), ph = 2.f * kPi * u2;
-				return Norm(t * (rr * math::NkCos(ph)) + b * (rr * math::NkSin(ph)) + S.ns * Racine(1.f - u1));
+				return Norm(t * (rr * math::NkCos(ph)) + b * (rr * math::NkSin(ph)) + n * Racine(1.f - u1));
+			}
+			V3 TirerBsdf(const Surface &S, V3 wo, Rng &r) {
+				// sans vernis : aucun tirage de plus (les rendus d'avant restent identiques)
+				if (S.vernis > 0.f && r.F() < ProbaVernis(S)) {
+					const float32 u1 = r.F(), u2 = r.F();
+					return TirerGgx(S.ns, S.vernisRug, wo, u1, u2);
+				}
+				return TirerBase(S, S.nb, wo, r);
 			}
 
 			V3 Ciel(const Scene &g, V3 d) {
@@ -693,11 +792,13 @@ namespace nkentseu {
 						break;
 					}
 					Surface S;
-					Surf(g, h, o, d, c.r->sansCartes, S);
+					Surf(g, h, o, d, c.r->sansCartes, c.r->sansVernis, S);
 					// (10/11) regularisation apres le premier rebond : un reflet net vu PAR un rebond diffus
-					// ne fait que des pics (caustiques) que le debruiteur ne sait pas lisser
-					if (c.r->regulariser && rebond > 0 && !S.verre)
+					// ne fait que des pics (caustiques) que le debruiteur ne sait pas lisser ; le vernis aussi
+					if (c.r->regulariser && rebond > 0 && !S.verre) {
 						S.rug = Max(S.rug, 0.3f);
+						S.vernisRug = Max(S.vernisRug, 0.3f);
+					}
 					if (speculaire && !c.sonde && Lum(S.emis) > 0.f) {
 						V3 e = Mul(beta, S.emis);
 						if (c.r->regulariser && rebond > 0) {
@@ -845,7 +946,13 @@ namespace nkentseu {
 							m *= 1.f / 8.f;
 							const float32 lp = Lum(Mk(il2[p * 3], il2[p * 3 + 1], il2[p * 3 + 2]));
 							const float32 plafond = 4.f * m + 1e-4f;
-							if (lp > plafond) {
+							// (10/11) une luciole est un pic NON CONVERGE (quelques echantillons sur des
+							// centaines : erreur relative de la moyenne ~ 1) ; l'eclat d'une PAILLETTE au soleil
+							// est un pic converge (une part stable des echantillons le voit : erreur < 0,3) --
+							// on le garde. `var` : la variance de la moyenne (luminance brute).
+							const float32 lb = Lum(Mk(rgb[p * 3], rgb[p * 3 + 1], rgb[p * 3 + 2]));
+							const bool converge = Racine(var[p]) < 0.3f * Max(lb, 1e-8f);
+							if (lp > plafond && !converge) {
 								const float32 k = plafond / lp;
 								il[p * 3] *= k;
 								il[p * 3 + 1] *= k;
@@ -1395,6 +1502,20 @@ namespace nkentseu {
 				for (usize i = 0; i < n; ++i)
 					pousse(g.s.cielTable[i * 3], g.s.cielTable[i * 3 + 1], g.s.cielTable[i * 3 + 2], 0.f);
 			}
+			// (10/11/2026) le vernis et les paillettes : un vec4 par matiere, a la suite, s'il y en a
+			p.offVernis = 0;
+			bool vernies = false;
+			for (usize i = 0; i < g.s.mats.Size(); ++i)
+				if (g.s.mats[i].vernis > 0.f || g.s.mats[i].paillettes > 0.f)
+					vernies = true;
+			if (vernies) {
+				p.offVernis = (int32)(p.scene.Size() / 4);
+				for (usize i = 0; i < g.s.mats.Size(); ++i) {
+					const NkScMateriau &m = g.s.mats[i];
+					const bool v = m.transmission <= 0.5f;
+					pousse(v ? m.vernis : 0.f, Max(m.vernisRug, 0.03f), v ? m.paillettes : 0.f, NkCpTaillePaillette(m.paillettesDensite));
+				}
+			}
 			return true;
 		}
 
@@ -1524,6 +1645,58 @@ namespace nkentseu {
 				g.mutationBanc = false;
 				return MoyenneCentre(tb, cam.L, cam.H);
 			}
+			// (10/11/2026) FOUR BLANC DU VERNIS : la sphere lambertienne BLANCHE vernie (poids `vernis`, paillettes
+			// `paill`) sous le ciel uniforme ; la moyenne sur presque tout le disque (les bords portent le
+			// Fresnel). Une base blanche rend deja presque tout : le vernis n'a rien a ajouter s'il retire a
+			// la base ce qu'il renvoie, et tout son albedo (~0,05) s'il ne le retire pas.
+			float32 FurnaceVernis(float32 vernis, float32 paill, bool mutation, int32 spp) {
+				Scene &g = G();
+				NkScArchviz s;
+				NkScMateriau m;
+				m.couleur[0] = m.couleur[1] = m.couleur[2] = 1.f;
+				m.rugosite = 1.f;
+				m.vernis = vernis;
+				m.vernisRug = 0.03f;
+				m.paillettes = paill;
+				m.paillettesDensite = NkCpDensiteDepuisTaille(0.02f); // des paillettes de 2 cm : plusieurs par pixel du banc
+				s.mats.PushBack(m);
+				const float32 c[3] = {0.f, 0.f, 0.f};
+				AjouterSphere(s, c, 1.f, 0, 4);
+				s.cielZenith[0] = s.cielZenith[1] = s.cielZenith[2] = 1.f;
+				s.cielHorizon[0] = s.cielHorizon[1] = s.cielHorizon[2] = 1.f;
+				s.cielIntensite = 1.f;
+				s.soleilE = 0.f;
+				g.s = s;
+				g.mutationVernis = mutation;
+				PreparerInterne(g, nullptr);
+				NkTcCamera cam;
+				cam.oeil[0] = 0.f;
+				cam.oeil[1] = 0.f;
+				cam.oeil[2] = 4.f;
+				cam.cible[0] = cam.cible[1] = cam.cible[2] = 0.f;
+				cam.focaleMM = 50.f; // demi-angle vertical : tan = 0,36 ; la sphere : tan = 0,258 -> 22,9 px
+				cam.L = cam.H = 64;
+				NkTcReglages r;
+				r.ecretage = 1e9f;
+				r.rebonds = 32;
+				Tampons tb;
+				InitTampons(tb, cam.L, cam.H);
+				uint64 ry = 0;
+				Passe(g, cam, r, tb, spp, 11, ry);
+				g.mutationVernis = false;
+				float64 som = 0.0;
+				int32 n = 0;
+				for (int32 y = 0; y < cam.H; ++y)
+					for (int32 x = 0; x < cam.L; ++x) {
+						const float32 dx = (float32)x + 0.5f - 32.f, dy = (float32)y + 0.5f - 32.f;
+						if (dx * dx + dy * dy > 21.5f * 21.5f)
+							continue;
+						const usize p = (usize)y * (usize)cam.L + (usize)x;
+						som += Lum(Mk(tb.somme[p * 3], tb.somme[p * 3 + 1], tb.somme[p * 3 + 2])) / (float32)tb.spp;
+						++n;
+					}
+				return (float32)(som / (float64)(n > 0 ? n : 1));
+			}
 			float32 PointSurPlan(int32 spp) {
 				// plan lambertien (albedo 0,5) a y = 0, source ponctuelle P = 1 a h = 2 m : E = P/(4 pi h^2)
 				Scene &g = G();
@@ -1607,6 +1780,31 @@ namespace nkentseu {
 				++echecs;
 			if (!ok3)
 				++echecs;
+			// (4) (10/11) FOUR BLANC DU VERNIS : la couche rend ce qu'elle prend a la base blanche. Rapport
+			// vernie / nue attendu 1 a 1,5 % (la base blanche renvoie ~0,98) ; sans l'attenuation de la base
+			// (contre-epreuve) : + l'albedo du vernis, ~5 %. LES PAILLETTES (quantite 0,5, celle de l'archviz)
+			// ne creent pas d'energie ; elles en perdent un peu (les directions de la base inclinee qui passent
+			// sous la surface, comme une normale inclinee dans Cycles) : rapport entre 0,93 et 1,01.
+			const float32 fn = FurnaceVernis(0.f, 0.f, false, 64);
+			const float32 fv = FurnaceVernis(1.f, 0.f, false, 64);
+			const float32 fvm = FurnaceVernis(1.f, 0.f, true, 64);
+			const float32 fp = FurnaceVernis(1.f, 0.5f, false, 64);
+			const float32 rv = fv / Max(1e-6f, fn), rvm = fvm / Max(1e-6f, fn), rp = fp / Max(1e-6f, fv);
+			const bool ok4 = rv > 0.985f && rv < 1.015f;
+			const bool ok4m = rvm > 1.03f;
+			const bool ok5 = rp > 0.93f && rp < 1.01f;
+			if (!ok4)
+				++echecs;
+			if (!ok4m)
+				++echecs;
+			if (!ok5)
+				++echecs;
+			NkPrintfSortie("[traceur] BANC four blanc du vernis : nue %.4f, vernie %.4f, rapport %.4f (attendu 1 a 1,5 %%) %s\n", (double)fn,
+						   (double)fv, (double)rv, ok4 ? "VERT" : "ROUGE");
+			NkPrintfSortie("[traceur] BANC contre-epreuve (base non attenuee) : rapport %.4f (doit depasser 1,03) %s\n", (double)rvm,
+						   ok4m ? "VERT (le banc voit la faute)" : "ROUGE (le banc ne voit rien)");
+			NkPrintfSortie("[traceur] BANC paillettes 0,5 : %.4f / vernie %.4f, rapport %.4f (attendu 0,93 a 1,01) %s\n", (double)fp,
+						   (double)fv, (double)rp, ok5 ? "VERT" : "ROUGE");
 			NkPrintfSortie("[traceur] BANC four blanc lambertien : %.4f (attendu 0,8 a 4 %%) %s\n", (double)f1, ok1 ? "VERT" : "ROUGE");
 			NkPrintfSortie("[traceur] BANC contre-epreuve (Lambert sans 1/pi) : %.4f (doit s'ecarter de 0,8) %s\n", (double)f1m,
 						   ok1m ? "VERT (le banc voit la faute)" : "ROUGE (le banc ne voit rien)");
