@@ -421,6 +421,11 @@ namespace nkentseu {
 			uint32 glslVersion = 430;		// OpenGL : #version 430 core
 			uint32 glslVulkanVersion = 450; // Vulkan : #version 450
 			uint32 vulkanVersion = 100;		// spv 1.0
+			// (10/11/2026, plan RTX etape 0) LA VERSION SPIR-V, choisie PAR NUANCEUR : 100 = 1.0 (le
+			// defaut, inchange pour tous), 103 / 104 / 105 / 106. 104 est celle de rayQuery
+			// (GL_EXT_ray_query). Lue par NkSLCompiler::GLSLtoSPIRV_glslang ; le client Vulkan suit
+			// (1.0 pour 1.0, 1.1 pour 1.3 et 1.4, 1.2 pour 1.5, 1.3 pour 1.6).
+			uint32 spirvVersion = 100;
 			bool glslEs = false;
 
 			// HLSL shader models (valeur ×10 : 50=SM5.0, 60=SM6.0, 66=SM6.6)

@@ -270,7 +270,31 @@ vec3 TirerBsdf(vec3 ns, float rug, float met, vec3 wo) {
     float ph = 6.28318531 * u2;
     return normalize(t * (rr * cos(ph)) + b * (rr * sin(ph)) + ns * sqrt(max(0.0, 1.0 - u1)));
 }
+// (10/11/2026) le ciel en table (NkHosekCielTable) : off1.w = decalage dans la scene (0 : degrade),
+// hor.w = largeur, solE.w = hauteur ; bilineaire, periodique en phi (meme lecture que le processeur)
+vec3 CielTexel(float x, float y) {
+    float W = P.hor.w;
+    float H = P.solE.w;
+    float xx = x - W * floor(x / W);
+    float yy = clamp(y, 0.0, H - 1.0);
+    return S.d[int(P.off1.w) + int(yy) * int(W) + int(xx)].xyz;
+}
 vec3 Ciel(vec3 d) {
+    if (P.off1.w > 0.5) {
+        float th = acos(clamp(d.y, -1.0, 1.0));
+        // atan2(0, 0) est indefini sur la carte (NaN) : un rayon exactement vertical l'atteint
+        float ph = (abs(d.x) + abs(d.z) > 1e-7) ? atan(d.z, d.x) : 0.0;
+        if (ph < 0.0) ph = ph + 6.28318531;
+        float fx = ph / 6.28318531 * P.hor.w - 0.5;
+        float fy = th / 3.14159265 * P.solE.w - 0.5;
+        float x0 = floor(fx);
+        float y0 = floor(fy);
+        float tx = fx - x0;
+        float ty = fy - y0;
+        vec3 a = mix(CielTexel(x0, y0), CielTexel(x0 + 1.0, y0), tx);
+        vec3 b = mix(CielTexel(x0, y0 + 1.0), CielTexel(x0 + 1.0, y0 + 1.0), tx);
+        return mix(a, b, ty) * P.zen.w;
+    }
     if (d.y < 0.0) return P.hor.xyz * P.zen.w;
     float k = sqrt(d.y);
     return (P.hor.xyz * (1.0 - k) + P.zen.xyz * k) * P.zen.w;
@@ -389,7 +413,18 @@ vec3 Chemin(vec3 o, vec3 d, out vec3 aAlb, out vec3 aNrm, out float aZ) {
         float met;
         bool verre;
         Surf(tri, b1, b2, o, d, th, p, ng, ns, alb, emis, rug, met, verre);
-        if (spec && LumC(emis) > 0.0) L = L + beta * emis;
+        // (10/11) contre les lucioles (P.cartes[12].w = 1) : rugosite regularisee apres le premier
+        // rebond, emission vue apres un rebond ecretee (comme NkTraceurChemins.cpp)
+        bool regul = P.cartes[12].w > 0.5;
+        if (regul && rebond > 0 && !verre) rug = max(rug, 0.3);
+        if (spec && LumC(emis) > 0.0) {
+            vec3 e = beta * emis;
+            if (regul && rebond > 0) {
+                float le = LumC(e);
+                if (le > P.p0.w) e = e * (P.p0.w / le);
+            }
+            L = L + e;
+        }
         if (verre) {
             bool entre = dot(d, ng) < 0.0;
             vec3 n = entre ? ng : -ng;
@@ -436,7 +471,8 @@ vec3 Chemin(vec3 o, vec3 d, out vec3 aAlb, out vec3 aNrm, out float aZ) {
         vec3 f = EvalBsdf(ng, ns, alb, rug, met, wo, wi);
         if (LumC(f) <= 0.0) break;
         beta = beta * f / pdf;
-        spec = rug < 0.08;
+        // (10/11) seul le verre garde la vue du disque et de l'emission (la lumiere directe les compte)
+        spec = regul ? false : rug < 0.08;
         if (rebond >= 3) {
             float q = min(0.95, max(beta.x, max(beta.y, beta.z)));
             if (Rnd() > q) break;
@@ -476,6 +512,9 @@ void main() {
         float zz;
         vec3 c = Chemin(P.oeil.xyz, d, a, nn, zz);
         if (!(c.x == c.x && c.y == c.y && c.z == c.z) || c.x > 1e20 || c.y > 1e20 || c.z > 1e20) c = vec3(0.0, 0.0, 0.0);
+        // (10/11) le test x == x peut etre optimise par le compilateur HLSL : max/min ecartent un NaN
+        // (semantique D3D : min(NaN, x) = x), la borne reste celle du processeur
+        c = min(max(c, vec3(0.0, 0.0, 0.0)), vec3(1e20, 1e20, 1e20));
         sL = sL + c;
         sA = sA + a;
         sN = sN + nn;

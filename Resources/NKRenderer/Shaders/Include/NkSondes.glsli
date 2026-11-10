@@ -54,8 +54,9 @@ vec4 NkSondesEclairement(vec3 sdPos, vec3 sdNor, vec3 sdVue, vec3 sdRefl, out ve
     vec3 sdN = floor((uCam.sondeMax.xyz - sdO) / sdPas + vec3(0.5, 0.5, 0.5)) + vec3(1.0, 1.0, 1.0);
     vec3 sdDims = vec3(sdN.x * 10.0, sdN.z * 10.0, sdN.y * 2.0);
     float sdVis = (uCam.sondeMax.w < 2.5 || uCam.sondeMax.w > 3.5) ? 1.0 : 0.0;
-    // le biais : vers la normale et vers l'oeil (Majercik 2019), une fraction du sdPas
-    vec3 sdPb = sdPos + (sdNor * 0.6 + sdVue * 0.4) * (0.3 * sdPas);
+    // le biais : vers la normale et vers l'oeil (Majercik 2019), une fraction du pas (0,5 : le point
+    // sort de la couche de sondes collee a une surface ; 0,3 laissait des taches, essai du 10/11)
+    vec3 sdPb = sdPos + (sdNor * 0.7 + sdVue * 0.3) * (0.5 * sdPas);
     vec3 sdGb = (sdPb - sdO) / sdPas;
     // hors de la grille (l'enveloppe et sa marge) : le ciel, tout simplement
     float sdHors = (any(lessThan(sdGb, vec3(0.0, 0.0, 0.0))) || any(greaterThan(sdGb, sdN - vec3(1.0, 1.0, 1.0)))) ? 1.0 : 0.0;
@@ -91,8 +92,9 @@ vec4 NkSondesEclairement(vec3 sdPos, vec3 sdNor, vec3 sdVue, vec3 sdRefl, out ve
         sdCheb = sdEcart > 0.0 ? sdCheb * sdCheb * sdCheb : 1.0;
         sdW *= mix(1.0, max(sdCheb, 0.0), sdVis);
         sdW = max(sdW, 1e-6);
-        // les poids minuscules sont ecrases (Majercik 2019) : moins de bruit de fuite
-        if (sdW < 0.2) sdW *= sdW * sdW * 25.0;
+        // (10/11/2026) PAS d'ecrasement des poids faibles (w < 0,2 -> w^3 / 0,04, Majercik 2019) : il
+        // dessinait au plafond le MOTIF de la grille (des losanges au pas des sondes), mesure sur le
+        // sejour au soleil haut (0,767 -> 0,775) ; la fuite reste tenue par Chebyshev (banc du mur fin)
         vec4 sdIrr = NkSdLire(sdIp, sdOctN, 0.0, sdDims);
         sdW *= sdIrr.a >= -0.5 ? 1.0 : 0.0; // a = -1 : une sonde enfermee dans un mur est eteinte
         sdSomme += sdIrr.rgb * sdW;

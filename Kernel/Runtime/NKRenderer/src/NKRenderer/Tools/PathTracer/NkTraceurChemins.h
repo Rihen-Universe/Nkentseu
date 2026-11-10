@@ -56,6 +56,17 @@ namespace nkentseu {
 				// contre-epreuves
 				bool sansSoleil = false, sansCiel = false, sansSources = false, unRebond = false;
 				bool sansCartes = false;
+				// (10/11/2026) LES LUCIOLES des surfaces sombres et brillantes (ecrans, bureaux noirs) :
+				// le disque solaire et l'emission ne comptent plus par un rebond GGX (la lumiere directe
+				// les compte deja : double compte et pics geants), la rugosite est regularisee apres le
+				// premier rebond (>= 0,3), l'emission vue apres un rebond est ecretee. Faux : le chemin
+				// d'avant (contre-epreuve, NK_TRACEUR_LUCIOLES=1).
+				bool regulariser = true;
+				// (10/11/2026) LA BALANCE DES BLANCS (avant l'exposition) : `balanceK` > 0 neutralise une
+				// lumiere de cette temperature (K) ; `balanceX`, `balanceY` >= 0 : la moyenne d'une fenetre
+				// de (2 balanceR + 1)^2 pixels posee sur une surface blanche devient grise. Rien par defaut.
+				float32 balanceK = 0.f;
+				int32 balanceX = -1, balanceY = -1, balanceR = 8;
 		};
 
 		struct NkTcStats {
@@ -88,6 +99,7 @@ namespace nkentseu {
 				float32 soleilDir[3] = {0.f, 1.f, 0.f}, soleilE[3] = {0.f, 0.f, 0.f};
 				float32 zenith[3] = {0.f, 0.f, 0.f}, horizon[3] = {0.f, 0.f, 0.f};
 				float32 cielIntensite = 1.f;
+				int32 offCiel = 0, cielW = 0, cielH = 0; ///< (10/11) le ciel en table, a la suite de la scene
 		};
 		bool NkTcEmpaqueter(NkTcPaquet &p);
 		/// La fin commune (moyennes, exposition, image brute, debruiteur, image) depuis les sommes de la

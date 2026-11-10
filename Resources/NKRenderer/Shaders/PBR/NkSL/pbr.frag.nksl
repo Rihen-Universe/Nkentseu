@@ -248,7 +248,7 @@ float SampleLight3DCubeCookie(int idx, vec3 dir) {
 // (09/11/2026) ce nuanceur declare voxelMin / voxelMax : la grille suit la scene.
 // ⚠ LA CLE DU CACHE (.nksc) SE CALCULE SUR CE TEXTE, PAS SUR LES INCLUSIONS : toute
 // modification de Include/NkVoxelAO.glsli doit monter cette revision, sinon le cache
-// ressert l'ancien nuanceur. Revision de l'inclusion : 8 (10/11 : sondes au binding 1, dedans/dehors, reflexion ; NkSondes.glsli).
+// ressert l'ancien nuanceur. Revision de l'inclusion : 12 (10/11 : sondes au binding 1, dedans/dehors, reflexion ; NkSondes.glsli).
 #define NK_VOXEL_BORNES_UCAM 1
 #include "Include/NkVoxelAO.glsli"
 #include "Include/NkSondes.glsli"

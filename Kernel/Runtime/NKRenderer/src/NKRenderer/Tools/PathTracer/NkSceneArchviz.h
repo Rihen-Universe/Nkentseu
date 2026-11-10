@@ -73,6 +73,11 @@ namespace nkentseu {
 				float32 cielZenith[3] = {0.25f, 0.45f, 0.85f};
 				float32 cielHorizon[3] = {0.75f, 0.85f, 0.95f};
 				float32 cielIntensite = 1.f;
+				// (10/11/2026) LE CIEL EN TABLE lat-long (W x H, RGB a plat ; theta depuis le zenith,
+				// phi autour de +y depuis +x vers +z : NkHosekCielTable). Present, il remplace le
+				// degrade (x cielIntensite).
+				NkVector<float32> cielTable;
+				int32 cielW = 0, cielH = 0;
 				float32 expositionEV = 10.f;
 				float32 mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
 				// le compte rendu de l'attribution (preuve : le meme compte que la reference Cycles)

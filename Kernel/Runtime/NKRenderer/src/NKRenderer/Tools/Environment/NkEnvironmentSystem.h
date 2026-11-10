@@ -19,6 +19,7 @@
 #include "NKRenderer/Core/NkRendererTypes.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKContainers/String/NkString.h"
+#include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
 	namespace renderer {
@@ -134,6 +135,27 @@ namespace nkentseu {
 		// NORMALISATION : on evalue une reference pour caler l'exposition sans
 		// avoir a regler un facteur a l'oeil.
 		NkVec3f NkHosekEvalRGB(const NkHosekSkyCoeffs &c, float32 cosTheta, float32 gamma);
+
+		// ── (10/11/2026) LE CIEL HOSEK-WILKIE SUR LE PROCESSEUR, TEL QUE LE NUANCEUR LE MONTRE ──
+		// Meme cuisson et meme normalisation que NkRender3D (« NORMALISATION SANS OEIL » : la
+		// reference a 47 deg ramenee a 1, x sunIntensity ; fondu sous l'horizon), meme formule
+		// que NkSkyHosek (skybox.frag.nksl), SANS le disque solaire (le soleil est une lumiere).
+		// Sert a l'IBL (la cubemap d'eclairage suit enfin le ciel affiche), au traceur de chemins
+		// et a la reference Cycles (la meme table).
+		struct NkSkyParams; // plus bas
+		struct NkHosekCiel {
+				NkHosekSkyCoeffs cur;
+				float32 echelle = 1.f, fondu = 1.f;
+				NkVec3f versSoleil = {0.f, 1.f, 0.f};
+				NkVec3f sol = {0.10f, 0.08f, 0.06f};
+		};
+		void NkHosekCielPreparer(const NkSkyParams &P, NkHosekCiel &c);
+		/// radiance du ciel dans la direction (dx, dy, dz) unitaire, Y en haut
+		NkVec3f NkHosekCielEval(const NkHosekCiel &c, float32 dx, float32 dy, float32 dz);
+		/// La table lat-long (W x H, RGB a plat) de la radiance x `facteur` : texel (i, j) =
+		/// theta = pi (j + 0,5) / H depuis le zenith, phi = 2 pi (i + 0,5) / W ;
+		/// direction = (sin theta cos phi, cos theta, sin theta sin phi).
+		void NkHosekCielTable(const NkSkyParams &P, float32 facteur, int32 W, int32 H, NkVector<float32> &rgb);
 
 		// Parametres complets du ciel procedural. La COUCHE DE NUAGES est
 		// independante du modele de base : on peut couvrir aussi bien un degrade

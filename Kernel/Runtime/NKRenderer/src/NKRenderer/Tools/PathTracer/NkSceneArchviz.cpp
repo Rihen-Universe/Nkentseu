@@ -425,7 +425,12 @@ namespace nkentseu {
 									  {"marbre", kMatCeramique},   {"quartz", kMatCeramique},  {"metal", kMatMetal},
 									  {"laiton", kMatMetal},	   {"plante", kMatFeuillage},  {"gazon", kMatHerbe},
 									  {"terre_vegetale", kMatHerbe}, {"cuir", kMatCuir},	   {"tissu", kMatCuir},
-									  {"laine", kMatCuir},		   {"terre_cuite", kMatPierre}};
+									  {"laine", kMatCuir},		   {"terre_cuite", kMatPierre},
+									  // (10/11/2026, signale par l'archviz) les PLACAGES (placage_chene_clair...)
+									  // et les TEXTILES (textile_lin_blanc...) n'avaient AUCUNE carte : leurs
+									  // noms ne contenaient aucun mot de la liste. Placage : le fil du bois ;
+									  // textile : en attendant une vraie trame, le grain du cuir/tissu.
+									  {"placage", kMatBois},	   {"textile", kMatCuir}};
 				for (usize i = 0; i < sizeof(k) / sizeof(k[0]); ++i)
 					if (Contient(nom, k[i].mot)) {
 						tuile = NkMatiereDe(k[i].classe).tuileM;

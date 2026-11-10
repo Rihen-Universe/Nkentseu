@@ -56,7 +56,7 @@ namespace nkentseu {
 		glslang::FinalizeProcess();
 	}
 
-	NkGLSLCompileResult NkGLSLToSPIRV(NkSLStage stage, const char *glslSrc, const char *entry) {
+	NkGLSLCompileResult NkGLSLToSPIRV(NkSLStage stage, const char *glslSrc, const char *entry, uint32 spirvVersion) {
 		NkGLSLCompileResult result;
 
 		// glslang EXIGE InitializeProcess() une fois par process avant tout
@@ -81,8 +81,32 @@ namespace nkentseu {
 
 		// Configuration Vulkan 1.0 / GLSL 450
 		shader.setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 100);
-		shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_0);
-		shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_0);
+		// (10/11/2026, plan RTX etape 0) la version SPIR-V du NUANCEUR et le client Vulkan qui la porte ;
+		// 1.0 par defaut, comme avant
+		glslang::EShTargetClientVersion client = glslang::EShTargetVulkan_1_0;
+		glslang::EShTargetLanguageVersion cible = glslang::EShTargetSpv_1_0;
+		switch (spirvVersion) {
+			case 103u:
+				client = glslang::EShTargetVulkan_1_1;
+				cible = glslang::EShTargetSpv_1_3;
+				break;
+			case 104u:
+				client = glslang::EShTargetVulkan_1_1;
+				cible = glslang::EShTargetSpv_1_4;
+				break;
+			case 105u:
+				client = glslang::EShTargetVulkan_1_2;
+				cible = glslang::EShTargetSpv_1_5;
+				break;
+			case 106u:
+				client = glslang::EShTargetVulkan_1_3;
+				cible = glslang::EShTargetSpv_1_6;
+				break;
+			default:
+				break;
+		}
+		shader.setEnvClient(glslang::EShClientVulkan, client);
+		shader.setEnvTarget(glslang::EShTargetSpv, cible);
 		shader.setEntryPoint(entry ? entry : "main");
 
 		const char *srcs[] = {glslSrc};
@@ -166,7 +190,7 @@ namespace nkentseu {
 	void NkGLSLCompilerShutdown() {
 	}
 
-	NkGLSLCompileResult NkGLSLToSPIRV(NkSLStage /*stage*/, const char * /*glslSrc*/, const char * /*entry*/) {
+	NkGLSLCompileResult NkGLSLToSPIRV(NkSLStage /*stage*/, const char * /*glslSrc*/, const char * /*entry*/, uint32 /*spirvVersion*/) {
 		NkGLSLCompileResult r;
 		r.errorLog = "NkGLSLToSPIRV: NKGLSlang desactive a la compilation "
 					 "(rebuild avec NK_ENABLE_GLSLANG=1)";

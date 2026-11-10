@@ -15,6 +15,7 @@
 #include "NKMath/NkFunctions.h"
 #include "NKTime/NkChrono.h"
 #include "NKPlatform/NkEnv.h"
+#include "NKRenderer/Core/NkRendererTypes.h" // NkLightEffectiveColor (la temperature de la balance des blancs)
 
 namespace nkentseu {
 	namespace renderer {
@@ -517,6 +518,28 @@ namespace nkentseu {
 
 			V3 Ciel(const Scene &g, V3 d) {
 				const NkScArchviz &s = g.s;
+				// (10/11/2026) LE CIEL EN TABLE (le ciel physique du temps reel, NkHosekCielTable) :
+				// bilineaire en (phi, theta), periodique en phi
+				if (s.cielW > 0 && s.cielH > 0 && s.cielTable.Size() >= (usize)s.cielW * (usize)s.cielH * 3u) {
+					const float32 yy = d.y < -1.f ? -1.f : (d.y > 1.f ? 1.f : d.y);
+					const float32 th = math::NkAcos(yy);
+					float32 ph = math::NkAtan2(d.z, d.x);
+					if (ph < 0.f)
+						ph += 2.f * kPi;
+					const float32 fx = ph / (2.f * kPi) * (float32)s.cielW - 0.5f;
+					const float32 fy = th / kPi * (float32)s.cielH - 0.5f;
+					int32 x0 = (int32)math::NkFloor(fx), y0 = (int32)math::NkFloor(fy);
+					const float32 tx = fx - (float32)x0, ty = fy - (float32)y0;
+					auto texel = [&](int32 x, int32 y) {
+						x = ((x % s.cielW) + s.cielW) % s.cielW;
+						y = y < 0 ? 0 : (y >= s.cielH ? s.cielH - 1 : y);
+						const float32 *p = s.cielTable.Data() + ((usize)y * (usize)s.cielW + (usize)x) * 3u;
+						return Mk(p[0], p[1], p[2]);
+					};
+					const V3 a = texel(x0, y0) * (1.f - tx) + texel(x0 + 1, y0) * tx;
+					const V3 b = texel(x0, y0 + 1) * (1.f - tx) + texel(x0 + 1, y0 + 1) * tx;
+					return (a * (1.f - ty) + b * ty) * s.cielIntensite;
+				}
 				const V3 hz = Mk(s.cielHorizon[0], s.cielHorizon[1], s.cielHorizon[2]);
 				const V3 ze = Mk(s.cielZenith[0], s.cielZenith[1], s.cielZenith[2]);
 				// sous l'horizon : la teinte d'horizon (le terrain cache ces directions dans la
@@ -656,8 +679,19 @@ namespace nkentseu {
 					}
 					Surface S;
 					Surf(g, h, o, d, c.r->sansCartes, S);
-					if (speculaire && !c.sonde && Lum(S.emis) > 0.f)
-						L = L + Mul(beta, S.emis);
+					// (10/11) regularisation apres le premier rebond : un reflet net vu PAR un rebond diffus
+					// ne fait que des pics (caustiques) que le debruiteur ne sait pas lisser
+					if (c.r->regulariser && rebond > 0 && !S.verre)
+						S.rug = Max(S.rug, 0.3f);
+					if (speculaire && !c.sonde && Lum(S.emis) > 0.f) {
+						V3 e = Mul(beta, S.emis);
+						if (c.r->regulariser && rebond > 0) {
+							const float32 l = Lum(e);
+							if (l > c.r->ecretage)
+								e = e * (c.r->ecretage / l);
+						}
+						L = L + e;
+					}
 					if (S.verre) {
 						// dielectrique lisse n = 1,5 : Fresnel exact, reflexion ou refraction
 						const bool entre = Dot(d, S.ng) < 0.f;
@@ -708,7 +742,9 @@ namespace nkentseu {
 					if (Lum(f) <= 0.f)
 						break;
 					beta = Mul(beta, f * (1.f / pdf));
-					speculaire = S.rug < 0.08f;
+					// (10/11) seul le verre (un vrai miroir de Dirac) garde la vue du disque solaire et de
+					// l'emission : apres un GGX, la lumiere directe les a deja comptes
+					speculaire = c.r->regulariser ? false : S.rug < 0.08f;
 					if (rebond >= 3) {
 						const float32 q = Min(0.95f, Max(beta.x, Max(beta.y, beta.z)));
 						if (r.F() > q)
@@ -750,17 +786,57 @@ namespace nkentseu {
 			// LE DEBRUITEUR : ondelette a trous a arretes preservees (Dammertz et al. 2010), sur
 			// l'eclairement demodule, guide par normale, profondeur et variance de luminance.
 			void Debruiter(NkVector<float32> &rgb, const NkVector<float32> &alb, const NkVector<float32> &nrm,
-						   const NkVector<float32> &z, const NkVector<float32> &var, int32 L, int32 H) {
+						   const NkVector<float32> &z, const NkVector<float32> &var, int32 L, int32 H, bool rejeter = false) {
 				const usize n = (usize)L * (usize)H;
 				NkVector<float32> il, il2, va, va2;
 				il.Resize(n * 3);
 				il2.Resize(n * 3);
 				va.Resize(n);
 				va2.Resize(n);
+				// (10/11/2026) le PLANCHER de la demodulation : 0,02 divisait par 50 la lumiere d'une surface
+				// noire et brillante -- son reflet, qui ne doit rien a l'albedo, devenait un bruit enorme que
+				// le filtre gardait. 0,08 (l'ordre du reflet speculaire dielectrique, F0 = 0,04, plus un peu de
+				// diffus) le divise par 12. Le meme plancher sert a remoduler : l'image moyenne ne bouge pas.
+				const float32 plancher = rejeter ? 0.08f : 0.02f;
 				for (usize i = 0; i < n; ++i) {
 					for (int32 k = 0; k < 3; ++k)
-						il[i * 3 + (usize)k] = rgb[i * 3 + (usize)k] / Max(alb[i * 3 + (usize)k], 0.02f);
-					va[i] = var[i];
+						il[i * 3 + (usize)k] = rgb[i * 3 + (usize)k] / Max(alb[i * 3 + (usize)k], plancher);
+					// la variance suit la demodulation (elle mesurait la luminance BRUTE : sur une surface
+					// sombre, l'arret sur la luminance demodulee etait 1 / albedo^2 trop severe -- le filtre
+					// n'y lissait presque rien)
+					if (rejeter) {
+						const float32 a = Max(Lum(Mk(alb[i * 3], alb[i * 3 + 1], alb[i * 3 + 2])), plancher);
+						va[i] = var[i] / (a * a);
+					} else
+						va[i] = var[i];
+				}
+				// (10/11/2026) LE REJET DES LUCIOLES avant le filtre : un pixel plus de 4 fois plus lumineux que
+				// la moyenne de ses 8 voisins est ramene a ce plafond. Sur une surface sombre et brillante, le
+				// reflet d'une baie tire par le lobe GGX allume un pixel sur cent ; demodule par un albedo
+				// sombre, il devient un pic que le filtre a arretes preserve. Le filtre a trous le garde
+				// sinon : sa ponderation de luminance le prend pour une arete.
+				if (rejeter) {
+					il2 = il;
+					for (int32 y = 1; y + 1 < H; ++y)
+						for (int32 x = 1; x + 1 < L; ++x) {
+							const usize p = (usize)y * (usize)L + (usize)x;
+							float32 m = 0.f;
+							for (int32 j = -1; j <= 1; ++j)
+								for (int32 i = -1; i <= 1; ++i)
+									if (i != 0 || j != 0) {
+										const usize q = (usize)(y + j) * (usize)L + (usize)(x + i);
+										m += Lum(Mk(il2[q * 3], il2[q * 3 + 1], il2[q * 3 + 2]));
+									}
+							m *= 1.f / 8.f;
+							const float32 lp = Lum(Mk(il2[p * 3], il2[p * 3 + 1], il2[p * 3 + 2]));
+							const float32 plafond = 4.f * m + 1e-4f;
+							if (lp > plafond) {
+								const float32 k = plafond / lp;
+								il[p * 3] *= k;
+								il[p * 3 + 1] *= k;
+								il[p * 3 + 2] *= k;
+							}
+						}
 				}
 				const float32 h5[5] = {1.f / 16.f, 1.f / 4.f, 3.f / 8.f, 1.f / 4.f, 1.f / 16.f};
 				threading::NkThreadPool &pool = threading::NkThreadPool::GetGlobal();
@@ -817,7 +893,7 @@ namespace nkentseu {
 				}
 				for (usize i = 0; i < n; ++i)
 					for (int32 k = 0; k < 3; ++k)
-						rgb[i * 3 + (usize)k] = il[i * 3 + (usize)k] * Max(alb[i * 3 + (usize)k], 0.02f);
+						rgb[i * 3 + (usize)k] = il[i * 3 + (usize)k] * Max(alb[i * 3 + (usize)k], plancher);
 			}
 
 			// Rendu dans des tampons (sert au banc et a NkTcRendre)
@@ -1068,6 +1144,46 @@ namespace nkentseu {
 			Scene &g = G();
 			NkVector<float32> rgb, alb, nrm, z, var;
 			Moyennes(tb, cam.L, cam.H, rgb, alb, nrm, z, var);
+			// (10/11/2026) LA BALANCE DES BLANCS, sur la radiance (avant l'exposition et le debruiteur) :
+			// une temperature a neutraliser (K, la teinte de NkLightEffectiveColor), ou la moyenne d'une
+			// fenetre posee sur une surface blanche. Gains a luminance constante : seule la teinte bouge.
+			if (r.balanceK > 0.f || r.balanceX >= 0) {
+				V3 teinte{1.f, 1.f, 1.f};
+				const char *quoi = "temperature";
+				if (r.balanceX >= 0 && r.balanceY >= 0) {
+					quoi = "surface blanche";
+					V3 s{0.f, 0.f, 0.f};
+					int32 nb = 0;
+					for (int32 y = r.balanceY - r.balanceR; y <= r.balanceY + r.balanceR; ++y)
+						for (int32 x = r.balanceX - r.balanceR; x <= r.balanceX + r.balanceR; ++x) {
+							if (x < 0 || y < 0 || x >= cam.L || y >= cam.H)
+								continue;
+							const usize i = ((usize)y * (usize)cam.L + (usize)x) * 3u;
+							s = s + Mk(rgb[i], rgb[i + 1], rgb[i + 2]);
+							++nb;
+						}
+					if (nb > 0)
+						teinte = s * (1.f / (float32)nb);
+				} else {
+					NkLightDesc ld;
+					ld.color = {1.f, 1.f, 1.f};
+					ld.temperatureK = r.balanceK;
+					const NkVec3f t = NkLightEffectiveColor(ld);
+					ld.temperatureK = 6500.f;
+					const NkVec3f b = NkLightEffectiveColor(ld);
+					teinte = Mk(t.x / Max(b.x, 1e-4f), t.y / Max(b.y, 1e-4f), t.z / Max(b.z, 1e-4f));
+				}
+				const float32 lt = Lum(teinte);
+				const V3 gain = Mk(lt / Max(teinte.x, 1e-6f), lt / Max(teinte.y, 1e-6f), lt / Max(teinte.z, 1e-6f));
+				const usize n = (usize)cam.L * (usize)cam.H;
+				for (usize i = 0; i < n; ++i) {
+					rgb[i * 3] *= gain.x;
+					rgb[i * 3 + 1] *= gain.y;
+					rgb[i * 3 + 2] *= gain.z;
+				}
+				NkPrintfSortie("[traceur] BALANCE DES BLANCS (%s) : gains %.3f %.3f %.3f\n", quoi, (double)gain.x, (double)gain.y,
+							   (double)gain.z);
+			}
 			// l'exposition
 			float32 expo = 1000.f / (1.2f * (float32)math::NkPow(2.0, (float64)g.s.expositionEV));
 			if (r.expoAuto) {
@@ -1088,7 +1204,7 @@ namespace nkentseu {
 			bool ok = EcrirePng(brut, rgb, cam.L, cam.H, expo);
 			const NkElapsedTime t1 = NkChrono::Now();
 			if (r.debruiter)
-				Debruiter(rgb, alb, nrm, z, var, cam.L, cam.H);
+				Debruiter(rgb, alb, nrm, z, var, cam.L, cam.H, r.regulariser);
 			const float64 msDeb = (NkChrono::Now() - t1).ToMilliseconds();
 			ok = EcrirePng(png, rgb, cam.L, cam.H, expo) && ok;
 			if (stats) {
@@ -1253,6 +1369,17 @@ namespace nkentseu {
 				p.horizon[a] = g.s.cielHorizon[a];
 			}
 			p.cielIntensite = g.s.cielIntensite;
+			// (10/11/2026) le ciel en table, a la suite (rgb, 0) ; offCiel = 0 : le degrade
+			p.offCiel = 0;
+			p.cielW = p.cielH = 0;
+			if (g.s.cielW > 0 && g.s.cielH > 0 && g.s.cielTable.Size() >= (usize)g.s.cielW * (usize)g.s.cielH * 3u) {
+				p.offCiel = (int32)(p.scene.Size() / 4);
+				p.cielW = g.s.cielW;
+				p.cielH = g.s.cielH;
+				const usize n = (usize)g.s.cielW * (usize)g.s.cielH;
+				for (usize i = 0; i < n; ++i)
+					pousse(g.s.cielTable[i * 3], g.s.cielTable[i * 3 + 1], g.s.cielTable[i * 3 + 2], 0.f);
+			}
 			return true;
 		}
 

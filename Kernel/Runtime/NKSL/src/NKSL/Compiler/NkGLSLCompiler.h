@@ -19,7 +19,9 @@ namespace nkentseu {
 			const char *errorLog = nullptr; // pointeur vers buffer statique interne
 	};
 
-	NkGLSLCompileResult NkGLSLToSPIRV(NkSLStage stage, const char *glslSrc, const char *entry = "main");
+	/// (10/11/2026, plan RTX etape 0) `spirvVersion` : la version SPIR-V du NUANCEUR (100 = 1.0, le
+	/// defaut d'avant ; 103 / 104 / 105 / 106), le client Vulkan suit (NkSLCompileOptions.spirvVersion).
+	NkGLSLCompileResult NkGLSLToSPIRV(NkSLStage stage, const char *glslSrc, const char *entry = "main", uint32 spirvVersion = 100u);
 	void NkGLSLCompilerInit();
 	void NkGLSLCompilerShutdown();
 

@@ -177,14 +177,17 @@ namespace nkentseu {
 			Pose(pr.rt, rt[0], rt[1], rt[2], (float32)cam.L);
 			Pose(pr.up, up[0], up[1], up[2], (float32)cam.H);
 			Pose(pr.sol, pq.soleilDir[0], pq.soleilDir[1], pq.soleilDir[2], 0.99998918f);
-			Pose(pr.solE, pq.soleilE[0], pq.soleilE[1], pq.soleilE[2], 0.f);
+			// (10/11/2026) le ciel en table : solE.w = hauteur, hor.w = largeur, off1.w = decalage (0 : degrade)
+			Pose(pr.solE, pq.soleilE[0], pq.soleilE[1], pq.soleilE[2], (float32)pq.cielH);
 			Pose(pr.zen, pq.zenith[0], pq.zenith[1], pq.zenith[2], pq.cielIntensite);
-			Pose(pr.hor, pq.horizon[0], pq.horizon[1], pq.horizon[2], 0.f);
+			Pose(pr.hor, pq.horizon[0], pq.horizon[1], pq.horizon[2], (float32)pq.cielW);
 			Pose(pr.drap, r.sansSoleil ? 1.f : 0.f, r.sansCiel ? 1.f : 0.f, r.sansSources ? 1.f : 0.f, r.sansCartes ? 1.f : 0.f);
 			Pose(pr.off0, (float32)pq.offNoeuds, (float32)pq.offTris, (float32)pq.offSommets, (float32)pq.offMats);
-			Pose(pr.off1, (float32)pq.offSources, (float32)pq.nSources, pq.puissanceTotale, 0.f);
+			Pose(pr.off1, (float32)pq.offSources, (float32)pq.nSources, pq.puissanceTotale, (float32)pq.offCiel);
+			// cartes[12].w (libre) : (10/11) la regularisation contre les lucioles (NkTcReglages.regulariser)
 			for (int32 c = 0; c < 13; ++c)
-				Pose(pr.cartes[c], (float32)pq.carteOff[c], (float32)pq.carteW[c], (float32)pq.carteH[c], 0.f);
+				Pose(pr.cartes[c], (float32)pq.carteOff[c], (float32)pq.carteW[c], (float32)pq.carteH[c],
+					 c == 12 && r.regulariser ? 1.f : 0.f);
 			const float64 msPrep = (NkChrono::Now() - t0).ToMilliseconds();
 			// LES PASSES : 1 echantillon par pixel et par bande de 200 lignes par envoi (un envoi
 			// trop long declencherait la remise a zero du pilote, TDR ~2 s sous Windows)

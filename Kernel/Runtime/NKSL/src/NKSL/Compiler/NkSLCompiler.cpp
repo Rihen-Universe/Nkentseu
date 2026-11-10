@@ -228,6 +228,10 @@ namespace nkentseu {
 		h = FNV1a64(&opts.dx12DefaultSpace, sizeof(uint32), h);
 		h = FNV1a64(&opts.dx12BindlessHeap, sizeof(bool), h);
 		h = FNV1a64(&opts.vkDrawParams, sizeof(bool), h);
+		// (10/11/2026, plan RTX etape 0) la version SPIR-V entre dans la cle quand elle n'est pas le
+		// defaut : un binaire 1.0 ne sert jamais une demande 1.4, et les cles d'avant ne bougent pas
+		if (opts.spirvVersion != 100u)
+			h = FNV1a64(&opts.spirvVersion, sizeof(uint32), h);
 		return h;
 	}
 
@@ -580,7 +584,7 @@ namespace nkentseu {
 		// et le compilateur renvoyait le TEXTE GLSL comme "SPIR-V" (magic "#ver") ->
 		// vkCreateShaderModule KO -> pipeline VK_ERROR_UNKNOWN.
 		{
-			NkGLSLCompileResult gc = NkGLSLToSPIRV(stage, glslSource.CStr(), "main");
+			NkGLSLCompileResult gc = NkGLSLToSPIRV(stage, glslSource.CStr(), "main", opts.spirvVersion);
 			if (gc.success && gc.spirv.Size() > 0) {
 				res.bytecode.Resize((uint32)(gc.spirv.Size() * 4));
 				memcpy(res.bytecode.Data(), gc.spirv.Data(), (size_t)gc.spirv.Size() * 4);
@@ -1043,6 +1047,8 @@ namespace nkentseu {
 		if (glslVer < 450)
 			glslVer = 450;
 		shader.setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, (int)glslVer);
+		// (10/11/2026) chemin INACTIF (NKSL_HAS_GLSLANG n'est defini par aucun jenga) : la version SPIR-V
+		// par nuanceur vit dans NkGLSLToSPIRV (NkGLSLCompiler.cpp), le chemin reel
 		shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_0);
 		shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_0);
 

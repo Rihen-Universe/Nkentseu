@@ -600,6 +600,58 @@ namespace nkentseu {
 			return res;
 		}
 
+		// (10/11/2026) le ciel Hosek-Wilkie tel que le montre le nuanceur (voir l'en-tete). La cuisson
+		// reprend NkRender3D (bloc « HOSEK-WILKIE : cuisson par image ») : les deux doivent rester
+		// d'accord.
+		void NkHosekCielPreparer(const NkSkyParams &P, NkHosekCiel &c) {
+			NkVec3f s = {-P.sunDirection.x, -P.sunDirection.y, -P.sunDirection.z};
+			const float32 sl = math::NkSqrt(s.x * s.x + s.y * s.y + s.z * s.z);
+			if (sl > 1e-6f)
+				s = {s.x / sl, s.y / sl, s.z / sl};
+			else
+				s = {0.f, 1.f, 0.f};
+			c.versSoleil = s;
+			c.sol = P.ground;
+			const float32 elev = math::NkAsin(s.y < -1.f ? -1.f : (s.y > 1.f ? 1.f : s.y));
+			NkHosekCookRGB(P.turbidity, P.ground, elev < 0.0087f ? 0.0087f : elev, c.cur);
+			const float32 kRefElev = 0.82f;
+			NkHosekSkyCoeffs ref;
+			NkHosekCookRGB(P.turbidity, P.ground, kRefElev, ref);
+			const NkVec3f zr = NkHosekEvalRGB(ref, 1.f, 1.5707963f - kRefElev);
+			const float32 lumRef = 0.2126f * zr.x + 0.7152f * zr.y + 0.0722f * zr.z;
+			c.echelle = P.sunIntensity / (lumRef > 1e-6f ? lumRef : 1e-6f);
+			c.fondu = elev > 0.f ? 1.f : (elev < -0.14f ? 0.f : 1.f + elev / 0.14f);
+		}
+		NkVec3f NkHosekCielEval(const NkHosekCiel &c, float32 dx, float32 dy, float32 dz) {
+			float32 cg = dx * c.versSoleil.x + dy * c.versSoleil.y + dz * c.versSoleil.z;
+			cg = cg < -1.f ? -1.f : (cg > 1.f ? 1.f : cg);
+			const NkVec3f h = NkHosekEvalRGB(c.cur, dy, math::NkAcos(cg));
+			const float32 k = c.echelle * c.fondu;
+			NkVec3f r = {h.x * k, h.y * k, h.z * k};
+			if (dy < 0.f) { // sous l'horizon : la couleur du sol, en 0,1 de hauteur (comme le nuanceur)
+				const float32 t = -dy / 0.10f > 1.f ? 1.f : -dy / 0.10f;
+				r = {r.x + (c.sol.x - r.x) * t, r.y + (c.sol.y - r.y) * t, r.z + (c.sol.z - r.z) * t};
+			}
+			return r;
+		}
+		void NkHosekCielTable(const NkSkyParams &P, float32 facteur, int32 W, int32 H, NkVector<float32> &rgb) {
+			NkHosekCiel c;
+			NkHosekCielPreparer(P, c);
+			rgb.Resize((usize)W * (usize)H * 3u);
+			for (int32 j = 0; j < H; ++j) {
+				const float32 th = 3.14159265f * ((float32)j + 0.5f) / (float32)H;
+				const float32 st = math::NkSin(th), ct = math::NkCos(th);
+				for (int32 i = 0; i < W; ++i) {
+					const float32 ph = 6.28318531f * ((float32)i + 0.5f) / (float32)W;
+					const NkVec3f r = NkHosekCielEval(c, st * math::NkCos(ph), ct, st * math::NkSin(ph));
+					const usize o = ((usize)j * (usize)W + (usize)i) * 3u;
+					rgb[o] = r.x * facteur;
+					rgb[o + 1] = r.y * facteur;
+					rgb[o + 2] = r.z * facteur;
+				}
+			}
+		}
+
 		// ── MODELE DE PRAGUE : code officiel VERBATIM + liaison ─────────────────
 		// « A Fitted Radiance and Attenuation Model for Realistic Atmospheres »
 		// (SIGGRAPH 2021), variante sol/XYZ. BSD 3-clauses — voir
@@ -956,7 +1008,14 @@ namespace nkentseu {
 		// Les quatre sites d'echantillonnage (cubemap visible, irradiance et les
 		// deux du prefilter) passent par ici — sans quoi le ciel qu'on VOIT et
 		// celui qui ECLAIRE finiraient par diverger.
+		// (10/11/2026) HOSEK : la cubemap d'eclairage retombait sur le DEGRADE (seul PHYSICAL etait
+		// traite ici) pendant que le nuanceur du ciel montrait Hosek -- le ciel vu et le ciel qui
+		// eclaire divergeaient, exactement ce que ce point d'entree devait empecher. Cuit une fois
+		// par LoadProceduralEx, lu ici en lecture seule par les fils.
+		static NkHosekCiel sHosekIBL;
 		static inline NkVec3f SampleSkyModel(float dx, float dy, float dz, const NkSkyParams &P) {
+			if (P.model == NkSkyModel::NK_SKY_HOSEK)
+				return ApplyClouds(NkHosekCielEval(sHosekIBL, dx, dy, dz), dx, dy, dz, P);
 			// PRAGUE et ALIEN : mesures, cuits SANS meler les nuages — ils
 			// restent une surcouche du shader, donc ANIMES par-dessus. Prix
 			// assume : les reflets miroirs de ces modeles n'ont pas de nuages.
@@ -1233,6 +1292,8 @@ namespace nkentseu {
 				NkPragueEnsure(P);
 			if (P.model == NkSkyModel::NK_SKY_ALIEN)
 				NkAlienBake(P);
+			if (P.model == NkSkyModel::NK_SKY_HOSEK)
+				NkHosekCielPreparer(P, sHosekIBL);
 			(void)skyTop;
 			(void)horizon;
 			(void)ground;
