@@ -32,7 +32,8 @@ namespace nkentseu {
 		// les derniers champs sans un mot.
 		// 864 depuis l'ajout du BROUILLARD AU SOL (un vec4 en fin de bloc) :
 		// 848 auparavant. Le static_assert d'UploadUBOs verifie l'accord.
-		static constexpr uint32 kPBRCamUBOSize = 864;
+		// (09/11/2026) 896 : les BORNES DE LA GRILLE VOXEL (deux vec4 en fin de bloc).
+		static constexpr uint32 kPBRCamUBOSize = 896;
 
 		NkRender3D::~NkRender3D() {
 			Shutdown();
@@ -2756,6 +2757,14 @@ namespace nkentseu {
 					//   .z = force du souffle (0 = nappe lisse)
 					//   .w = temps anime, deja multiplie par la vitesse du vent
 					NkVec4f fogHeight;
+					// ── (09/11/2026, rendu-realiste) LES BORNES DE LA GRILLE VOXEL ──
+					// Ajoutees EN FIN de struct (meme motif que ci-dessus). .xyz = coin
+					// min / max en metres ; voxelMax.w = 1 si l'application a pose ses
+					// bornes (NkVoxelAOSystem::Reconfigure), 0 sinon : le nuanceur garde
+					// alors ses bornes en dur, le chemin d'avant, au pixel pres.
+					// voxelMin.w = taille d'un voxel (le pas des cones en depend).
+					NkVec4f voxelMin;
+					NkVec4f voxelMax;
 			};
 
 			// L'ALLOCATION ET L'ECRITURE DOIVENT S'ACCORDER. Sans cette
@@ -2887,6 +2896,17 @@ namespace nkentseu {
 			// plus qu'a s'en servir comme d'un decalage, sans connaitre le vent.
 			cb.fogHeight = {mCtx.fogHeightBase, mCtx.fogThickness, mCtx.fogWind,
 							mCtx.time * mCtx.fogWindSpeed};
+			// (09/11/2026) bornes de la grille voxel : lues par le nuanceur PBR
+			// seulement si voxelMax.w = 1 (bornes posees par l'application).
+			if (mVoxelAO && mVoxelAO->HasCustomBounds()) {
+				const NkVoxelAOConfig &vc = mVoxelAO->GetConfig();
+				const float32 vsx = (vc.maxBounds.x - vc.minBounds.x) / (float32)(vc.resX ? vc.resX : 1u);
+				cb.voxelMin = {vc.minBounds.x, vc.minBounds.y, vc.minBounds.z, vsx};
+				cb.voxelMax = {vc.maxBounds.x, vc.maxBounds.y, vc.maxBounds.z, 1.f};
+			} else {
+				cb.voxelMin = {-10.f, -5.f, -10.f, 20.f / 64.f};
+				cb.voxelMax = {10.f, 5.f, 10.f, 0.f};
+			}
 			// ── LE CIEL VISIBLE, evalue en temps reel par le shader Skybox ────
 			// Empaquetage dense en vec4, documente ici ET dans skybox.frag.nksl :
 			// les deux doivent rester d'accord.

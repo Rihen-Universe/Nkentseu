@@ -39,6 +39,11 @@ uniform CameraUBO {
     // il doit le SAUTER exactement pour retomber sur le brouillard au sol.
     vec4  _skyPad[24];
     vec4  fogHeight;     // .x = altitude de base ; .y = epaisseur ; .z = souffle ; .w = temps
+    // (09/11/2026) les bornes de la grille voxel, lues par le seul nuanceur de fragment. Declarees
+    // ICI AUSSI : OpenGL exige qu'un bloc uniforme partage par deux etages ait les MEMES membres --
+    // sans elles, l'edition de liens du programme PBR echouait (Nogee, NkAnimaEditor : temoin rouge).
+    vec4  voxelMin;
+    vec4  voxelMax;
 } uCam;
 // NOTE : en OpenGL, les deux etages d'un MEME programme doivent declarer un bloc
 // uniforme A L'IDENTIQUE. Omettre viewOpts cote vertex fait echouer le LINK avec

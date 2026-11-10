@@ -75,7 +75,63 @@ float NkVoxelConeTrace(vec3 origin, vec3 dir) {
 // Les 4 cones echantillonnent l'hemisphere ; leur moyenne approche l'integrale
 // de la radiance incidente. C'est ce qui remplace l'ambiant uniforme : une
 // surface pres d'un mur rouge eclaire recoit reellement du rouge.
+// ── (09/11/2026, rendu-realiste) BORNES POSEES PAR L'APPLICATION ───────────────
+// Les bornes en dur ci-dessus laissaient hors grille toute scene qui ne tient pas
+// dans 20 x 10 x 20 m autour de l'origine (la maison de Rodolf est a x = 32..52).
+// Un nuanceur qui declare voxelMin / voxelMax en fin de bloc camera definit
+// NK_VOXEL_BORNES_UCAM avant d'inclure ce fichier ; il ne prend ce chemin que si
+// l'application a pose ses bornes (uCam.voxelMax.w = 1, NkVoxelAOSystem::
+// Reconfigure). Sans cela, le chemin d'avant, inchange.
+// Les cones y vont plus loin : le pas suit la taille d'un voxel (uCam.voxelMin.w)
+// et s'allonge de 30 % par echantillon, plafonne a deux voxels : ~27 voxels (5 m pour 19 cm) --
+// le plafond d'une piece de 3 m doit occulter le ciel, ce que les 2,6 m du
+// chemin d'avant ne voyaient pas.
+#ifdef NK_VOXEL_BORNES_UCAM
+vec3 NkWorldToVoxelUVPosees(vec3 worldPos) {
+    return (worldPos - uCam.voxelMin.xyz) / (uCam.voxelMax.xyz - uCam.voxelMin.xyz);
+}
+vec4 NkVoxelConeTraceGIPosees(vec3 origin, vec3 dir, float vs) {
+    vec3  radiance  = vec3(0.0);
+    float occlusion = 0.0;
+    float t = vs;
+    for (int i = 0; i < 16; i++) {
+        vec3 uv3 = NkWorldToVoxelUVPosees(origin + dir * t);
+        if (any(lessThan(uv3, vec3(0.0))) || any(greaterThan(uv3, vec3(1.0)))) break;
+        vec4 s = texture(tVoxelOpacity, uv3);
+        radiance  = radiance + (1.0 - occlusion) * s.rgb;
+        occlusion = occlusion + s.a * (1.0 - occlusion);
+        if (occlusion > 0.98) break;
+        // le pas grandit de 30 % mais reste sous DEUX voxels : la grille est dilatee
+        // d un voxel (NkVoxelAOSystem::SetFiltre), un mur ne peut plus etre saute.
+        t += clamp(t * 0.3, vs, 2.0 * vs);
+    }
+    return vec4(radiance, occlusion);
+}
+vec4 NkComputeVoxelGIPosees(vec3 worldPos, vec3 N) {
+    float vs = max(uCam.voxelMin.w, 0.02);
+    vec3 T = abs(N.y) < 0.99 ? normalize(cross(vec3(0.0, 1.0, 0.0), N))
+                              : vec3(1.0, 0.0, 0.0);
+    vec3 B = normalize(cross(N, T));
+    // Depart a TROIS voxels de la surface : la couche de voxels de la surface
+    // elle-meme (une ou deux epaisseurs), sa dilatation (un voxel) et le filtrage
+    // trilineaire (un voxel de chaque cote) ne doivent pas occulter le point -- a un
+    // seul voxel, les murs et plafonds se rayaient de bandes au pas de la grille.
+    vec3 origin = worldPos + N * (3.0 * vs);
+    vec4 acc = vec4(0.0);
+    acc += NkVoxelConeTraceGIPosees(origin, N, vs);
+    acc += NkVoxelConeTraceGIPosees(origin, normalize(T *  0.866 + N * 0.5), vs);
+    acc += NkVoxelConeTraceGIPosees(origin, normalize(T * -0.433 + N * 0.5 + B *  0.75), vs);
+    acc += NkVoxelConeTraceGIPosees(origin, normalize(T * -0.433 + N * 0.5 + B * -0.75), vs);
+    vec3  irradiance = acc.xyz * 0.25 * NK_VOXEL_GI_SCALE;
+    float ao         = 1.0 - clamp(acc.w * 0.25, 0.0, 1.0);
+    return vec4(irradiance, ao);
+}
+#endif
+
 vec4 NkComputeVoxelGI(vec3 worldPos, vec3 N) {
+#ifdef NK_VOXEL_BORNES_UCAM
+    if (uCam.voxelMax.w > 0.5) return NkComputeVoxelGIPosees(worldPos, N);
+#endif
     vec3 T = abs(N.y) < 0.99 ? normalize(cross(vec3(0.0, 1.0, 0.0), N))
                               : vec3(1.0, 0.0, 0.0);
     vec3 B = normalize(cross(N, T));

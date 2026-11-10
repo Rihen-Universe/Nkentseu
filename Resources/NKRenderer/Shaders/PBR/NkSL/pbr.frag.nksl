@@ -40,6 +40,10 @@ uniform CameraUBO {
     // Une erreur d'UN seul vec4 ici decale tout le bloc et corrompt le rendu.
     vec4  _skyPad[24];
     vec4  fogHeight;     // .x = altitude de base ; .y = epaisseur ; .z = souffle ; .w = temps
+    // (09/11/2026) bornes de la grille voxel (NkRender3D, PBRCamUBO) : .w de voxelMax = 1
+    // si l'application les a posees ; voxelMin.w = taille d'un voxel. Voir NkVoxelAO.glsli.
+    vec4  voxelMin;
+    vec4  voxelMax;
 } uCam;
 
 @binding(set=1, binding=1)
@@ -236,6 +240,11 @@ float SampleLight3DCubeCookie(int idx, vec3 dir) {
     return 1.0;
 }
 
+// (09/11/2026) ce nuanceur declare voxelMin / voxelMax : la grille suit la scene.
+// ⚠ LA CLE DU CACHE (.nksc) SE CALCULE SUR CE TEXTE, PAS SUR LES INCLUSIONS : toute
+// modification de Include/NkVoxelAO.glsli doit monter cette revision, sinon le cache
+// ressert l'ancien nuanceur. Revision de l'inclusion : 3.
+#define NK_VOXEL_BORNES_UCAM 1
 #include "Include/NkVoxelAO.glsli"
 
 float SampleLight3DCookie(int idx, vec2 uv) {

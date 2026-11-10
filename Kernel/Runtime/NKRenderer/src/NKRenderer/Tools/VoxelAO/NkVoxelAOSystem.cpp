@@ -5,6 +5,7 @@
 #include "NKLogger/NkLog.h"
 #include "NKMath/NkFunctions.h" // NkSqrt / NkCos (pas de <math.h> : regle projet)
 #include "NKTime/NkChrono.h"	// mesure du cout de la re-voxelisation / injection
+#include "NKMemory/NkFunction.h" // (09/11/2026) memory::NkSet
 #include <cstring>
 #include <cmath>
 #include <cstdlib> // getenv / atof (overrides de diagnostic NK_*)
@@ -19,6 +20,7 @@ namespace nkentseu {
 		bool NkVoxelAOSystem::Init(NkIDevice *device, const NkVoxelAOConfig &cfg) {
 			mDevice = device;
 			mCfg = cfg;
+			mCfgInit = cfg; // (09/11/2026) ResetBounds y revient
 			if (!mDevice)
 				return false;
 
@@ -116,8 +118,9 @@ namespace nkentseu {
 			memset(mUpload.Data(), 0, totalVoxels * 4);
 			mHasGI = false;
 			mLastLights.Clear();
+			mTriNormal.Clear(); // (09/11/2026) refaite par VoxelizeTriangles s'il y a des triangles
 
-			if (mOccluders.Empty()) {
+			if (mOccluders.Empty() && mTris.Empty()) {
 				// GRILLE VIDE = ETAT LEGITIME (occlusion coupee au panneau, scene
 				// nue) : une INFO une seule fois, pas un avertissement par rebuild
 				// (le journal de Rihen s'en remplissait, 11 aout).
@@ -165,10 +168,16 @@ namespace nkentseu {
 				}
 			}
 
+			// (09/11/2026) puis les triangles, voxel par voxel traverse.
+			if (!mTris.Empty())
+				voxelsMarked += VoxelizeTriangles();
+
 			// Upload sans radiance (a = opacite, rgb = 0) : tant qu'aucune lumiere
 			// n'a ete injectee, le GI est neutre et seul l'AO opere.
 			for (uint32 vi = 0; vi < totalVoxels; vi++)
 				mUpload[vi * 4 + 3] = mOpacity[vi];
+			if (mFiltre > 0)
+				Filtrer(mUpload); // (09/11/2026) opt-in, voir SetFiltre
 			mDevice->WriteTexture(mVoxelTex, mUpload.Data());
 			mDirty = false;
 
@@ -354,8 +363,25 @@ namespace nkentseu {
 												   (float32)mAlbedoRGB[vi * 3 + 1] / 255.f,
 												   (float32)mAlbedoRGB[vi * 3 + 2] / 255.f};
 						const math::NkVec3f c = VoxelCenterWorld(x, y, z);
-						const math::NkVec3f n = VoxelGradientNormal(x, y, z);
+						math::NkVec3f n = VoxelGradientNormal(x, y, z);
+						// (09/11/2026) la normale des triangles, si elle existe et ne
+						// s'annule pas (un mur mince vu des deux cotes garde le gradient).
+						if (mTriNormal.Size() == totalVoxels * 3) {
+							const float32 tx = mTriNormal[vi * 3 + 0], ty = mTriNormal[vi * 3 + 1],
+										  tz = mTriNormal[vi * 3 + 2];
+							const float32 tl = math::NkSqrt(tx * tx + ty * ty + tz * tz);
+							if (tl > 0.3f)
+								n = math::NkVec3f{tx / tl, ty / tl, tz / tl};
+						}
 						math::NkVec3f rad = ComputeVoxelRadiance(c, n, albedo, lights);
+						// (09/11/2026) le ciel vu par ce voxel (opt-in, SetCielInjecte) :
+						// radiance reemise = albedo/pi x (pi x L x part visible) = albedo x L x part.
+						if (mCielRayons > 0) {
+							const float32 part = CielVisible(c, n);
+							rad.x += albedo.x * mCielRad.x * part;
+							rad.y += albedo.y * mCielRad.y * part;
+							rad.z += albedo.z * mCielRad.z * part;
+						}
 						// L'intensite est appliquee ICI et non dans le shader : le
 						// PBR n'a alors aucun uniform de GI a recevoir (registres DX
 						// contraints), et couper le GI revient a injecter zero.
@@ -397,6 +423,8 @@ namespace nkentseu {
 				}
 			}
 
+			if (mFiltre > 0)
+				Filtrer(mUpload); // (09/11/2026) opt-in, voir SetFiltre
 			mLastInjectMs = (float32)(NkChrono::Now() - tInj0).ToMilliseconds();
 			mDevice->WriteTexture(mVoxelTex, mUpload.Data());
 			mHasGI = true;
@@ -441,6 +469,308 @@ namespace nkentseu {
 			if (same)
 				return false;
 			return InjectLighting(lights);
+		}
+
+		// =====================================================================
+		// (09/11/2026, rendu-realiste) BORNES REGLABLES ET VOXELISATION PAR TRIANGLE
+		// =====================================================================
+		bool NkVoxelAOSystem::ApplyConfig(const NkVoxelAOConfig &cfg) {
+			if (!mDevice)
+				return false;
+			if (cfg.resX == 0 || cfg.resY == 0 || cfg.resZ == 0)
+				return false;
+			const bool resChange = cfg.resX != mCfg.resX || cfg.resY != mCfg.resY || cfg.resZ != mCfg.resZ;
+			if (resChange || !mVoxelTex.IsValid()) {
+				if (mVoxelTex.IsValid()) {
+					mDevice->DestroyTexture(mVoxelTex);
+					mVoxelTex = {};
+				}
+				NkTextureDesc td = NkTextureDesc::Tex3D(cfg.resX, cfg.resY, cfg.resZ, NkGPUFormat::NK_RGBA8_UNORM);
+				td.debugName = "VoxelAO";
+				mVoxelTex = mDevice->CreateTexture(td);
+				if (!mVoxelTex.IsValid()) {
+					logger.Errorf("[NkVoxelAOSystem] Reconfigure : texture 3D refusee (%ux%ux%u)\n", cfg.resX, cfg.resY,
+								  cfg.resZ);
+					return false;
+				}
+				const uint32 total = cfg.resX * cfg.resY * cfg.resZ;
+				NkVector<uint8> zeros;
+				zeros.Resize(total * 4);
+				memory::NkSet(zeros.Data(), 0, total * 4);
+				mDevice->WriteTexture(mVoxelTex, zeros.Data());
+			}
+			mCfg = cfg;
+			mOpacity.Clear();
+			mAlbedoRGB.Clear();
+			mUpload.Clear();
+			mTriNormal.Clear();
+			mLastLights.Clear();
+			mHasGI = false;
+			mDirty = true;
+			return true;
+		}
+
+		bool NkVoxelAOSystem::Reconfigure(const math::NkVec3f &mn, const math::NkVec3f &mx, uint32 resX, uint32 resY,
+										  uint32 resZ, uint32 giShadowSteps) {
+			if (mx.x - mn.x <= 1e-3f || mx.y - mn.y <= 1e-3f || mx.z - mn.z <= 1e-3f)
+				return false;
+			NkVoxelAOConfig c = mCfg;
+			c.minBounds = mn;
+			c.maxBounds = mx;
+			c.resX = resX;
+			c.resY = resY;
+			c.resZ = resZ;
+			c.giShadowSteps = giShadowSteps;
+			if (!ApplyConfig(c))
+				return false;
+			mBoundsCustom = true;
+			logger.Info("[NkVoxelAOSystem] Reconfigure : [{0},{1},{2}]..[{3},{4},{5}] en {6}x{7}x{8}, ombre {9} pas\n", mn.x,
+						mn.y, mn.z, mx.x, mx.y, mx.z, resX, resY, resZ, giShadowSteps);
+			return true;
+		}
+
+		// La part du ciel vue depuis un voxel : `mCielRayons` directions reparties en
+		// cosinus autour de la normale (suite de Hammersley, rayon r = sqrt(u), angle
+		// 2 pi v : la densite est proportionnelle au cosinus, la moyenne des visibilites
+		// est donc directement la part de l'irradiance). Un rayon voit le ciel s'il sort
+		// de la grille en montant sans s'etre accumule plus de 90 % d'opacite ; vers le
+		// bas, il trouverait le sol hors de la grille : compte comme sombre.
+		float32 NkVoxelAOSystem::CielVisible(const math::NkVec3f &c, const math::NkVec3f &n) const {
+			const math::NkVec3f size = mCfg.maxBounds - mCfg.minBounds;
+			const float32 vs = size.x / (float32)mCfg.resX;
+			const float32 pas = vs * 1.5f;
+			// base orthonormee autour de n
+			const math::NkVec3f ax = (n.y < 0.9f && n.y > -0.9f) ? math::NkVec3f{0.f, 1.f, 0.f} : math::NkVec3f{1.f, 0.f, 0.f};
+			math::NkVec3f t{ax.y * n.z - ax.z * n.y, ax.z * n.x - ax.x * n.z, ax.x * n.y - ax.y * n.x};
+			const float32 tl = math::NkSqrt(t.x * t.x + t.y * t.y + t.z * t.z);
+			t = math::NkVec3f{t.x / tl, t.y / tl, t.z / tl};
+			const math::NkVec3f b{n.y * t.z - n.z * t.y, n.z * t.x - n.x * t.z, n.x * t.y - n.y * t.x};
+			const uint32 K = mCielRayons;
+			uint32 vus = 0;
+			const uint32 pasMax = (uint32)(math::NkSqrt(size.x * size.x + size.y * size.y + size.z * size.z) / pas) + 2u;
+			for (uint32 k = 0; k < K; ++k) {
+				// Hammersley : u = (k + 0,5) / K, v = inverse binaire de k
+				uint32 bits = k;
+				bits = (bits << 16u) | (bits >> 16u);
+				bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+				bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+				bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+				bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+				const float32 u = ((float32)k + 0.5f) / (float32)K;
+				const float32 v = (float32)bits * 2.3283064365386963e-10f;
+				const float32 r = math::NkSqrt(u), phi = 6.2831853f * v;
+				const float32 lx = r * math::NkCos(phi), ly = r * math::NkSin(phi);
+				const float32 lz = math::NkSqrt(1.f - u > 0.f ? 1.f - u : 0.f);
+				const math::NkVec3f d{t.x * lx + b.x * ly + n.x * lz, t.y * lx + b.y * ly + n.y * lz,
+									  t.z * lx + b.z * ly + n.z * lz};
+				float32 bloque = 0.f;
+				bool sorti = false;
+				for (uint32 i = 2; i < pasMax; ++i) {
+					const float32 s = pas * (float32)i;
+					const math::NkVec3f p{c.x + d.x * s, c.y + d.y * s, c.z + d.z * s};
+					if (p.x < mCfg.minBounds.x || p.y < mCfg.minBounds.y || p.z < mCfg.minBounds.z ||
+						p.x >= mCfg.maxBounds.x || p.y >= mCfg.maxBounds.y || p.z >= mCfg.maxBounds.z) {
+						sorti = true;
+						break;
+					}
+					const float32 o = OpacityAtWorld(p);
+					bloque = bloque + o * (1.f - bloque);
+					if (bloque > 0.9f)
+						break;
+				}
+				if (sorti && d.y > 0.f && bloque <= 0.9f)
+					++vus;
+			}
+			return (float32)vus / (float32)K;
+		}
+
+		// Flou en boite separable (trois passes X, Y, Z ; somme glissante), rayon mFiltre,
+		// bords en repli sur le dernier voxel. Sur rgba8, arrondi au plus proche.
+		void NkVoxelAOSystem::Filtrer(NkVector<uint8> &rgba) const {
+			const uint32 rx = mCfg.resX, ry = mCfg.resY, rz = mCfg.resZ;
+			const int32 r = (int32)mFiltre;
+			if (r <= 0 || rgba.Size() != (usize)rx * ry * rz * 4)
+				return;
+			const uint32 nMax = rx > ry ? (rx > rz ? rx : rz) : (ry > rz ? ry : rz);
+			NkVector<uint32> ligne;
+			ligne.Resize((usize)nMax * 4);
+			const uint32 diam = (uint32)(2 * r + 1);
+			// une passe le long d'un axe : n voxels, pas `pas` (en voxels) entre deux voisins
+			auto passe = [&](uint32 base, uint32 n, uint32 pas) {
+				for (uint32 i = 0; i < n; ++i)
+					for (uint32 c = 0; c < 4; ++c)
+						ligne[i * 4 + c] = rgba[(base + i * pas) * 4 + c];
+				// L'OPACITE (a) se DILATE (maximum sur la fenetre) : une moyenne diviserait
+				// un mur d'un voxel par trois et le rendrait translucide -- la lumiere
+				// passerait. La radiance (rgb), elle, se moyenne.
+				for (uint32 i = 0; i < n; ++i) {
+					uint32 m = 0;
+					for (int32 k = -r; k <= r; ++k) {
+						const int32 j = (int32)i + k;
+						if (j < 0 || j >= (int32)n)
+							continue;
+						const uint32 v = ligne[(uint32)j * 4 + 3];
+						if (v > m)
+							m = v;
+					}
+					rgba[(base + i * pas) * 4 + 3] = (uint8)m;
+				}
+				for (uint32 c = 0; c < 3; ++c) {
+					uint32 somme = 0;
+					for (int32 k = -r; k <= r; ++k) {
+						const int32 j = k < 0 ? 0 : (k >= (int32)n ? (int32)n - 1 : k);
+						somme += ligne[(uint32)j * 4 + c];
+					}
+					for (uint32 i = 0; i < n; ++i) {
+						rgba[(base + i * pas) * 4 + c] = (uint8)((somme + diam / 2) / diam);
+						const int32 sortant = (int32)i - r, entrant = (int32)i + r + 1;
+						const int32 js = sortant < 0 ? 0 : (sortant >= (int32)n ? (int32)n - 1 : sortant);
+						const int32 je = entrant < 0 ? 0 : (entrant >= (int32)n ? (int32)n - 1 : entrant);
+						somme = somme - ligne[(uint32)js * 4 + c] + ligne[(uint32)je * 4 + c];
+					}
+				}
+			};
+			for (uint32 z = 0; z < rz; ++z)
+				for (uint32 y = 0; y < ry; ++y)
+					passe((z * ry + y) * rx, rx, 1u);
+			for (uint32 z = 0; z < rz; ++z)
+				for (uint32 x = 0; x < rx; ++x)
+					passe(z * ry * rx + x, ry, rx);
+			for (uint32 y = 0; y < ry; ++y)
+				for (uint32 x = 0; x < rx; ++x)
+					passe(y * rx + x, rz, rx * ry);
+		}
+
+		bool NkVoxelAOSystem::ResetBounds() {
+			if (!mBoundsCustom)
+				return true;
+			if (!ApplyConfig(mCfgInit))
+				return false;
+			mBoundsCustom = false;
+			return true;
+		}
+
+		void NkVoxelAOSystem::RegisterTriangle(const math::NkVec3f &a, const math::NkVec3f &b, const math::NkVec3f &c,
+											   const math::NkVec3f &albedo, float32 opacity) {
+			NkVoxelTri t;
+			t.a = a;
+			t.b = b;
+			t.c = c;
+			t.albedo = albedo;
+			t.opacity = opacity;
+			mTris.PushBack(t);
+			mDirty = true;
+		}
+
+		namespace {
+			// RECOUVREMENT TRIANGLE-BOITE (Akenine-Moller, « Fast 3D Triangle-Box
+			// Overlap Testing », JGT 2001) : 13 axes separateurs -- les 3 axes de la
+			// boite, la normale du triangle, et les 9 produits aretes x axes. La boite
+			// est centree a l'origine (sommets deja translates), demi-tailles h.
+			inline float32 VxMin3(float32 a, float32 b, float32 c) {
+				return a < b ? (a < c ? a : c) : (b < c ? b : c);
+			}
+			inline float32 VxMax3(float32 a, float32 b, float32 c) {
+				return a > b ? (a > c ? a : c) : (b > c ? b : c);
+			}
+			inline float32 VxAbs(float32 x) {
+				return x < 0.f ? -x : x;
+			}
+			bool VxAxeSepare(const math::NkVec3f &ax, const math::NkVec3f &v0, const math::NkVec3f &v1,
+							 const math::NkVec3f &v2, const math::NkVec3f &h) {
+				const float32 p0 = ax.x * v0.x + ax.y * v0.y + ax.z * v0.z;
+				const float32 p1 = ax.x * v1.x + ax.y * v1.y + ax.z * v1.z;
+				const float32 p2 = ax.x * v2.x + ax.y * v2.y + ax.z * v2.z;
+				const float32 r = h.x * VxAbs(ax.x) + h.y * VxAbs(ax.y) + h.z * VxAbs(ax.z);
+				return VxMin3(p0, p1, p2) > r || VxMax3(p0, p1, p2) < -r;
+			}
+			bool VxTriBoite(const math::NkVec3f &v0, const math::NkVec3f &v1, const math::NkVec3f &v2,
+							const math::NkVec3f &h, const math::NkVec3f &n) {
+				// axes de la boite
+				if (VxMin3(v0.x, v1.x, v2.x) > h.x || VxMax3(v0.x, v1.x, v2.x) < -h.x)
+					return false;
+				if (VxMin3(v0.y, v1.y, v2.y) > h.y || VxMax3(v0.y, v1.y, v2.y) < -h.y)
+					return false;
+				if (VxMin3(v0.z, v1.z, v2.z) > h.z || VxMax3(v0.z, v1.z, v2.z) < -h.z)
+					return false;
+				// plan du triangle
+				const float32 d = n.x * v0.x + n.y * v0.y + n.z * v0.z;
+				const float32 r = h.x * VxAbs(n.x) + h.y * VxAbs(n.y) + h.z * VxAbs(n.z);
+				if (VxAbs(d) > r)
+					return false;
+				// 9 produits aretes x axes
+				const math::NkVec3f e[3] = {{v1.x - v0.x, v1.y - v0.y, v1.z - v0.z},
+											{v2.x - v1.x, v2.y - v1.y, v2.z - v1.z},
+											{v0.x - v2.x, v0.y - v2.y, v0.z - v2.z}};
+				for (int32 i = 0; i < 3; ++i) {
+					const math::NkVec3f &E = e[i];
+					const math::NkVec3f axes[3] = {{0.f, -E.z, E.y}, {E.z, 0.f, -E.x}, {-E.y, E.x, 0.f}};
+					for (int32 k = 0; k < 3; ++k)
+						if (VxAxeSepare(axes[k], v0, v1, v2, h))
+							return false;
+				}
+				return true;
+			}
+		} // namespace
+
+		uint32 NkVoxelAOSystem::VoxelizeTriangles() {
+			const uint32 total = mCfg.resX * mCfg.resY * mCfg.resZ;
+			if (mOpacity.Size() != total)
+				return 0;
+			mTriNormal.Resize(total * 3);
+			memory::NkSet(mTriNormal.Data(), 0, sizeof(float32) * total * 3);
+			const math::NkVec3f size = mCfg.maxBounds - mCfg.minBounds;
+			const math::NkVec3f vs{size.x / (float32)mCfg.resX, size.y / (float32)mCfg.resY, size.z / (float32)mCfg.resZ};
+			const math::NkVec3f h{vs.x * 0.5f, vs.y * 0.5f, vs.z * 0.5f};
+			uint32 marques = 0;
+			for (uint32 ti = 0; ti < mTris.Size(); ++ti) {
+				const NkVoxelTri &T = mTris[ti];
+				math::NkVec3f mn{VxMin3(T.a.x, T.b.x, T.c.x), VxMin3(T.a.y, T.b.y, T.c.y), VxMin3(T.a.z, T.b.z, T.c.z)};
+				math::NkVec3f mx{VxMax3(T.a.x, T.b.x, T.c.x), VxMax3(T.a.y, T.b.y, T.c.y), VxMax3(T.a.z, T.b.z, T.c.z)};
+				uint32 x0, y0, z0, x1, y1, z1;
+				if (!WorldToVoxelRange(mn, mx, x0, y0, z0, x1, y1, z1))
+					continue;
+				const math::NkVec3f e0{T.b.x - T.a.x, T.b.y - T.a.y, T.b.z - T.a.z};
+				const math::NkVec3f e1{T.c.x - T.a.x, T.c.y - T.a.y, T.c.z - T.a.z};
+				math::NkVec3f n{e0.y * e1.z - e0.z * e1.y, e0.z * e1.x - e0.x * e1.z, e0.x * e1.y - e0.y * e1.x};
+				const float32 nl = math::NkSqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+				if (nl < 1e-12f)
+					continue; // triangle degenere : aucune surface
+				const math::NkVec3f nu{n.x / nl, n.y / nl, n.z / nl};
+				const uint8 op = (uint8)NkClamp(T.opacity * 255.f, 0.f, 255.f);
+				const uint8 ar = (uint8)NkClamp(T.albedo.x * 255.f, 0.f, 255.f);
+				const uint8 ag = (uint8)NkClamp(T.albedo.y * 255.f, 0.f, 255.f);
+				const uint8 ab = (uint8)NkClamp(T.albedo.z * 255.f, 0.f, 255.f);
+				for (uint32 z = z0; z <= z1; ++z)
+					for (uint32 y = y0; y <= y1; ++y)
+						for (uint32 x = x0; x <= x1; ++x) {
+							const math::NkVec3f c{mCfg.minBounds.x + ((float32)x + 0.5f) * vs.x,
+												  mCfg.minBounds.y + ((float32)y + 0.5f) * vs.y,
+												  mCfg.minBounds.z + ((float32)z + 0.5f) * vs.z};
+							const math::NkVec3f v0{T.a.x - c.x, T.a.y - c.y, T.a.z - c.z};
+							const math::NkVec3f v1{T.b.x - c.x, T.b.y - c.y, T.b.z - c.z};
+							const math::NkVec3f v2{T.c.x - c.x, T.c.y - c.y, T.c.z - c.z};
+							if (!VxTriBoite(v0, v1, v2, h, n))
+								continue;
+							const uint32 vi = (z * mCfg.resY + y) * mCfg.resX + x;
+							if (op > mOpacity[vi]) {
+								if (mOpacity[vi] == 0)
+									++marques;
+								mOpacity[vi] = op;
+								mAlbedoRGB[vi * 3 + 0] = ar;
+								mAlbedoRGB[vi * 3 + 1] = ag;
+								mAlbedoRGB[vi * 3 + 2] = ab;
+							}
+							// la normale ne compte que pour les surfaces opaques
+							if (op >= 128) {
+								mTriNormal[vi * 3 + 0] += nu.x;
+								mTriNormal[vi * 3 + 1] += nu.y;
+								mTriNormal[vi * 3 + 2] += nu.z;
+							}
+						}
+			}
+			logger.Info("[NkVoxelAOSystem] {0} triangles voxelises -> {1} voxels neufs\n", (uint32)mTris.Size(), marques);
+			return marques;
 		}
 
 	} // namespace renderer

@@ -1,0 +1,490 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// Resources/NKRenderer/Shaders/PathTracer/NkSL/traceur_chemins.comp.nksl (10/11/2026, rendu-realiste)
+// Le traceur de chemins en nuanceur de calcul, lu par NkTraceurGPU.cpp : la meme physique que
+// NkTraceurChemins.cpp (processeur), ligne pour ligne autant que le langage le permet.
+@binding(set=0, binding=0) buffer Scene { vec4 d[]; } S;
+@binding(set=0, binding=1) buffer Cartes { uint t[]; } T;
+@binding(set=0, binding=2) buffer Sortie { vec4 o[]; } O;
+@binding(set=0, binding=3) uniform Params {
+    vec4 oeil;
+    vec4 fw;
+    vec4 rt;
+    vec4 up;
+    vec4 p0;
+    vec4 p1;
+    vec4 sol;
+    vec4 solE;
+    vec4 zen;
+    vec4 hor;
+    vec4 drap;
+    vec4 off0;
+    vec4 off1;
+    vec4 cartes[13];
+} P;
+layout(local_size_x = 8, local_size_y = 8) in;
+
+uint gEtat;
+uint Pcg() {
+    gEtat = gEtat * 747796405u + 2891336453u;
+    uint w = ((gEtat >> ((gEtat >> 28u) + 4u)) ^ gEtat) * 277803737u;
+    return (w >> 22u) ^ w;
+}
+float Rnd() {
+    return float(Pcg() >> 8u) * (1.0 / 16777216.0);
+}
+float LumC(vec3 c) {
+    return 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z;
+}
+void BaseDe(vec3 n, out vec3 t, out vec3 b) {
+    vec3 a = abs(n.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    t = normalize(cross(a, n));
+    b = cross(n, t);
+}
+vec3 Inverse(vec3 d) {
+    return vec3(1.0 / (abs(d.x) > 1e-12 ? d.x : 1e-12), 1.0 / (abs(d.y) > 1e-12 ? d.y : 1e-12),
+                1.0 / (abs(d.z) > 1e-12 ? d.z : 1e-12));
+}
+bool Boite(int ni, vec3 o, vec3 inv, float tmax) {
+    int base = int(P.off0.x) + 2 * ni;
+    vec3 t0 = (S.d[base].xyz - o) * inv;
+    vec3 t1 = (S.d[base + 1].xyz - o) * inv;
+    vec3 a = min(t0, t1);
+    vec3 b = max(t0, t1);
+    float tn = max(max(a.x, a.y), a.z);
+    float tf = min(min(b.x, b.y), b.z);
+    return tf >= max(tn, 0.0) && tn < tmax;
+}
+bool MT(int k, vec3 o, vec3 d, float tmax, out float t, out float u, out float v) {
+    vec3 v0 = S.d[k].xyz;
+    vec3 e1 = S.d[k + 1].xyz;
+    vec3 e2 = S.d[k + 2].xyz;
+    t = 0.0;
+    u = 0.0;
+    v = 0.0;
+    vec3 pv = cross(d, e2);
+    float det = dot(e1, pv);
+    if (abs(det) < 1e-14) return false;
+    float id = 1.0 / det;
+    vec3 sv = o - v0;
+    u = dot(sv, pv) * id;
+    if (u < 0.0 || u > 1.0) return false;
+    vec3 q = cross(sv, e1);
+    v = dot(d, q) * id;
+    if (v < 0.0 || u + v > 1.0) return false;
+    t = dot(e2, q) * id;
+    return t > 1e-4 && t < tmax;
+}
+bool Tracer(vec3 o, vec3 d, float tmax, out float th, out int tri, out float b1, out float b2) {
+    vec3 inv = Inverse(d);
+    int pile[64];
+    int np = 0;
+    pile[0] = 0;
+    np = 1;
+    th = tmax;
+    tri = -1;
+    b1 = 0.0;
+    b2 = 0.0;
+    int bt = int(P.off0.y);
+    while (np > 0) {
+        np = np - 1;
+        int ni = pile[np];
+        if (!Boite(ni, o, inv, th)) continue;
+        int base = int(P.off0.x) + 2 * ni;
+        int g = int(S.d[base].w);
+        int nb = int(S.d[base + 1].w);
+        if (nb > 0) {
+            for (int i = 0; i < nb; ++i) {
+                float t;
+                float u;
+                float v;
+                if (MT(bt + 4 * (g + i), o, d, th, t, u, v)) {
+                    th = t;
+                    tri = g + i;
+                    b1 = u;
+                    b2 = v;
+                }
+            }
+        } else if (np < 62) {
+            pile[np] = g + 1;
+            pile[np + 1] = g;
+            np = np + 2;
+        }
+    }
+    return tri >= 0;
+}
+vec3 Transmission(vec3 o, vec3 d, float tmax) {
+    vec3 tr = vec3(1.0, 1.0, 1.0);
+    vec3 inv = Inverse(d);
+    int pile[64];
+    int np = 1;
+    pile[0] = 0;
+    int bt = int(P.off0.y);
+    int bm = int(P.off0.w);
+    while (np > 0) {
+        np = np - 1;
+        int ni = pile[np];
+        if (!Boite(ni, o, inv, tmax)) continue;
+        int base = int(P.off0.x) + 2 * ni;
+        int g = int(S.d[base].w);
+        int nb = int(S.d[base + 1].w);
+        if (nb > 0) {
+            for (int i = 0; i < nb; ++i) {
+                int k = bt + 4 * (g + i);
+                float t;
+                float u;
+                float v;
+                if (!MT(k, o, d, tmax, t, u, v)) continue;
+                int mat = int(S.d[k].w);
+                vec4 m1 = S.d[bm + 4 * mat + 1];
+                if (m1.y > 0.5) {
+                    tr = tr * S.d[bm + 4 * mat].xyz * 0.96;
+                    if (LumC(tr) < 1e-3) return vec3(0.0, 0.0, 0.0);
+                } else {
+                    return vec3(0.0, 0.0, 0.0);
+                }
+            }
+        } else if (np < 62) {
+            pile[np] = g;
+            pile[np + 1] = g + 1;
+            np = np + 2;
+        }
+    }
+    return tr;
+}
+float Lin(uint c) {
+    float x = float(c) / 255.0;
+    return x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4);
+}
+// Surface au point d'impact : p, ng, ns, albedo, emission, rugosite, metal, verre
+void Surf(int tri, float b1, float b2, vec3 o, vec3 d, float th, out vec3 p, out vec3 ng, out vec3 ns, out vec3 alb,
+          out vec3 emis, out float rug, out float met, out bool verre) {
+    int k = int(P.off0.y) + 4 * tri;
+    int i0 = int(S.d[k + 1].w);
+    int i1 = int(S.d[k + 2].w);
+    int i2 = int(S.d[k + 3].x);
+    int bs = int(P.off0.z);
+    float w0 = 1.0 - b1 - b2;
+    p = o + d * th;
+    vec4 a0 = S.d[bs + 2 * i0];
+    vec4 a1 = S.d[bs + 2 * i1];
+    vec4 a2 = S.d[bs + 2 * i2];
+    ns = normalize(a0.xyz * w0 + a1.xyz * b1 + a2.xyz * b2);
+    ng = normalize(cross(S.d[k + 1].xyz, S.d[k + 2].xyz));
+    if (dot(ng, ns) < 0.0) ng = -ng;
+    int mat = int(S.d[k].w);
+    int bm = int(P.off0.w) + 4 * mat;
+    vec4 m0 = S.d[bm];
+    vec4 m1 = S.d[bm + 1];
+    vec4 m2 = S.d[bm + 2];
+    vec4 m3 = S.d[bm + 3];
+    verre = m1.y > 0.5;
+    rug = max(m0.w, 0.03);
+    met = m1.x;
+    alb = m0.xyz;
+    emis = alb * m1.z;
+    int cl = int(m1.w);
+    if (P.drap.w < 0.5 && cl >= 0) {
+        float u = (a0.w * w0 + a1.w * b1 + a2.w * b2) / m2.x;
+        float v = (S.d[bs + 2 * i0 + 1].x * w0 + S.d[bs + 2 * i1 + 1].x * b1 + S.d[bs + 2 * i2 + 1].x * b2) / m2.x;
+        float fu = u - float(int(u));
+        float fv = v - float(int(v));
+        if (fu < 0.0) fu = fu + 1.0;
+        if (fv < 0.0) fv = fv + 1.0;
+        vec4 ci = P.cartes[cl];
+        int w = int(ci.y);
+        int h = int(ci.z);
+        int x = clamp(int(fu * float(w)), 0, w - 1);
+        int y = clamp(int((1.0 - fv) * float(h)), 0, h - 1);
+        uint px = T.t[int(ci.x) + y * w + x];
+        vec3 tx = vec3(Lin(px & 255u), Lin((px >> 8u) & 255u), Lin((px >> 16u) & 255u));
+        if (m2.y > 0.5) {
+            float kk = LumC(alb) / max(0.02, LumC(m3.xyz));
+            alb = min(vec3(0.98, 0.98, 0.98), tx * kk);
+        } else {
+            alb = min(vec3(0.98, 0.98, 0.98), alb * tx / m3.xyz);
+        }
+    }
+    if (!verre && dot(ng, d) > 0.0) {
+        ng = -ng;
+        ns = -ns;
+    }
+    if (!verre && dot(ns, d) > 0.0) ns = ns - ng * (2.0 * dot(ns, ng));
+    ns = normalize(ns);
+}
+float DGgx(float nh, float a2) {
+    float d = nh * nh * (a2 - 1.0) + 1.0;
+    return a2 / (3.14159265 * d * d + 1e-12);
+}
+float G1(float nx, float a2) {
+    return 2.0 * nx / (nx + sqrt(a2 + (1.0 - a2) * nx * nx) + 1e-12);
+}
+vec3 Schlick(vec3 f0, float c) {
+    float k = 1.0 - c;
+    float k5 = k * k * k * k * k;
+    return f0 + (vec3(1.0, 1.0, 1.0) - f0) * k5;
+}
+vec3 EvalBsdf(vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo, vec3 wi) {
+    float nl = dot(ns, wi);
+    float nv = dot(ns, wo);
+    if (nl <= 0.0 || nv <= 0.0 || dot(ng, wi) <= 0.0) return vec3(0.0, 0.0, 0.0);
+    vec3 f0 = vec3(0.04, 0.04, 0.04) * (1.0 - met) + alb * met;
+    vec3 h = normalize(wo + wi);
+    float r2 = rug * rug;
+    float a2 = r2 * r2;
+    vec3 F = Schlick(f0, max(0.0, dot(wo, h)));
+    float spec = DGgx(max(0.0, dot(ns, h)), a2) * G1(nl, a2) * G1(nv, a2) / (4.0 * nl * nv + 1e-8);
+    float invPi = 1.0 / 3.14159265;
+    vec3 kd = alb * (vec3(1.0, 1.0, 1.0) - F) * ((1.0 - met) * invPi);
+    return (kd + F * spec) * nl;
+}
+float ProbaSpec(float rug, float met) {
+    return met > 0.5 ? 1.0 : (rug < 0.3 ? 0.4 : 0.15);
+}
+float PdfBsdf(vec3 ns, float rug, float met, vec3 wo, vec3 wi) {
+    float nl = dot(ns, wi);
+    if (nl <= 0.0) return 0.0;
+    vec3 h = normalize(wo + wi);
+    float r2 = rug * rug;
+    float a2 = r2 * r2;
+    float nh = max(0.0, dot(ns, h));
+    float ps = ProbaSpec(rug, met);
+    float pSpec = DGgx(nh, a2) * nh / (4.0 * max(1e-6, dot(wo, h)));
+    return ps * pSpec + (1.0 - ps) * nl / 3.14159265;
+}
+vec3 TirerBsdf(vec3 ns, float rug, float met, vec3 wo) {
+    vec3 t;
+    vec3 b;
+    BaseDe(ns, t, b);
+    float u1 = Rnd();
+    float u2 = Rnd();
+    if (Rnd() < ProbaSpec(rug, met)) {
+        float r2 = rug * rug;
+        float a2 = r2 * r2;
+        float ct = sqrt(max(0.0, (1.0 - u1) / (1.0 + (a2 - 1.0) * u1)));
+        float st = sqrt(max(0.0, 1.0 - ct * ct));
+        float ph = 6.28318531 * u2;
+        vec3 h = t * (st * cos(ph)) + b * (st * sin(ph)) + ns * ct;
+        return h * (2.0 * dot(wo, h)) - wo;
+    }
+    float rr = sqrt(u1);
+    float ph = 6.28318531 * u2;
+    return normalize(t * (rr * cos(ph)) + b * (rr * sin(ph)) + ns * sqrt(max(0.0, 1.0 - u1)));
+}
+vec3 Ciel(vec3 d) {
+    if (d.y < 0.0) return P.hor.xyz * P.zen.w;
+    float k = sqrt(d.y);
+    return (P.hor.xyz * (1.0 - k) + P.zen.xyz * k) * P.zen.w;
+}
+float FacteurSpot(vec4 s1, vec3 wi) {
+    float ca = -dot(wi, s1.xyz);
+    return max(0.0, min(1.0, (ca - s1.w) / max(1e-3, (1.0 - s1.w) * 0.15)));
+}
+vec3 Directe(vec3 p, vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo) {
+    vec3 L = vec3(0.0, 0.0, 0.0);
+    vec3 o = p + ng * 2e-3;
+    if (P.drap.x < 0.5 && LumC(P.solE.xyz) > 0.0 && dot(ng, P.sol.xyz) > 0.0) {
+        vec3 t;
+        vec3 b;
+        BaseDe(P.sol.xyz, t, b);
+        float ct = 1.0 - Rnd() * (1.0 - P.sol.w);
+        float st = sqrt(max(0.0, 1.0 - ct * ct));
+        float ph = 6.28318531 * Rnd();
+        vec3 wi = normalize(t * (st * cos(ph)) + b * (st * sin(ph)) + P.sol.xyz * ct);
+        vec3 f = EvalBsdf(ng, ns, alb, rug, met, wo, wi);
+        if (LumC(f) > 0.0) L = L + f * P.solE.xyz * (P.p1.z > 0.5 ? vec3(1.0, 1.0, 1.0) : Transmission(o, wi, 1e6));
+    }
+    int ns2 = int(P.off1.y);
+    float ptot = P.off1.z;
+    if (P.drap.z < 0.5 && ns2 > 0 && ptot > 0.0) {
+        int bsrc = int(P.off1.x);
+        int cand[8];
+        float w[8];
+        float somme = 0.0;
+        for (int k = 0; k < 8; ++k) {
+            float u = Rnd() * ptot;
+            int lo = 0;
+            int hi = ns2 - 1;
+            while (lo < hi) {
+                int mi = (lo + hi) / 2;
+                if (S.d[bsrc + 4 * mi + 3].z < u) lo = mi + 1; else hi = mi;
+            }
+            cand[k] = lo;
+            vec4 s0 = S.d[bsrc + 4 * lo];
+            vec4 s2 = S.d[bsrc + 4 * lo + 2];
+            vec4 s3 = S.d[bsrc + 4 * lo + 3];
+            vec3 dv = s0.xyz - p;
+            float d2 = max(dot(dv, dv), s3.x * s3.x + 1e-4);
+            vec3 wi = dv / sqrt(d2);
+            float ph = s2.w * max(0.0, dot(ns, wi)) / d2;
+            if (s0.w > 0.5) ph = ph * FacteurSpot(S.d[bsrc + 4 * lo + 1], wi);
+            float pr = s3.y / ptot;
+            w[k] = pr > 0.0 ? ph / pr : 0.0;
+            somme = somme + w[k];
+        }
+        if (somme > 0.0) {
+            float u = Rnd() * somme;
+            int k = 0;
+            while (k < 7 && u >= w[k]) {
+                u = u - w[k];
+                k = k + 1;
+            }
+            int q = cand[k];
+            vec4 s0 = S.d[bsrc + 4 * q];
+            vec4 s1 = S.d[bsrc + 4 * q + 1];
+            vec4 s2 = S.d[bsrc + 4 * q + 2];
+            vec4 s3 = S.d[bsrc + 4 * q + 3];
+            float z = 1.0 - 2.0 * Rnd();
+            float ph2 = 6.28318531 * Rnd();
+            float rz = sqrt(max(0.0, 1.0 - z * z));
+            vec3 pl = s0.xyz + vec3(rz * cos(ph2), z, rz * sin(ph2)) * s3.x;
+            vec3 dv = pl - p;
+            float d2 = max(dot(dv, dv), 1e-4);
+            float dl = sqrt(d2);
+            vec3 wi = dv / dl;
+            float I = s2.w;
+            if (s0.w > 0.5) I = I * FacteurSpot(s1, wi);
+            vec3 f = EvalBsdf(ng, ns, alb, rug, met, wo, wi);
+            if (I > 0.0 && LumC(f) > 0.0) {
+                vec3 tr = P.p1.z > 0.5 ? vec3(1.0, 1.0, 1.0) : Transmission(o, wi, dl - 2e-3);
+                vec3 cen = s0.xyz - p;
+                float dc2 = max(dot(cen, cen), s3.x * s3.x + 1e-4);
+                vec3 cw = cen / sqrt(dc2);
+                float phy = s2.w * max(0.0, dot(ns, cw)) / dc2;
+                if (s0.w > 0.5) phy = phy * FacteurSpot(s1, cw);
+                if (phy > 0.0) {
+                    float W = (somme / 8.0) / phy;
+                    L = L + f * s2.xyz * (I / d2) * tr * W;
+                }
+            }
+        }
+    }
+    return L;
+}
+vec3 Chemin(vec3 o, vec3 d, out vec3 aAlb, out vec3 aNrm, out float aZ) {
+    vec3 L = vec3(0.0, 0.0, 0.0);
+    vec3 beta = vec3(1.0, 1.0, 1.0);
+    bool spec = true;
+    bool aov = false;
+    aAlb = vec3(1.0, 1.0, 1.0);
+    aNrm = -d;
+    aZ = 1e4;
+    int maxR = P.p1.w > 0.5 ? 1 : int(P.p0.z);
+    float coneSol = 1.0 / (6.28318531 * (1.0 - P.sol.w));
+    for (int rebond = 0; rebond <= maxR; ++rebond) {
+        float th;
+        int tri;
+        float b1;
+        float b2;
+        if (!Tracer(o, d, 1e6, th, tri, b1, b2)) {
+            if (P.drap.y < 0.5) L = L + beta * Ciel(d);
+            if (spec && P.drap.x < 0.5 && dot(d, P.sol.xyz) >= P.sol.w) L = L + beta * P.solE.xyz * coneSol;
+            break;
+        }
+        vec3 p;
+        vec3 ng;
+        vec3 ns;
+        vec3 alb;
+        vec3 emis;
+        float rug;
+        float met;
+        bool verre;
+        Surf(tri, b1, b2, o, d, th, p, ng, ns, alb, emis, rug, met, verre);
+        if (spec && LumC(emis) > 0.0) L = L + beta * emis;
+        if (verre) {
+            bool entre = dot(d, ng) < 0.0;
+            vec3 n = entre ? ng : -ng;
+            float eta = entre ? 1.0 / 1.5 : 1.5;
+            float ci = -dot(d, n);
+            float s2 = eta * eta * (1.0 - ci * ci);
+            float F = 1.0;
+            vec3 dt = vec3(0.0, 0.0, 0.0);
+            if (s2 < 1.0) {
+                float ct = sqrt(1.0 - s2);
+                float rs = (eta * ci - ct) / (eta * ci + ct);
+                float rp = (ci - eta * ct) / (ci + eta * ct);
+                F = 0.5 * (rs * rs + rp * rp);
+                dt = d * eta + n * (eta * ci - ct);
+            }
+            if (Rnd() < F) {
+                d = d + n * (2.0 * ci);
+                o = p + n * 2e-3;
+            } else {
+                d = normalize(dt);
+                o = p - n * 2e-3;
+                beta = beta * alb;
+            }
+            spec = true;
+            continue;
+        }
+        if (!aov) {
+            aAlb = alb;
+            aNrm = ns;
+            aZ = th;
+            aov = true;
+        }
+        vec3 wo = -d;
+        vec3 Ld = Directe(p, ng, ns, alb, rug, met, wo);
+        if (rebond > 0) {
+            float l = LumC(beta * Ld);
+            if (l > P.p0.w) Ld = Ld * (P.p0.w / l);
+        }
+        L = L + beta * Ld;
+        if (rebond == maxR) break;
+        vec3 wi = TirerBsdf(ns, rug, met, wo);
+        float pdf = PdfBsdf(ns, rug, met, wo, wi);
+        if (pdf <= 1e-8) break;
+        vec3 f = EvalBsdf(ng, ns, alb, rug, met, wo, wi);
+        if (LumC(f) <= 0.0) break;
+        beta = beta * f / pdf;
+        spec = rug < 0.08;
+        if (rebond >= 3) {
+            float q = min(0.95, max(beta.x, max(beta.y, beta.z)));
+            if (Rnd() > q) break;
+            beta = beta / q;
+        }
+        o = p + ng * 2e-3;
+        d = wi;
+    }
+    return L;
+}
+
+@stage(compute)
+@entry
+void main() {
+    int L = int(P.rt.w);
+    int H = int(P.up.w);
+    int x = int(gl_GlobalInvocationID.x);
+    int y = int(gl_GlobalInvocationID.y) + int(P.p1.x);
+    if (x >= L || y >= H || y >= int(P.p1.x) + int(P.p1.y)) return;
+    int pix = y * L + x;
+    int N = L * H;
+    vec3 sL = vec3(0.0, 0.0, 0.0);
+    vec3 sA = vec3(0.0, 0.0, 0.0);
+    vec3 sN = vec3(0.0, 0.0, 0.0);
+    float sZ = 0.0;
+    float sL2 = 0.0;
+    int spp = int(P.p0.x);
+    for (int s = 0; s < spp; ++s) {
+        gEtat = uint(pix) * 1973u + uint(P.p0.y) * 9277u + uint(s) * 26699u + 1u;
+        Pcg();
+        Pcg();
+        float px = (float(x) + Rnd()) / float(L) * 2.0 - 1.0;
+        float py = 1.0 - (float(y) + Rnd()) / float(H) * 2.0;
+        vec3 d = normalize(P.fw.xyz + P.rt.xyz * (px * P.oeil.w * P.fw.w) + P.up.xyz * (py * P.oeil.w));
+        vec3 a;
+        vec3 nn;
+        float zz;
+        vec3 c = Chemin(P.oeil.xyz, d, a, nn, zz);
+        if (!(c.x == c.x && c.y == c.y && c.z == c.z) || c.x > 1e20 || c.y > 1e20 || c.z > 1e20) c = vec3(0.0, 0.0, 0.0);
+        sL = sL + c;
+        sA = sA + a;
+        sN = sN + nn;
+        sZ = sZ + zz;
+        float l = LumC(c);
+        sL2 = sL2 + l * l;
+    }
+    O.o[pix] = O.o[pix] + vec4(sL, 0.0);
+    O.o[N + pix] = O.o[N + pix] + vec4(sA, 0.0);
+    O.o[2 * N + pix] = O.o[2 * N + pix] + vec4(sN, 0.0);
+    O.o[3 * N + pix] = O.o[3 * N + pix] + vec4(sZ, sL2, 0.0, 0.0);
+}

@@ -112,7 +112,60 @@ namespace nkentseu {
 
 				void Clear() {
 					mOccluders.Clear();
+					mTris.Clear(); // (09/11/2026) les triangles aussi
 					mDirty = true;
+				}
+
+				// ── (09/11/2026, rendu-realiste) LA GRILLE SUIT LA SCENE ────────────
+				// Les bornes etaient FIXES ([-10,10]x[-5,5]x[-10,10], ici ET dans le
+				// nuanceur) : une maison posee a x = 32..52 etait entierement hors
+				// grille, la GI et l'occlusion ne pouvaient rien pour elle. Reconfigure
+				// pose de nouvelles bornes, une nouvelle resolution et la longueur du
+				// trajet d'ombre de l'injection. Si la resolution change, la texture est
+				// RECREEE : l'appelant la rebranche (NkRender3D::SetVoxelAO). Le nuanceur
+				// PBR ne lit les bornes du bloc camera (voxelMin / voxelMax) que si
+				// HasCustomBounds() : sans appel a Reconfigure, rien ne change, ni ici ni
+				// a l'ecran (temoin au pixel des autres applications).
+				bool Reconfigure(const math::NkVec3f &mn, const math::NkVec3f &mx, uint32 resX, uint32 resY, uint32 resZ,
+								 uint32 giShadowSteps);
+				// Retour aux bornes, a la resolution et au trajet d'ombre d'Init.
+				bool ResetBounds();
+				bool HasCustomBounds() const {
+					return mBoundsCustom;
+				}
+
+				// ── (09/11/2026) LA VOXELISATION PAR TRIANGLE ─────────────────────
+				// Une boite par objet faisait d'une facade entiere un bloc plein. Un
+				// triangle ne marque que les voxels qu'il TRAVERSE (recouvrement
+				// triangle-boite par axes separateurs, Akenine-Moller 2001), et y laisse
+				// sa normale : l'injection eclaire alors la face, pas un gradient.
+				void RegisterTriangle(const math::NkVec3f &a, const math::NkVec3f &b, const math::NkVec3f &c,
+									  const math::NkVec3f &albedo, float32 opacity = 1.f);
+				uint32 GetTriangleCount() const {
+					return (uint32)mTris.Size();
+				}
+
+				// (09/11/2026) PRE-FILTRAGE de la grille televersee : flou en boite separable
+				// de rayon `rayon` voxels sur rgba (radiance premultipliee et opacite). Sans
+				// pyramide de niveaux, un cone n'est qu'un rayon : au loin son pas depasse
+				// l'epaisseur d'un mur, qu'il touche ou saute selon le pixel -- des bandes.
+				// Le flou donne a chaque mur une epaisseur que le pas ne saute plus. 0 (le
+				// defaut) : rien ne change.
+				void SetFiltre(uint32 rayon) {
+					mFiltre = rayon;
+				}
+
+				// (09/11/2026) LA LUMIERE DU CIEL DANS LE REBOND (opt-in). Le rebond ne portait
+				// que les lumieres (soleil, ponctuelles) : une piece eclairee par sa fenetre
+				// -- le ciel entre, frappe les murs, les murs eclairent la piece -- restait
+				// noire hors des taches de soleil. Ici chaque voxel occupe tire `rayons`
+				// directions (cosinus, autour de sa normale) dans la grille d'opacite : un
+				// rayon qui sort par le haut voit le ciel de radiance `radiance`. Irradiance du
+				// ciel = pi x radiance x (part des rayons qui le voient). 0 rayon (defaut) :
+				// rien ne change.
+				void SetCielInjecte(const math::NkVec3f &radiance, uint32 rayons) {
+					mCielRad = radiance;
+					mCielRayons = rayons;
 				}
 
 				// Voxelize les occluders enregistrés en CPU et upload dans la
@@ -183,6 +236,26 @@ namespace nkentseu {
 
 				NkVector<NkVoxelOccluder> mOccluders;
 				bool mDirty = true;
+
+				// (09/11/2026) triangles enregistres, bornes posees par l'appelant, et
+				// la configuration d'Init (pour ResetBounds).
+				struct NkVoxelTri {
+						math::NkVec3f a, b, c, albedo;
+						float32 opacity;
+				};
+				NkVector<NkVoxelTri> mTris;
+				bool mBoundsCustom = false;
+				NkVoxelAOConfig mCfgInit;
+				// Normale de surface par voxel (somme des normales des triangles qui le
+				// traversent ; vide sans triangle) : l'injection la prefere au gradient.
+				NkVector<float32> mTriNormal;
+				uint32 mFiltre = 0;
+				math::NkVec3f mCielRad = {0.f, 0.f, 0.f};
+				uint32 mCielRayons = 0;
+				float32 CielVisible(const math::NkVec3f &c, const math::NkVec3f &n) const;
+				void Filtrer(NkVector<uint8> &rgba) const;
+				uint32 VoxelizeTriangles();
+				bool ApplyConfig(const NkVoxelAOConfig &cfg);
 
 				NkTextureHandle mVoxelTex;	   // RGBA8 : rgb = radiance premult, a = opacite
 				NkSamplerHandle mVoxelSampler; // linear clamp pour cone trace
