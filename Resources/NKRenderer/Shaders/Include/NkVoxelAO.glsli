@@ -130,6 +130,9 @@ vec4 NkComputeVoxelGIPosees(vec3 worldPos, vec3 N) {
 
 vec4 NkComputeVoxelGI(vec3 worldPos, vec3 N) {
 #ifdef NK_VOXEL_BORNES_UCAM
+    // (10/11/2026) les SONDES tiennent le binding 27 (voxelMax.w = 2 ou 3, NkSondes.glsli) :
+    // il n'y a pas de grille voxel a parcourir
+    if (uCam.voxelMax.w > 1.5) return vec4(0.0, 0.0, 0.0, 1.0);
     if (uCam.voxelMax.w > 0.5) return NkComputeVoxelGIPosees(worldPos, N);
 #endif
     vec3 T = abs(N.y) < 0.99 ? normalize(cross(vec3(0.0, 1.0, 0.0), N))

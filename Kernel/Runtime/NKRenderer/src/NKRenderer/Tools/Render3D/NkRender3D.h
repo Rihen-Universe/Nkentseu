@@ -154,6 +154,15 @@ namespace nkentseu {
 				// Le pre-bind du Init est skip car mVoxelAO=nullptr a ce moment.
 				void SetVoxelAO(class NkVoxelAOSystem *vao);
 
+				// (10/11/2026) SONDES D'IRRADIANCE (NkSondesIrradiance, cuites par le traceur) : leur
+				// texture 3D prend le binding 27 de la grille voxel, et l'UBO camera porte la grille
+				// (voxelMin = premiere sonde + pas, voxelMax = derniere sonde + mode : 2 avec visibilite,
+				// 3 sans). Texture invalide : retour a la grille voxel. Sans appel, RIEN ne change.
+				void SetSondes(NkTextureHandle tex, NkSamplerHandle samp, const NkVec4f &premiere, const NkVec4f &derniere);
+				bool SondesActives() const {
+					return mSondesActives;
+				}
+
 				// Render des opaques castShadow=true depuis la perspective de la
 				// lumiere (lightVP = lightProj * lightView), dans le FBO shadow
 				// currentement bindé. Appele par NkShadowSystem dans la passe
@@ -656,6 +665,11 @@ namespace nkentseu {
 				NkVirtualShadowMaps *mShadow = nullptr;
 				NkEnvironmentSystem *mEnv = nullptr;
 				class NkVoxelAOSystem *mVoxelAO = nullptr; // Phase H.6
+				// (10/11/2026) sondes d'irradiance (SetSondes)
+				bool mSondesActives = false;
+				NkTextureHandle mSondesTex;
+				NkSamplerHandle mSondesSamp;
+				NkVec4f mSondesPremiere{0.f, 0.f, 0.f, 1.f}, mSondesDerniere{0.f, 0.f, 0.f, 2.f};
 				NkShaderLibrary *mShaderLib = nullptr;
 				NkResources *mResources = nullptr;
 

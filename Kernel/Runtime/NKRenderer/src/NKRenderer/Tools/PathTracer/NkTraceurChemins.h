@@ -93,6 +93,15 @@ namespace nkentseu {
 		/// La fin commune (moyennes, exposition, image brute, debruiteur, image) depuis les sommes de la
 		/// carte graphique : `o4` = 4 sections de L x H vec4 (couleur, albedo, normale, (profondeur,
 		/// luminance au carre)), sommees sur `spp` echantillons.
+		/// (10/11/2026) LES RAYONS D'UNE SONDE D'IRRADIANCE (NkSondesIrradiance) sur la scene preparee :
+		/// `n` rayons depuis `o` dans les directions `dirs` (n x 3). Par rayon : la radiance arrivante
+		/// `rad3` (n x 3 ; rayon « secondaire » : ni emission vue ni disque solaire, la lumiere aux
+		/// impacts et le ciel compris), la distance du premier impact bornee a `dmax` (`dist`, une vitre
+		/// compte comme un mur) et `dos` = 1 si le rayon frappe l'arriere d'une surface opaque. Ajoute
+		/// les rayons lances a `*rayons`. Sans etat partage : appelable depuis plusieurs fils.
+		bool NkTcRayonsSonde(const float32 o[3], const float32 *dirs, int32 n, uint64 graine, float32 dmax,
+							 const NkTcReglages &r, float32 *rad3, float32 *dist, uint8 *dos, uint64 *rayons);
+
 		bool NkTcFinaliserSommes(const NkTcCamera &cam, const NkTcReglages &r, const char *png, const float32 *o4, int32 spp,
 								 float64 msRendu, uint64 rayons, NkTcStats *stats);
 

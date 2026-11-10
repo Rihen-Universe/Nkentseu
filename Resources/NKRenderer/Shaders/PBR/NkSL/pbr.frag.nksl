@@ -243,9 +243,10 @@ float SampleLight3DCubeCookie(int idx, vec3 dir) {
 // (09/11/2026) ce nuanceur declare voxelMin / voxelMax : la grille suit la scene.
 // ⚠ LA CLE DU CACHE (.nksc) SE CALCULE SUR CE TEXTE, PAS SUR LES INCLUSIONS : toute
 // modification de Include/NkVoxelAO.glsli doit monter cette revision, sinon le cache
-// ressert l'ancien nuanceur. Revision de l'inclusion : 3.
+// ressert l'ancien nuanceur. Revision de l'inclusion : 4 (10/11 : les sondes, NkSondes.glsli).
 #define NK_VOXEL_BORNES_UCAM 1
 #include "Include/NkVoxelAO.glsli"
+#include "Include/NkSondes.glsli"
 
 float SampleLight3DCookie(int idx, vec2 uv) {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
@@ -901,6 +902,19 @@ void main() {
     // sont déjà contraints. Sans occluder injecté, voxGI.xyz vaut 0 et ce terme
     // disparaît : le rendu par défaut est strictement inchangé.
     amb += kDi * albedo * voxGI.xyz * ao * uCam.iblStrength;
+    // (10/11/2026) LES SONDES D'IRRADIANCE (voxelMax.w = 2 ou 3, Include/NkSondes.glsli) : le diffus
+    // ambiant EST l'irradiance cuite par le traceur (le ciel, la lumiere multiple ; la lumiere directe
+    // reste celle des lumieres ci-dessus) ; le speculaire de l'IBL est attenue dans la meme proportion
+    // que le diffus (une piece fermee ne reflete pas le ciel). Sans sondes : rien ne change.
+    if (uCam.voxelMax.w > 1.5) {
+        vec3 Esd = NkSondesEclairement(vWorldPos, N, V).rgb;
+        vec3 irrCiel = irr * uCam.iblStrength * uCam.iblColor.rgb;
+        float lumSd = dot(Esd * (1.0 / PI), vec3(0.2126, 0.7152, 0.0722));
+        float lumCiel = max(dot(irrCiel, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
+        float occSpec = clamp(lumSd / lumCiel, 0.0, 1.0);
+        amb = (kDi * albedo * Esd * (1.0 / PI)
+               + pref * (Fi * brdf.x + brdf.y) * uCam.iblStrength * uCam.iblColor.rgb * occSpec) * ao;
+    }
 
     vec3 ccContrib = vec3(0.0);
     if (uMat.clearcoat > 0.0) {

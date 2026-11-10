@@ -534,6 +534,9 @@ namespace nkentseu {
 					float32 cosSoleil;
 					uint64 rayons;
 					uint64 nonFinis;
+					// (10/11) rayon de SONDE : un rayon « secondaire » des le depart -- ni emission vue ni
+					// disque solaire (le temps reel les ajoute lui-meme), la lumiere aux impacts comprise
+					bool sonde = false;
 			};
 
 			// NEE : soleil + une source (RIS) ; renvoie la contribution (sans le debit)
@@ -630,7 +633,7 @@ namespace nkentseu {
 			// UN chemin ; aov : albedo et normale du premier impact diffus, profondeur
 			V3 Chemin(const Scene &g, Ctx &c, V3 o, V3 d, Rng &r, V3 &aAlb, V3 &aNrm, float32 &aZ) {
 				V3 L{0.f, 0.f, 0.f}, beta{1.f, 1.f, 1.f};
-				bool speculaire = true, aov = false;
+				bool speculaire = !c.sonde, aov = false;
 				const int32 maxRebonds = c.r->unRebond ? 1 : c.r->rebonds;
 				for (int32 rebond = 0; rebond <= maxRebonds; ++rebond) {
 					Impact h;
@@ -638,7 +641,10 @@ namespace nkentseu {
 					if (!Tracer(g, o, d, 1e6f, h)) {
 						if (!c.r->sansCiel)
 							L = L + Mul(beta, Ciel(g, d));
-						if (speculaire && !c.r->sansSoleil && Dot(d, c.soleil) >= c.cosSoleil)
+						// une sonde ne voit JAMAIS le disque solaire, meme par une vitre : le temps reel
+						// eclaire le point du soleil lui-meme (un seul rayon dans le disque ferait une sonde
+						// eblouie)
+						if (speculaire && !c.sonde && !c.r->sansSoleil && Dot(d, c.soleil) >= c.cosSoleil)
 							L = L + Mul(beta, c.soleilE * (1.f / (2.f * kPi * (1.f - c.cosSoleil))));
 						if (!aov) {
 							aAlb = V3{1.f, 1.f, 1.f};
@@ -650,7 +656,7 @@ namespace nkentseu {
 					}
 					Surface S;
 					Surf(g, h, o, d, c.r->sansCartes, S);
-					if (speculaire && Lum(S.emis) > 0.f)
+					if (speculaire && !c.sonde && Lum(S.emis) > 0.f)
 						L = L + Mul(beta, S.emis);
 					if (S.verre) {
 						// dielectrique lisse n = 1,5 : Fresnel exact, reflexion ou refraction
@@ -1101,6 +1107,61 @@ namespace nkentseu {
 						   rayons ? (float64)gNoeuds / (float64)rayons : 0.0, rayons ? (float64)gTris / (float64)rayons : 0.0);
 			NkFflush(NkFlux::Sortie);
 			return ok;
+		}
+
+		// =====================================================================
+		//  (10/11) LES RAYONS D'UNE SONDE (NkSondesIrradiance.cpp)
+		// =====================================================================
+		bool NkTcRayonsSonde(const float32 o[3], const float32 *dirs, int32 n, uint64 graine, float32 dmax,
+							 const NkTcReglages &r, float32 *rad3, float32 *dist, uint8 *dos, uint64 *rayons) {
+			Scene &g = G();
+			if (!g.prete || !dirs || n <= 0)
+				return false;
+			Ctx c;
+			c.r = &r;
+			c.soleil = Mk(g.s.soleilDir[0], g.s.soleilDir[1], g.s.soleilDir[2]);
+			c.soleilE = Mk(g.s.soleilCouleur[0], g.s.soleilCouleur[1], g.s.soleilCouleur[2]) * g.s.soleilE;
+			c.cosSoleil = 0.99998918f;
+			c.rayons = 0;
+			c.nonFinis = 0;
+			c.sonde = true;
+			const V3 po = Mk(o[0], o[1], o[2]);
+			for (int32 i = 0; i < n; ++i) {
+				const V3 d = Norm(Mk(dirs[i * 3], dirs[i * 3 + 1], dirs[i * 3 + 2]));
+				Rng rng{Melange(graine ^ ((uint64)(uint32)i * 0x9E3779B97F4A7C15ULL) ^ 0x5D0E5D0EULL)};
+				// le premier impact (le verre compris : pour la VISIBILITE, une vitre est un mur) et sa
+				// face : « dos » = le rayon frappe l'arriere de la surface (la normale du maillage)
+				Impact h;
+				++c.rayons;
+				float32 t = dmax;
+				uint8 arriere = 0;
+				if (Tracer(g, po, d, 1e6f, h)) {
+					t = Min(h.t, dmax);
+					const Tri &tr = g.tris.Data()[h.tri];
+					const NkScMateriau &m = g.s.mats.Data()[tr.mat];
+					if (m.transmission <= 0.5f) {
+						const float32 w0 = 1.f - h.b1 - h.b2;
+						const float32 *N = g.s.N.Data();
+						const V3 ns = Mk(N[tr.i0 * 3] * w0 + N[tr.i1 * 3] * h.b1 + N[tr.i2 * 3] * h.b2,
+										 N[tr.i0 * 3 + 1] * w0 + N[tr.i1 * 3 + 1] * h.b1 + N[tr.i2 * 3 + 1] * h.b2,
+										 N[tr.i0 * 3 + 2] * w0 + N[tr.i1 * 3 + 2] * h.b1 + N[tr.i2 * 3 + 2] * h.b2);
+						arriere = Dot(ns, d) > 0.f ? 1u : 0u;
+					}
+				}
+				V3 a{1.f, 1.f, 1.f}, nn{0.f, 1.f, 0.f};
+				float32 zz = 1e4f;
+				V3 Lc = Chemin(g, c, po, d, rng, a, nn, zz);
+				if (!(Lc.x == Lc.x && Lc.y == Lc.y && Lc.z == Lc.z) || Lc.x > 1e20f || Lc.y > 1e20f || Lc.z > 1e20f)
+					Lc = V3{0.f, 0.f, 0.f};
+				rad3[i * 3] = Lc.x;
+				rad3[i * 3 + 1] = Lc.y;
+				rad3[i * 3 + 2] = Lc.z;
+				dist[i] = t;
+				dos[i] = arriere;
+			}
+			if (rayons)
+				*rayons += c.rayons;
+			return true;
 		}
 
 		// =====================================================================

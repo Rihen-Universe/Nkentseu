@@ -2568,10 +2568,11 @@ namespace nkentseu {
 		// skip ce binding car mVoxelAO=nullptr a ce moment).
 		void NkRender3D::SetVoxelAO(NkVoxelAOSystem *vao) {
 			mVoxelAO = vao;
-			if (!mVoxelAO)
+			if (!mVoxelAO && !mSondesActives)
 				return;
-			NkTextureHandle tex = mVoxelAO->GetVoxelTexture();
-			NkSamplerHandle samp = mVoxelAO->GetVoxelSampler();
+			// (10/11/2026) les sondes en marche gardent le binding 27 (voir SetSondes)
+			NkTextureHandle tex = mSondesActives ? mSondesTex : mVoxelAO->GetVoxelTexture();
+			NkSamplerHandle samp = mSondesActives ? mSondesSamp : mVoxelAO->GetVoxelSampler();
 			if (!tex.IsValid() || !samp.IsValid())
 				return;
 			for (uint32 i = 0; i < mFramesInFlight; i++) {
@@ -2585,6 +2586,20 @@ namespace nkentseu {
 					mDevice->BindTextureSampler(gsm, 27, tex, samp);
 			}
 			logger.Info("[NkRender3D] VoxelAO texture bind a set=0 binding=27\n");
+		}
+
+		// (10/11/2026) LES SONDES D'IRRADIANCE prennent le binding 27 (voir NkRender3D.h). Une texture
+		// invalide les eteint : la grille voxel reprend sa place.
+		void NkRender3D::SetSondes(NkTextureHandle tex, NkSamplerHandle samp, const NkVec4f &premiere,
+								   const NkVec4f &derniere) {
+			const bool actives = tex.IsValid() && samp.IsValid();
+			mSondesActives = actives;
+			mSondesTex = actives ? tex : NkTextureHandle{};
+			mSondesSamp = actives ? samp : NkSamplerHandle{};
+			mSondesPremiere = premiere;
+			mSondesDerniere = derniere;
+			SetVoxelAO(mVoxelAO);
+			logger.Info("[NkRender3D] sondes d'irradiance {0} au binding 27\n", actives ? "liees" : "deliees");
 		}
 
 		// Remplace À CHAUD la boule matcap (binding 28). Permet à l'utilisateur de charger
@@ -2898,7 +2913,11 @@ namespace nkentseu {
 							mCtx.time * mCtx.fogWindSpeed};
 			// (09/11/2026) bornes de la grille voxel : lues par le nuanceur PBR
 			// seulement si voxelMax.w = 1 (bornes posees par l'application).
-			if (mVoxelAO && mVoxelAO->HasCustomBounds()) {
+			if (mSondesActives) {
+				// (10/11/2026) la grille des sondes (voxelMax.w = 2 ou 3 : NkSondes.glsli)
+				cb.voxelMin = mSondesPremiere;
+				cb.voxelMax = mSondesDerniere;
+			} else if (mVoxelAO && mVoxelAO->HasCustomBounds()) {
 				const NkVoxelAOConfig &vc = mVoxelAO->GetConfig();
 				const float32 vsx = (vc.maxBounds.x - vc.minBounds.x) / (float32)(vc.resX ? vc.resX : 1u);
 				cb.voxelMin = {vc.minBounds.x, vc.minBounds.y, vc.minBounds.z, vsx};
