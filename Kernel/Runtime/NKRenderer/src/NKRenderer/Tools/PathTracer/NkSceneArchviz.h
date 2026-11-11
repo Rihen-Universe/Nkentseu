@@ -51,6 +51,14 @@ namespace nkentseu {
 				float32 vernisRug = 0.03f;		 ///< clearcoatRough : rugosite du vernis
 				float32 paillettes = 0.f;		 ///< sheen de la carrosserie : quantite de paillettes, 0 aucune
 				float32 paillettesDensite = 1.f; ///< anisotropy de la carrosserie : densite 0..1 (25 a 0,5 mm)
+				// (11/11/2026, nkcraft-arbres) LA CARTE DE L'OBJET : une image RGBA lue aux UV DU MAILLAGE
+				// (v = 0 en haut de l'image, la convention des primitives et de l'atelier), pas une carte
+				// procedurale en metres. Ses couleurs MULTIPLIENT `couleur` (le temps reel fait de meme :
+				// texture x teinte). Les feuilles detourees de NKCraft (Vegetation/NkArbre) en ont besoin :
+				// sans elle le traceur rendait une carte de feuille comme un polygone plein.
+				char carte[260] = {0};	   ///< vide : aucune
+				float32 masque = 0.f;	   ///< seuil d'alpha de la carte : un texel plus transparent n'existe pas (0 : opaque)
+				float32 translucide = 0.f; ///< part transmise en diffus vers l'autre face (feuille mince) : 0 aucune
 		};
 
 		struct NkScSource {

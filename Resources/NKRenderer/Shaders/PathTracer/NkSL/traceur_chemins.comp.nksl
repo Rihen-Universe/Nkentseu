@@ -33,6 +33,9 @@ float gLustreRug;
 float gVernis;
 float gVernisRug;
 vec3 gNb;
+// (11/11/2026, nkcraft-arbres) la feuille mince de la surface courante : la part transmise en diffus par
+// l'autre face (Surf l'ecrit ; 0 : opaque, rien ne change)
+float gTrans;
 uint Pcg() {
     gEtat = gEtat * 747796405u + 2891336453u;
     uint w = ((gEtat >> ((gEtat >> 28u) + 4u)) ^ gEtat) * 277803737u;
@@ -83,6 +86,38 @@ bool MT(int k, vec3 o, vec3 d, float tmax, out float t, out float u, out float v
     t = dot(e2, q) * id;
     return t > 1e-4 && t < tmax;
 }
+// (11/11/2026, nkcraft-arbres) LES CARTES D'OBJET (P.cartes[15].w = decalage de la table, 0 : aucune ;
+// NkTcEmpaqueter) : le texel RGBA8 de la carte `carte` au triangle de bloc `k`, barycentriques (b1, b2), UV
+// du maillage repetees, v = 0 en HAUT de l'image -- le meme calcul que TexelObjet de NkTraceurChemins.cpp
+uint TexelObjet(int k, int carte, float b1, float b2) {
+    int X = int(P.cartes[15].w);
+    int bs = int(P.off0.z);
+    int i0 = int(S.d[k + 1].w);
+    int i1 = int(S.d[k + 2].w);
+    int i2 = int(S.d[k + 3].x);
+    float w0 = 1.0 - b1 - b2;
+    float u = S.d[bs + 2 * i0].w * w0 + S.d[bs + 2 * i1].w * b1 + S.d[bs + 2 * i2].w * b2;
+    float v = S.d[bs + 2 * i0 + 1].x * w0 + S.d[bs + 2 * i1 + 1].x * b1 + S.d[bs + 2 * i2 + 1].x * b2;
+    float fu = u - float(int(u));
+    float fv = v - float(int(v));
+    if (fu < 0.0) fu = fu + 1.0;
+    if (fv < 0.0) fv = fv + 1.0;
+    vec4 de = S.d[int(S.d[X].z) + carte];
+    int w = int(de.y);
+    int h = int(de.z);
+    int x = clamp(int(fu * float(w)), 0, w - 1);
+    int y = clamp(int(fv * float(h)), 0, h - 1);
+    return T.t[int(de.x) + y * w + x];
+}
+// le masque : faux si l'impact tombe sur un texel plus transparent que le seuil (feuille detouree)
+bool AlphaPasse(int k, float b1, float b2) {
+    int X = int(P.cartes[15].w);
+    if (X <= 0) return true;
+    vec4 e = S.d[X + 1 + int(S.d[k].w)];
+    if (e.x < 0.0 || e.y <= 0.0) return true;
+    uint px = TexelObjet(k, int(e.x), b1, b2);
+    return float(px >> 24u) >= e.y * 255.0;
+}
 bool Tracer(vec3 o, vec3 d, float tmax, out float th, out int tri, out float b1, out float b2) {
     vec3 inv = Inverse(d);
     int pile[64];
@@ -107,6 +142,7 @@ bool Tracer(vec3 o, vec3 d, float tmax, out float th, out int tri, out float b1,
                 float u;
                 float v;
                 if (MT(bt + 4 * (g + i), o, d, th, t, u, v)) {
+                    if (!AlphaPasse(bt + 4 * (g + i), u, v)) continue;
                     th = t;
                     tri = g + i;
                     b1 = u;
@@ -143,6 +179,7 @@ vec3 Transmission(vec3 o, vec3 d, float tmax) {
                 float u;
                 float v;
                 if (!MT(k, o, d, tmax, t, u, v)) continue;
+                if (!AlphaPasse(k, u, v)) continue;
                 int mat = int(S.d[k].w);
                 vec4 m1 = S.d[bm + 4 * mat + 1];
                 if (m1.y > 0.5) {
@@ -233,6 +270,18 @@ void Surf(int tri, float b1, float b2, vec3 o, vec3 d, float th, out vec3 p, out
             alb = min(vec3(0.98, 0.98, 0.98), alb * tx / m3.xyz);
         }
     }
+    // (11/11/2026) la carte de l'objet : texel x couleur (comme le temps reel) ; la feuille mince
+    gTrans = 0.0;
+    int X = int(P.cartes[15].w);
+    if (X > 0) {
+        vec4 e = S.d[X + 1 + mat];
+        if (!verre) gTrans = e.z;
+        if (P.drap.w < 0.5 && e.x >= 0.0) {
+            uint pxo = TexelObjet(k, int(e.x), b1, b2);
+            vec3 to = vec3(Lin(pxo & 255u), Lin((pxo >> 8u) & 255u), Lin((pxo >> 16u) & 255u));
+            alb = min(vec3(0.98, 0.98, 0.98), alb * to);
+        }
+    }
     if (!verre && dot(ng, d) > 0.0) {
         ng = -ng;
         ns = -ns;
@@ -247,6 +296,17 @@ void Surf(int tri, float b1, float b2, vec3 o, vec3 d, float th, out vec3 p, out
         gVernis = vv.x;
         gVernisRug = max(vv.y, 0.03);
         if (vv.z > 0.0) gNb = NormalePaillette(p, ns, vv.z, vv.w);
+    }
+    // (10/11) LE MODE ARGILE (P.cartes[14].w = 1) : blanc mat 0,8, rugosite 0,6 ; le verre reste, l'emission
+    // (calculee plus haut de la couleur de la matiere) reste -- comme NkTraceurChemins.cpp
+    if (P.cartes[14].w > 0.5 && !verre) {
+        alb = vec3(0.8, 0.8, 0.8);
+        rug = 0.6;
+        met = 0.0;
+        gLustre = 0.0;
+        gVernis = 0.0;
+        gNb = ns;
+        gTrans = 0.0;
     }
 }
 float DGgx(float nh, float a2) {
@@ -290,6 +350,8 @@ vec3 EvalBase(vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo, vec3 wi
 // (10/11) la base (normale de paillette), puis le vernis (normale lisse) : la base x (1 - albedo du
 // vernis vu), comme NkTraceurChemins.cpp et le Principled de Cycles
 vec3 EvalBsdf(vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo, vec3 wi) {
+    // (11/11) la feuille mince : de l'autre cote, un Lambert x translucide (sans translucide : rien ne change)
+    if (gTrans > 0.0 && dot(ng, wi) < 0.0) return alb * (gTrans * max(0.0, -dot(ns, wi)) / 3.14159265);
     if (gVernis <= 0.0) return EvalBase(ng, gNb, alb, rug, met, wo, wi);
     float nl = dot(ns, wi);
     float nv = dot(ns, wo);
@@ -323,7 +385,7 @@ float PdfBase(vec3 ns, float rug, float met, vec3 wo, vec3 wi) {
     float pSpec = DGgx(nh, a2) * nh / (4.0 * max(1e-6, dot(wo, h)));
     return ps * pSpec + (1.0 - ps) * nl / 3.14159265;
 }
-float PdfBsdf(vec3 ns, float rug, float met, vec3 wo, vec3 wi) {
+float PdfReflet(vec3 ns, float rug, float met, vec3 wo, vec3 wi) {
     float pb = PdfBase(gNb, rug, met, wo, wi);
     if (gVernis <= 0.0) return pb;
     float pc = 0.0;
@@ -336,6 +398,13 @@ float PdfBsdf(vec3 ns, float rug, float met, vec3 wo, vec3 wi) {
     }
     float pv = ProbaVernis();
     return (1.0 - pv) * pb + pv * pc;
+}
+// (11/11/2026) la feuille mince : une part pT = t / (1 + t) des tirages au lobe transmis (autre face)
+float PdfBsdf(vec3 ng, vec3 ns, float rug, float met, vec3 wo, vec3 wi) {
+    if (gTrans <= 0.0) return PdfReflet(ns, rug, met, wo, wi);
+    float pT = gTrans / (1.0 + gTrans);
+    if (dot(ng, wi) < 0.0) return pT * max(0.0, -dot(ns, wi)) / 3.14159265;
+    return (1.0 - pT) * PdfReflet(ns, rug, met, wo, wi);
 }
 vec3 TirerBase(vec3 ns, float rug, float met, vec3 wo) {
     vec3 t;
@@ -357,6 +426,20 @@ vec3 TirerBase(vec3 ns, float rug, float met, vec3 wo) {
     return normalize(t * (rr * cos(ph)) + b * (rr * sin(ph)) + ns * sqrt(max(0.0, 1.0 - u1)));
 }
 vec3 TirerBsdf(vec3 ns, float rug, float met, vec3 wo) {
+    // (11/11) la feuille mince : un Lambert de l'autre cote ; sans translucide, AUCUN tirage de plus
+    if (gTrans > 0.0) {
+        if (Rnd() < gTrans / (1.0 + gTrans)) {
+            vec3 nd = -ns;
+            vec3 tt;
+            vec3 bb;
+            BaseDe(nd, tt, bb);
+            float u1 = Rnd();
+            float u2 = Rnd();
+            float rr = sqrt(u1);
+            float ph = 6.28318531 * u2;
+            return normalize(tt * (rr * cos(ph)) + bb * (rr * sin(ph)) + nd * sqrt(max(0.0, 1.0 - u1)));
+        }
+    }
     // sans vernis : aucun tirage de plus (les rendus d'avant restent identiques)
     if (gVernis > 0.0) {
         if (Rnd() < ProbaVernis()) {
@@ -412,7 +495,10 @@ float FacteurSpot(vec4 s1, vec3 wi) {
 vec3 Directe(vec3 p, vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo) {
     vec3 L = vec3(0.0, 0.0, 0.0);
     vec3 o = p + ng * 2e-3;
-    if (P.drap.x < 0.5 && LumC(P.solE.xyz) > 0.0 && dot(ng, P.sol.xyz) > 0.0) {
+    // (11/11) la feuille mince recoit aussi la lumiere par son autre face : le rayon d'ombre part de ce cote-la
+    vec3 oDos = p - ng * 2e-3;
+    bool mince = gTrans > 0.0;
+    if (P.drap.x < 0.5 && LumC(P.solE.xyz) > 0.0 && (dot(ng, P.sol.xyz) > 0.0 || mince)) {
         vec3 t;
         vec3 b;
         BaseDe(P.sol.xyz, t, b);
@@ -421,7 +507,7 @@ vec3 Directe(vec3 p, vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo) 
         float ph = 6.28318531 * Rnd();
         vec3 wi = normalize(t * (st * cos(ph)) + b * (st * sin(ph)) + P.sol.xyz * ct);
         vec3 f = EvalBsdf(ng, ns, alb, rug, met, wo, wi);
-        if (LumC(f) > 0.0) L = L + f * P.solE.xyz * (P.p1.z > 0.5 ? vec3(1.0, 1.0, 1.0) : Transmission(o, wi, 1e6));
+        if (LumC(f) > 0.0) L = L + f * P.solE.xyz * (P.p1.z > 0.5 ? vec3(1.0, 1.0, 1.0) : Transmission((mince && dot(ng, wi) < 0.0) ? oDos : o, wi, 1e6));
     }
     int ns2 = int(P.off1.y);
     float ptot = P.off1.z;
@@ -445,7 +531,7 @@ vec3 Directe(vec3 p, vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo) 
             vec3 dv = s0.xyz - p;
             float d2 = max(dot(dv, dv), s3.x * s3.x + 1e-4);
             vec3 wi = dv / sqrt(d2);
-            float ph = s2.w * max(0.0, dot(ns, wi)) / d2;
+            float ph = s2.w * (mince ? abs(dot(ns, wi)) : max(0.0, dot(ns, wi))) / d2;
             if (s0.w > 0.5) ph = ph * FacteurSpot(S.d[bsrc + 4 * lo + 1], wi);
             float pr = s3.y / ptot;
             w[k] = pr > 0.0 ? ph / pr : 0.0;
@@ -475,11 +561,11 @@ vec3 Directe(vec3 p, vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo) 
             if (s0.w > 0.5) I = I * FacteurSpot(s1, wi);
             vec3 f = EvalBsdf(ng, ns, alb, rug, met, wo, wi);
             if (I > 0.0 && LumC(f) > 0.0) {
-                vec3 tr = P.p1.z > 0.5 ? vec3(1.0, 1.0, 1.0) : Transmission(o, wi, dl - 2e-3);
+                vec3 tr = P.p1.z > 0.5 ? vec3(1.0, 1.0, 1.0) : Transmission((mince && dot(ng, wi) < 0.0) ? oDos : o, wi, dl - 2e-3);
                 vec3 cen = s0.xyz - p;
                 float dc2 = max(dot(cen, cen), s3.x * s3.x + 1e-4);
                 vec3 cw = cen / sqrt(dc2);
-                float phy = s2.w * max(0.0, dot(ns, cw)) / dc2;
+                float phy = s2.w * (mince ? abs(dot(ns, cw)) : max(0.0, dot(ns, cw))) / dc2;
                 if (s0.w > 0.5) phy = phy * FacteurSpot(s1, cw);
                 if (phy > 0.0) {
                     float W = (somme / 8.0) / phy;
@@ -575,7 +661,7 @@ vec3 Chemin(vec3 o, vec3 d, out vec3 aAlb, out vec3 aNrm, out float aZ) {
         L = L + beta * Ld;
         if (rebond == maxR) break;
         vec3 wi = TirerBsdf(ns, rug, met, wo);
-        float pdf = PdfBsdf(ns, rug, met, wo, wi);
+        float pdf = PdfBsdf(ng, ns, rug, met, wo, wi);
         if (pdf <= 1e-8) break;
         vec3 f = EvalBsdf(ng, ns, alb, rug, met, wo, wi);
         if (LumC(f) <= 0.0) break;
@@ -587,7 +673,7 @@ vec3 Chemin(vec3 o, vec3 d, out vec3 aAlb, out vec3 aNrm, out float aZ) {
             if (Rnd() > q) break;
             beta = beta / q;
         }
-        o = p + ng * 2e-3;
+        o = p + ng * ((gTrans > 0.0 && dot(ng, wi) < 0.0) ? -2e-3 : 2e-3); // (11/11) transmis : de l'autre cote
         d = wi;
     }
     return L;

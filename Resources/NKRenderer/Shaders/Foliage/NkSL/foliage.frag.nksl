@@ -17,6 +17,9 @@ uniform CameraUBO {
     float _p0, _p1, _p2;
     mat4  mirrorViewProj;
     vec4  reflectionFlags;
+    // (11/11/2026) la suite du MEME tampon de camera, aux memes decalages que pbr.frag.nksl
+    vec4  viewOpts;
+    vec4  iblColor;      // .xyz = teinte de l'ambiance (World Color) ; .w = 1 si un monde est charge
 } uCam;
 
 @binding(set=1, binding=1)
@@ -137,7 +140,16 @@ void main() {
         total += transC * backE * (0.35 + 0.65 * align) * transAmt * rad;
     }
 
-    vec3 amb = textureLod(tEnvIrradiance, N, 0.0).rgb * uCam.iblStrength * albedo * uMat.ao * 0.35;
+    // (11/11/2026, nkcraft-arbres) L'AMBIANCE D'UNE FEUILLE, comme la diffuse ambiante du PBR (pbr.frag.nksl) :
+    // le ciel vu par sa face (irradiance(N) x albedo) ET par l'autre face, transmis (irradiance(-N) x teinte
+    // transmise x transAmt) ; sans monde charge, l'ambiance est uniforme (iblColor.w, la regle du PBR) ; la
+    // teinte du monde (iblColor.rgb). Avant : 0,35 x irradiance(N) x albedo -- une couronne a l'ombre
+    // d'elle-meme sortait presque noire au temps reel (les arbres du generateur de NKCraft).
+    //   vec3 amb = textureLod(tEnvIrradiance, N, 0.0).rgb * uCam.iblStrength * albedo * uMat.ao * 0.35;
+    float hasEnv = uCam.iblColor.w;
+    vec3 irrF = mix(vec3(1.0), textureLod(tEnvIrradiance, N, 0.0).rgb, hasEnv);
+    vec3 irrB = mix(vec3(1.0), textureLod(tEnvIrradiance, -N, 0.0).rgb, hasEnv);
+    vec3 amb = (irrF * albedo + irrB * transC * transAmt) * uCam.iblStrength * uCam.iblColor.rgb * uMat.ao;
     total += amb;
     if (uLights.count == 0) total += albedo * 0.25;
 

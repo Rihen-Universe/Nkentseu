@@ -111,6 +111,12 @@ namespace nkentseu {
 					NkVector<uint8> rgb;
 					float32 moy[3] = {1.f, 1.f, 1.f};
 			};
+			// (11/11/2026, nkcraft-arbres) UNE CARTE D'OBJET (NkScMateriau::carte) : RGBA, lue aux UV du maillage
+			struct CarteObjet {
+					int32 w = 0, h = 0;
+					NkVector<uint8> rgba;
+					char chemin[260] = {0};
+			};
 
 			struct Scene {
 					bool prete = false;
@@ -119,6 +125,8 @@ namespace nkentseu {
 					NkVector<Noeud> noeuds;
 					NkVector<uint32> ordre;
 					Carte cartes[kMatClasses];
+					NkVector<CarteObjet> cobj; ///< (11/11) les cartes d'objet chargees
+					NkVector<int32> carteDe;	///< (11/11) par matiere : sa carte d'objet dans `cobj`, -1 aucune
 					float32 lin[256];
 					NkVector<float32> cdfSources;
 					float32 puissanceTotale = 0.f;
@@ -309,6 +317,38 @@ namespace nkentseu {
 				return V3{1.f / (Abs(d.x) > 1e-12f ? d.x : 1e-12f), 1.f / (Abs(d.y) > 1e-12f ? d.y : 1e-12f),
 						  1.f / (Abs(d.z) > 1e-12f ? d.z : 1e-12f)};
 			}
+			// (11/11/2026, nkcraft-arbres) LE TEXEL DE LA CARTE D'OBJET de la matiere du triangle `t` aux
+			// barycentriques (b1, b2) : UV du maillage, repetees, v = 0 en HAUT de l'image (convention des
+			// primitives et de l'atelier ; les cartes procedurales, elles, se lisent v = 0 en bas). nullptr sans carte.
+			// Le meme calcul que TexelObjet de traceur_chemins.comp.nksl.
+			inline const uint8 *TexelObjet(const Scene &g, const Tri &t, float32 b1, float32 b2) {
+				const int32 ic = (t.mat >= 0 && (usize)t.mat < g.carteDe.Size()) ? g.carteDe.Data()[t.mat] : -1;
+				if (ic < 0)
+					return nullptr;
+				const CarteObjet &c = g.cobj.Data()[ic];
+				const float32 *UV = g.s.UV.Data();
+				const float32 w0 = 1.f - b1 - b2;
+				const float32 u = UV[t.i0 * 2] * w0 + UV[t.i1 * 2] * b1 + UV[t.i2 * 2] * b2;
+				const float32 v = UV[t.i0 * 2 + 1] * w0 + UV[t.i1 * 2 + 1] * b1 + UV[t.i2 * 2 + 1] * b2;
+				float32 fu = u - (float32)(int32)u, fv = v - (float32)(int32)v;
+				if (fu < 0.f)
+					fu += 1.f;
+				if (fv < 0.f)
+					fv += 1.f;
+				int32 x = (int32)(fu * (float32)c.w), y = (int32)(fv * (float32)c.h);
+				x = x < 0 ? 0 : (x >= c.w ? c.w - 1 : x);
+				y = y < 0 ? 0 : (y >= c.h ? c.h - 1 : y);
+				return c.rgba.Data() + ((usize)y * (usize)c.w + (usize)x) * 4u;
+			}
+			/// LE MASQUE : faux si l'impact tombe sur un texel plus transparent que le seuil de la matiere
+			/// (une feuille detouree : le rayon passe a cote de la feuille, dans la carte).
+			inline bool AlphaPasse(const Scene &g, const Tri &t, float32 b1, float32 b2) {
+				const float32 seuil = g.s.mats.Data()[t.mat].masque;
+				if (seuil <= 0.f)
+					return true;
+				const uint8 *px = TexelObjet(g, t, b1, b2);
+				return px == nullptr || (float32)px[3] >= seuil * 255.f;
+			}
 			bool Tracer(const Scene &g, V3 o, V3 d, float32 tmax, Impact &h) {
 				if (g.noeuds.Empty())
 					return false;
@@ -334,6 +374,8 @@ namespace nkentseu {
 							float32 tt, u, v;
 							++tTris;
 							if (MT(TR[ti], o, d, 1e-4f, h.t, tt, u, v)) {
+								if (!AlphaPasse(g, TR[ti], u, v))
+									continue; // (11/11) un texel detoure : le rayon passe
 								h.t = tt;
 								h.b1 = u;
 								h.b2 = v;
@@ -385,6 +427,8 @@ namespace nkentseu {
 							++tTris;
 							if (!MT(t, o, d, 1e-4f, tmax, tt, u, v))
 								continue;
+							if (!AlphaPasse(g, t, u, v))
+								continue; // (11/11) l'ombre d'une feuille detouree suit son contour
 							const NkScMateriau &m = MA[t.mat];
 							if (m.transmission > 0.5f) {
 								tr = Mul(tr, Mk(m.couleur[0], m.couleur[1], m.couleur[2]) * 0.96f);
@@ -412,6 +456,8 @@ namespace nkentseu {
 					V3 nb;
 					bool verre;
 					int32 mat;
+					// (11/11) la feuille mince : la part transmise en diffus par l'autre face (0 : opaque)
+					float32 trans = 0.f;
 			};
 			// (10/11/2026) LES PAILLETTES : une cellule cubique de cote `taille` (monde) = une paillette, de
 			// normale tiree au hasard autour de n (amplitude 0,6 x quantite par axe, cube [-1, 1]^3). Le
@@ -435,7 +481,10 @@ namespace nkentseu {
 				// une paillette ne se retourne pas : trop couchee, elle reprend la normale lisse
 				return Dot(t, n) > 0.1f ? t : n;
 			}
-			void Surf(const Scene &g, const Impact &h, V3 o, V3 d, bool sansCartes, bool sansVernis, Surface &S) {
+			// (10/11) l'argile : albedo et rugosite de la maquette blanche (le meme chiffre que le nuanceur GPU et le temps reel)
+			constexpr float32 kArgileAlbedo = 0.8f;
+			constexpr float32 kArgileRug = 0.6f;
+			void Surf(const Scene &g, const Impact &h, V3 o, V3 d, bool sansCartes, bool sansVernis, bool argile, Surface &S) {
 				const Tri &t = g.tris.Data()[h.tri];
 				const float32 w0 = 1.f - h.b1 - h.b2;
 				S.p = o + d * h.t;
@@ -479,6 +528,12 @@ namespace nkentseu {
 						S.albedo = Mk(Min(0.98f, S.albedo.x * g.lin[px[0]] / c.moy[0]), Min(0.98f, S.albedo.y * g.lin[px[1]] / c.moy[1]),
 									  Min(0.98f, S.albedo.z * g.lin[px[2]] / c.moy[2]));
 				}
+				// (11/11/2026) LA CARTE DE L'OBJET : texel x couleur, comme le temps reel (texture x teinte)
+				if (!sansCartes)
+					if (const uint8 *px = TexelObjet(g, t, h.b1, h.b2))
+						S.albedo = Mk(Min(0.98f, S.albedo.x * g.lin[px[0]]), Min(0.98f, S.albedo.y * g.lin[px[1]]),
+									  Min(0.98f, S.albedo.z * g.lin[px[2]]));
+				S.trans = S.verre ? 0.f : Max(0.f, Min(1.f, m.translucide));
 				// deux faces pour l'opaque : la normale regarde le rayon
 				if (!S.verre && Dot(ng, d) > 0.f) {
 					ng = ng * -1.f;
@@ -496,6 +551,17 @@ namespace nkentseu {
 					S.vernisRug = Max(m.vernisRug, 0.03f);
 					if (m.paillettes > 0.f)
 						S.nb = NormalePaillette(S.p, S.ns, m.paillettes, NkCpTaillePaillette(m.paillettesDensite));
+				}
+				// (10/11) L'ARGILE : la matiere opaque devient le blanc mat ; le verre reste, l'emission (calculee
+				// plus haut de la couleur de la matiere) reste
+				if (argile && !S.verre) {
+					S.albedo = Mk(kArgileAlbedo, kArgileAlbedo, kArgileAlbedo);
+					S.rug = kArgileRug;
+					S.metal = 0.f;
+					S.lustre = 0.f;
+					S.vernis = 0.f;
+					S.nb = S.ns;
+					S.trans = 0.f;
 				}
 			}
 
@@ -548,6 +614,10 @@ namespace nkentseu {
 			}
 			// BSDF opaque : valeur f x cos(wi) -- la base (normale de paillette), puis le vernis (normale lisse)
 			V3 EvalBsdf(const Scene &g, const Surface &S, V3 wo, V3 wi) {
+				// (11/11/2026) LA FEUILLE MINCE : de l'autre cote, un Lambert x translucide (la lumiere qui
+				// traverse la feuille) ; de ce cote-ci, la surface comme avant. Sans translucide : rien ne change.
+				if (S.trans > 0.f && Dot(S.ng, wi) < 0.f)
+					return S.albedo * (S.trans * Max(0.f, -Dot(S.ns, wi)) / kPi);
 				if (S.vernis <= 0.f)
 					return EvalBase(g, S, S.nb, wo, wi);
 				const float32 nl = Dot(S.ns, wi), nv = Dot(S.ns, wo);
@@ -581,7 +651,20 @@ namespace nkentseu {
 				const float32 pSpec = DGgx(nh, a2) * nh / (4.f * Max(1e-6f, Dot(wo, h)));
 				return ps * pSpec + (1.f - ps) * nl / kPi;
 			}
+			float32 PdfReflet(const Surface &S, V3 wo, V3 wi);
+			// (11/11/2026) la feuille mince : une part pT = t / (1 + t) des tirages va au lobe transmis
+			inline float32 ProbaTransmis(const Surface &S) {
+				return S.trans > 0.f ? S.trans / (1.f + S.trans) : 0.f;
+			}
 			float32 PdfBsdf(const Surface &S, V3 wo, V3 wi) {
+				if (S.trans <= 0.f)
+					return PdfReflet(S, wo, wi);
+				const float32 pT = ProbaTransmis(S);
+				if (Dot(S.ng, wi) < 0.f)
+					return pT * Max(0.f, -Dot(S.ns, wi)) / kPi;
+				return (1.f - pT) * PdfReflet(S, wo, wi);
+			}
+			float32 PdfReflet(const Surface &S, V3 wo, V3 wi) {
 				const float32 pb = PdfBase(S, S.nb, wo, wi);
 				if (S.vernis <= 0.f)
 					return pb;
@@ -622,6 +705,16 @@ namespace nkentseu {
 				return Norm(t * (rr * math::NkCos(ph)) + b * (rr * math::NkSin(ph)) + n * Racine(1.f - u1));
 			}
 			V3 TirerBsdf(const Surface &S, V3 wo, Rng &r) {
+				// (11/11) la feuille mince : un Lambert de l'autre cote ; sans translucide, AUCUN tirage de
+				// plus (les rendus d'avant restent identiques au pixel)
+				if (S.trans > 0.f && r.F() < ProbaTransmis(S)) {
+					const V3 nd = S.ns * -1.f;
+					V3 t, b;
+					Base(nd, t, b);
+					const float32 u1 = r.F(), u2 = r.F();
+					const float32 rr = Racine(u1), ph = 2.f * kPi * u2;
+					return Norm(t * (rr * math::NkCos(ph)) + b * (rr * math::NkSin(ph)) + nd * Racine(1.f - u1));
+				}
 				// sans vernis : aucun tirage de plus (les rendus d'avant restent identiques)
 				if (S.vernis > 0.f && r.F() < ProbaVernis(S)) {
 					const float32 u1 = r.F(), u2 = r.F();
@@ -680,7 +773,10 @@ namespace nkentseu {
 			V3 Directe(const Scene &g, Ctx &c, const Surface &S, V3 wo, Rng &r) {
 				V3 L{0.f, 0.f, 0.f};
 				const V3 o = S.p + S.ng * 2e-3f;
-				if (!c.r->sansSoleil && Lum(c.soleilE) > 0.f && Dot(S.ng, c.soleil) > 0.f) {
+				// (11/11) la feuille mince recoit aussi la lumiere par son autre face : le rayon d'ombre part de ce cote-la
+				const V3 oDos = S.p - S.ng * 2e-3f;
+				const bool mince = S.trans > 0.f;
+				if (!c.r->sansSoleil && Lum(c.soleilE) > 0.f && (Dot(S.ng, c.soleil) > 0.f || mince)) {
 					V3 t, b;
 					Base(c.soleil, t, b);
 					const float32 ct = 1.f - r.F() * (1.f - c.cosSoleil), st = Racine(1.f - ct * ct), ph = 2.f * kPi * r.F();
@@ -688,7 +784,7 @@ namespace nkentseu {
 					const V3 f = EvalBsdf(g, S, wo, wi);
 					if (Lum(f) > 0.f) {
 						++c.rayons;
-						const V3 tr = Transmission(g, o, wi, 1e6f);
+						const V3 tr = Transmission(g, (mince && Dot(S.ng, wi) < 0.f) ? oDos : o, wi, 1e6f);
 						L = L + Mul(Mul(f, c.soleilE), tr);
 					}
 				}
@@ -715,7 +811,7 @@ namespace nkentseu {
 						const V3 dv = Mk(q.p[0], q.p[1], q.p[2]) - S.p;
 						const float32 d2 = Max(Dot(dv, dv), q.rayon * q.rayon + 1e-4f);
 						const V3 wi = dv * (1.f / Racine(d2));
-						float32 ph = q.intensite * Max(0.f, Dot(S.ns, wi)) / d2;
+						float32 ph = q.intensite * (mince ? Abs(Dot(S.ns, wi)) : Max(0.f, Dot(S.ns, wi))) / d2;
 						if (q.type == 1) {
 							const float32 ca = -Dot(wi, Mk(q.dir[0], q.dir[1], q.dir[2]));
 							ph *= Max(0.f, Min(1.f, (ca - q.cosExt) / Max(1e-3f, (1.f - q.cosExt) * 0.15f)));
@@ -747,11 +843,12 @@ namespace nkentseu {
 						const V3 f = EvalBsdf(g, S, wo, wi);
 						if (I > 0.f && Lum(f) > 0.f) {
 							++c.rayons;
-							const V3 tr = Transmission(g, o, wi, dl - 2e-3f);
+							const V3 tr = Transmission(g, (mince && Dot(S.ng, wi) < 0.f) ? oDos : o, wi, dl - 2e-3f);
 							// estimateur RIS : f L / p_chap x (somme / M)
 							const V3 cen = Mk(q.p[0], q.p[1], q.p[2]) - S.p;
 							const float32 dc2 = Max(Dot(cen, cen), q.rayon * q.rayon + 1e-4f);
-							float32 phy = q.intensite * Max(0.f, Dot(S.ns, cen * (1.f / Racine(dc2)))) / dc2;
+							const float32 cn = Dot(S.ns, cen * (1.f / Racine(dc2)));
+							float32 phy = q.intensite * (mince ? Abs(cn) : Max(0.f, cn)) / dc2;
 							if (q.type == 1) {
 								const float32 ca = -Dot(cen * (1.f / Racine(dc2)), Mk(q.dir[0], q.dir[1], q.dir[2]));
 								phy *= Max(0.f, Min(1.f, (ca - q.cosExt) / Max(1e-3f, (1.f - q.cosExt) * 0.15f)));
@@ -792,7 +889,7 @@ namespace nkentseu {
 						break;
 					}
 					Surface S;
-					Surf(g, h, o, d, c.r->sansCartes, c.r->sansVernis, S);
+					Surf(g, h, o, d, c.r->sansCartes, c.r->sansVernis, c.r->argile, S);
 					// (10/11) regularisation apres le premier rebond : un reflet net vu PAR un rebond diffus
 					// ne fait que des pics (caustiques) que le debruiteur ne sait pas lisser ; le vernis aussi
 					if (c.r->regulariser && rebond > 0 && !S.verre) {
@@ -867,7 +964,7 @@ namespace nkentseu {
 							break;
 						beta = beta * (1.f / q);
 					}
-					o = S.p + S.ng * 2e-3f;
+					o = S.p + S.ng * ((S.trans > 0.f && Dot(S.ng, wi) < 0.f) ? -2e-3f : 2e-3f); // (11/11) transmis : de l'autre cote
 					d = wi;
 				}
 				return L;
@@ -1208,6 +1305,53 @@ namespace nkentseu {
 					for (int32 a = 0; a < 3; ++a)
 						k.moy[a] = Max(0.02f, (float32)(s[a] / ((float64)k.w * (float64)k.h)));
 				}
+				// (11/11/2026) LES CARTES D'OBJET (feuilles detourees, ecorce), une fois par chemin
+				g.cobj.Clear();
+				g.carteDe.Resize(g.s.mats.Size());
+				{
+					int32 lues = 0, illisibles = 0;
+					for (usize m = 0; m < g.s.mats.Size(); ++m) {
+						g.carteDe[m] = -1;
+						const char *ch = g.s.mats[m].carte;
+						if (!ch[0])
+							continue;
+						for (usize k = 0; k < g.cobj.Size(); ++k) {
+							const char *a = g.cobj[k].chemin;
+							const char *b = ch;
+							while (*a && *a == *b) {
+								++a;
+								++b;
+							}
+							if (*a == 0 && *b == 0) {
+								g.carteDe[m] = (int32)k;
+								break;
+							}
+						}
+						if (g.carteDe[m] >= 0)
+							continue;
+						NkImage im;
+						if (!im.Load(ch, 4) || im.Width() <= 0 || im.Height() <= 0) {
+							++illisibles;
+							NkPrintfSortie("[traceur] carte d'objet ILLISIBLE (la matiere %s reste unie) : %s\n", g.s.mats[m].nom, ch);
+							continue;
+						}
+						CarteObjet co;
+						co.w = im.Width();
+						co.h = im.Height();
+						NkSnprintf(co.chemin, sizeof(co.chemin), "%s", ch);
+						co.rgba.Resize((usize)co.w * (usize)co.h * 4u);
+						for (int32 y = 0; y < co.h; ++y) {
+							const uint8 *ln = im.RowPtr(y);
+							for (int32 x = 0; x < co.w * 4; ++x)
+								co.rgba[(usize)y * (usize)co.w * 4u + (usize)x] = ln[x];
+						}
+						g.carteDe[m] = (int32)g.cobj.Size();
+						g.cobj.PushBack(co);
+						++lues;
+					}
+					if (lues || illisibles)
+						NkPrintfSortie("[traceur] cartes d'objet : %d lue(s), %d illisible(s)\n", (int)lues, (int)illisibles);
+				}
 				// sources : repartition selon la puissance
 				g.cdfSources.Resize(g.s.sources.Size());
 				g.puissanceTotale = 0.f;
@@ -1315,6 +1459,9 @@ namespace nkentseu {
 					sl += math::NkLog((float64)Lum(Mk(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2])) + 1e-4);
 				expo = 0.18f / (float32)math::NkExp(sl / (float64)n);
 			}
+			// (10/11) l'argile : exposition « haute cle » (+1 IL), le blanc d'une maquette de jour
+			if (r.argile)
+				expo *= 2.f;
 			char brut[600];
 			{
 				int32 n = 0;
@@ -1418,6 +1565,15 @@ namespace nkentseu {
 				p.scene.PushBack(c);
 				p.scene.PushBack(d);
 			};
+			// (11/11/2026, nkcraft-arbres) LES DEBUTS DE TABLE ALIGNES SUR 4 vec4 : leurs decalages voyagent en FLOTTANTS
+			// (uniforme, ou S.d[X].z) ; au-dela de 2^24 vec4 (268 Mo), un flottant ne tient plus que les entiers pairs,
+			// puis multiples de 4 (jusqu'a 2^26 = 1 Go). La maison de l'archviz avec ses 38 arbres faisait 677 Mo : les
+			// decalages de ses matieres tombaient a cote et l'image sortait blanche et magenta. Les indices DANS une table
+			// se calculent en entiers dans le nuanceur (base + i) : seul le debut doit etre exact.
+			auto aligner = [&]() {
+				while ((p.scene.Size() / 4) % 4 != 0)
+					pousse(0.f, 0.f, 0.f, 0.f);
+			};
 			// noeuds : (min, g), (max, nb) ; les indices tiennent dans un flottant (< 2^24)
 			p.offNoeuds = 0;
 			for (usize i = 0; i < g.noeuds.Size(); ++i) {
@@ -1426,6 +1582,7 @@ namespace nkentseu {
 				pousse(n.mx[0], n.mx[1], n.mx[2], (float32)n.nb);
 			}
 			// triangles DANS L'ORDRE DES FEUILLES : (v0, mat), (e1, i0), (e2, i1), (i2, -, -, -)
+			aligner();
 			p.offTris = (int32)(p.scene.Size() / 4);
 			for (usize i = 0; i < g.ordre.Size(); ++i) {
 				const Tri &t = g.tris[g.ordre[i]];
@@ -1435,6 +1592,7 @@ namespace nkentseu {
 				pousse((float32)t.i2, 0.f, 0.f, 0.f);
 			}
 			// sommets : (normale, u), (v, -, -, -)
+			aligner();
 			p.offSommets = (int32)(p.scene.Size() / 4);
 			const usize nv = g.s.N.Size() / 3;
 			for (usize i = 0; i < nv; ++i) {
@@ -1443,6 +1601,7 @@ namespace nkentseu {
 			}
 			// matieres : (couleur, rugosite), (metal, transmission, emission, classe), (tuile, couleur propre, -, -),
 			// (moyenne de la carte, -)
+			aligner();
 			p.offMats = (int32)(p.scene.Size() / 4);
 			for (usize i = 0; i < g.s.mats.Size(); ++i) {
 				const NkScMateriau &m = g.s.mats[i];
@@ -1456,6 +1615,7 @@ namespace nkentseu {
 					pousse(1.f, 1.f, 1.f, 0.f);
 			}
 			// sources : (p, type), (axe, cos), (couleur, intensite), (rayon, puissance, repartition cumulee, -)
+			aligner();
 			p.offSources = (int32)(p.scene.Size() / 4);
 			p.nSources = (int32)g.s.sources.Size();
 			for (usize i = 0; i < g.s.sources.Size(); ++i) {
@@ -1495,6 +1655,7 @@ namespace nkentseu {
 			p.offCiel = 0;
 			p.cielW = p.cielH = 0;
 			if (g.s.cielW > 0 && g.s.cielH > 0 && g.s.cielTable.Size() >= (usize)g.s.cielW * (usize)g.s.cielH * 3u) {
+				aligner();
 				p.offCiel = (int32)(p.scene.Size() / 4);
 				p.cielW = g.s.cielW;
 				p.cielH = g.s.cielH;
@@ -1509,12 +1670,59 @@ namespace nkentseu {
 				if (g.s.mats[i].vernis > 0.f || g.s.mats[i].paillettes > 0.f)
 					vernies = true;
 			if (vernies) {
+				aligner();
 				p.offVernis = (int32)(p.scene.Size() / 4);
 				for (usize i = 0; i < g.s.mats.Size(); ++i) {
 					const NkScMateriau &m = g.s.mats[i];
 					const bool v = m.transmission <= 0.5f;
 					pousse(v ? m.vernis : 0.f, Max(m.vernisRug, 0.03f), v ? m.paillettes : 0.f, NkCpTaillePaillette(m.paillettesDensite));
 				}
+			}
+			// (11/11/2026, nkcraft-arbres) LES CARTES D'OBJET, LE MASQUE ET LA FEUILLE MINCE : une table a la suite,
+			// lue par le nuanceur par P.cartes[15].w (0 dans les executables d'avant : rien de neuf) --
+			//   [offObjet]              (nombre de matieres, nombre de cartes, decalage des descripteurs, -)
+			//   [offObjet + 1 + mat]    (carte, seuil d'alpha, translucide, -) ; carte = -1 : aucune
+			//   [descripteurs + i]      (decalage des texels dans `cartes`, largeur, hauteur, -)
+			// Les texels : RGBA8 empaquete (r en poids faible, alpha en poids fort), a la suite des cartes des classes.
+			// Table posee SEULEMENT si une matiere s'en sert : les scenes d'avant gardent leur paquet au mot pres.
+			p.offObjet = 0;
+			bool objet = false;
+			for (usize i = 0; i < g.s.mats.Size(); ++i)
+				if ((i < g.carteDe.Size() && g.carteDe[i] >= 0) || g.s.mats[i].translucide > 0.f || g.s.mats[i].masque > 0.f)
+					objet = true;
+			if (objet) {
+				aligner();
+				p.offObjet = (int32)(p.scene.Size() / 4);
+				const int32 nm = (int32)g.s.mats.Size(), nc = (int32)g.cobj.Size();
+				const int32 offDesc = (p.offObjet + 1 + nm + 3) / 4 * 4; // aligne (voir aligner)
+				pousse((float32)nm, (float32)nc, (float32)offDesc, 0.f);
+				for (int32 i = 0; i < nm; ++i) {
+					const NkScMateriau &m = g.s.mats[(usize)i];
+					const int32 ic = (usize)i < g.carteDe.Size() ? g.carteDe[(usize)i] : -1;
+					const bool v = m.transmission <= 0.5f;
+					pousse((float32)ic, ic >= 0 ? m.masque : 0.f, v ? Max(0.f, Min(1.f, m.translucide)) : 0.f, 0.f);
+				}
+				if (p.cartes.Size() == 1 && p.cartes[0] == 0u) {
+					bool aucuneClasse = true;
+					for (int32 c = 0; c < kMatClasses; ++c)
+						if (p.carteOff[c] >= 0)
+							aucuneClasse = false;
+					if (aucuneClasse)
+						p.cartes.Clear(); // le mot de remplissage n'a plus lieu d'etre
+				}
+				aligner(); // les descripteurs commencent en offDesc
+				for (int32 k = 0; k < nc; ++k) {
+					while (p.cartes.Size() % 4u != 0u)
+						p.cartes.PushBack(0u); // le debut des texels, exact en flottant au-dela de 2^24 (multiple de 4)
+					const CarteObjet &co = g.cobj[(usize)k];
+					pousse((float32)p.cartes.Size(), (float32)co.w, (float32)co.h, 0.f);
+					const usize n = (usize)co.w * (usize)co.h;
+					for (usize i = 0; i < n; ++i)
+						p.cartes.PushBack((uint32)co.rgba[i * 4] | ((uint32)co.rgba[i * 4 + 1] << 8) |
+										  ((uint32)co.rgba[i * 4 + 2] << 16) | ((uint32)co.rgba[i * 4 + 3] << 24));
+				}
+				if (p.cartes.Empty())
+					p.cartes.PushBack(0u);
 			}
 			return true;
 		}
@@ -1697,6 +1905,45 @@ namespace nkentseu {
 					}
 				return (float32)(som / (float64)(n > 0 ? n : 1));
 			}
+			// (10/11/2026) LE MODE ARGILE : la sphere d'une matiere sous le ciel uniforme ET une source ponctuelle ;
+			// les sommes de l'image (L x H x 3) dans `out`
+			void SphereArgile(const NkScMateriau &m, bool argile, NkVector<float32> &out) {
+				Scene &g = G();
+				NkScArchviz s;
+				s.mats.PushBack(m);
+				const float32 c[3] = {0.f, 0.f, 0.f};
+				AjouterSphere(s, c, 1.f, 0, 3);
+				s.cielZenith[0] = s.cielZenith[1] = s.cielZenith[2] = 1.f;
+				s.cielHorizon[0] = s.cielHorizon[1] = s.cielHorizon[2] = 0.6f;
+				s.cielIntensite = 1.f;
+				s.soleilE = 0.f;
+				NkScSource q;
+				q.p[0] = 2.f;
+				q.p[1] = 3.f;
+				q.p[2] = 3.f;
+				q.intensite = 4.f;
+				q.puissance = 4.f * 4.f * kPi;
+				q.rayon = 0.05f;
+				s.sources.PushBack(q);
+				g.s = s;
+				PreparerInterne(g, nullptr);
+				NkTcCamera cam;
+				cam.oeil[0] = 0.f;
+				cam.oeil[1] = 0.5f;
+				cam.oeil[2] = 4.f;
+				cam.cible[0] = cam.cible[1] = cam.cible[2] = 0.f;
+				cam.focaleMM = 50.f;
+				cam.L = cam.H = 32;
+				NkTcReglages r;
+				r.ecretage = 1e9f;
+				r.rebonds = 4;
+				r.argile = argile;
+				Tampons tb;
+				InitTampons(tb, cam.L, cam.H);
+				uint64 ry = 0;
+				Passe(g, cam, r, tb, 16, 13, ry);
+				out = tb.somme;
+			}
 			float32 PointSurPlan(int32 spp) {
 				// plan lambertien (albedo 0,5) a y = 0, source ponctuelle P = 1 a h = 2 m : E = P/(4 pi h^2)
 				Scene &g = G();
@@ -1805,6 +2052,46 @@ namespace nkentseu {
 						   ok4m ? "VERT (le banc voit la faute)" : "ROUGE (le banc ne voit rien)");
 			NkPrintfSortie("[traceur] BANC paillettes 0,5 : %.4f / vernie %.4f, rapport %.4f (attendu 0,93 a 1,01) %s\n", (double)fp,
 						   (double)fv, (double)rp, ok5 ? "VERT" : "ROUGE");
+			// (6) (10/11) LE MODE ARGILE : une matiere rouge, metallique, vernie, a paillettes et a carte, en argile, rend
+			// EXACTEMENT la sphere blanche mate (0,8 ; 0,6) du mode normal (la classe ignoree, la lumiere la meme) ;
+			// contre-epreuve : la meme matiere en mode normal s'en ecarte.
+			{
+				NkScMateriau rouge;
+				rouge.couleur[0] = 0.7f;
+				rouge.couleur[1] = 0.05f;
+				rouge.couleur[2] = 0.04f;
+				rouge.rugosite = 0.15f;
+				rouge.metal = 0.6f;
+				rouge.vernis = 1.f;
+				rouge.paillettes = 0.5f;
+				rouge.classe = kMatBois;
+				NkScMateriau blanc;
+				blanc.couleur[0] = blanc.couleur[1] = blanc.couleur[2] = kArgileAlbedo;
+				blanc.rugosite = kArgileRug;
+				NkVector<float32> ia, ib, ic;
+				SphereArgile(rouge, true, ia);
+				SphereArgile(blanc, false, ib);
+				SphereArgile(rouge, false, ic);
+				float32 dmax = 0.f;
+				float64 sb = 0.0, dc = 0.0;
+				for (usize i = 0; i < ia.Size() && i < ib.Size() && i < ic.Size(); ++i) {
+					dmax = Max(dmax, Abs(ia[i] - ib[i]));
+					sb += (float64)ib[i];
+					dc += (float64)Abs(ic[i] - ib[i]);
+				}
+				const float64 ecartNormal = sb > 0.0 ? dc / sb : 0.0;
+				const bool ok6 = !ia.Empty() && dmax < 1e-4f;
+				const bool ok6m = ecartNormal > 0.05;
+				if (!ok6)
+					++echecs;
+				if (!ok6m)
+					++echecs;
+				NkPrintfSortie("[traceur] BANC argile : matiere rouge vernie a paillettes en argile contre blanc mat en mode normal, "
+							   "ecart max %.2e (attendu 0) %s\n",
+							   (double)dmax, ok6 ? "VERT" : "ROUGE");
+				NkPrintfSortie("[traceur] BANC contre-epreuve (la meme matiere en mode normal) : ecart relatif %.3f (doit depasser 0,05) %s\n",
+							   ecartNormal, ok6m ? "VERT (le banc voit la difference)" : "ROUGE (le banc ne voit rien)");
+			}
 			NkPrintfSortie("[traceur] BANC four blanc lambertien : %.4f (attendu 0,8 a 4 %%) %s\n", (double)f1, ok1 ? "VERT" : "ROUGE");
 			NkPrintfSortie("[traceur] BANC contre-epreuve (Lambert sans 1/pi) : %.4f (doit s'ecarter de 0,8) %s\n", (double)f1m,
 						   ok1m ? "VERT (le banc voit la faute)" : "ROUGE (le banc ne voit rien)");

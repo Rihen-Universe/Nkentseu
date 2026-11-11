@@ -192,6 +192,10 @@ namespace nkentseu {
 					w = 1.f;
 				if (c == 13 && !r.sansVernis)
 					w = (float32)pq.offVernis;
+				if (c == 14 && r.argile)
+					w = 1.f; // (10/11) cartes[14].w : le mode argile (0 dans les executables d'avant)
+				if (c == 15)
+					w = (float32)pq.offObjet; // (11/11) cartes[15].w : cartes d'objet, masque, feuille mince (0 : aucun)
 				Pose(pr.cartes[c], (float32)pq.carteOff[c], (float32)pq.carteW[c], (float32)pq.carteH[c], w);
 			}
 			const float64 msPrep = (NkChrono::Now() - t0).ToMilliseconds();

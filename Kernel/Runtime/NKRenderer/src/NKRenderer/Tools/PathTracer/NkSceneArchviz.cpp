@@ -819,6 +819,36 @@ namespace nkentseu {
 				}
 				return m;
 			};
+			// (11/11/2026, nkcraft-arbres) LA MATIERE A CARTE : la matiere attribuee (bibliotheque, regle ou
+			// teinte du .mtl) copiee avec la carte de l'objet, son masque et sa translucidite -- une copie par
+			// (matiere, carte, masque, translucide), ajoutee a la bibliotheque de la scene.
+			struct Variante {
+					int32 base, idx;
+					char carte[260];
+					float32 masque, trans;
+			};
+			NkVector<Variante> variantes;
+			auto variante = [&](int32 base, const char *carte, float32 masque, float32 trans) -> int32 {
+				if (base < 0 || (usize)base >= at.mats.Size())
+					return base;
+				for (usize k = 0; k < variantes.Size(); ++k)
+					if (variantes[k].base == base && Egal(variantes[k].carte, carte) && variantes[k].masque == masque &&
+						variantes[k].trans == trans)
+						return variantes[k].idx;
+				NkScMateriau m = at.mats[(usize)base];
+				Copier(m.carte, 260, carte);
+				m.masque = masque;
+				m.translucide = trans;
+				at.mats.PushBack(m);
+				Variante w;
+				w.base = base;
+				w.idx = (int32)at.mats.Size() - 1;
+				Copier(w.carte, 260, carte);
+				w.masque = masque;
+				w.trans = trans;
+				variantes.PushBack(w);
+				return w.idx;
+			};
 			// ── la geometrie, piece par piece ─────────────────────────────────
 			int32 triangles = 0;
 			for (usize ip = 0; ip < pieces.Size(); ++ip) {
@@ -828,10 +858,13 @@ namespace nkentseu {
 					NkPrintfSortie("[scene] piece illisible : %s\n", pc.fichier);
 					continue;
 				}
-				// le .mtl (teintes de repli)
+				// le .mtl (teintes de repli ; (11/11) et les cartes d'objet : map_Kd, map_d, nk_translucide)
 				struct Kd {
 						char nom[96];
 						float32 c[3];
+						char carte[260];
+						float32 masque;
+						float32 trans;
 				};
 				NkVector<Kd> kds;
 				{
@@ -855,24 +888,65 @@ namespace nkentseu {
 							Kd k;
 							(void)Mot(q, k.nom, 96);
 							k.c[0] = k.c[1] = k.c[2] = 0.8f;
+							k.carte[0] = 0;
+							k.masque = 0.f;
+							k.trans = 0.f;
 							kds.PushBack(k);
 						} else if (Egal(mot, "Kd") && !kds.Empty()) {
 							Kd &k = kds[kds.Size() - 1];
 							q = Reel32(q, k.c[0]);
 							q = Reel32(q, k.c[1]);
 							(void)Reel32(q, k.c[2]);
+						} else if (Egal(mot, "map_Kd") && !kds.Empty()) {
+							// (11/11/2026) LA CARTE DE L'OBJET : le reste de la ligne ; relative, elle se lit a cote du .mtl
+							Kd &k = kds[kds.Size() - 1];
+							q = Blancs(q);
+							char ch[260];
+							int32 n2 = 0;
+							while (q[n2] && q[n2] != '\r' && q[n2] != '\n' && n2 < 259) {
+								ch[n2] = q[n2];
+								++n2;
+							}
+							while (n2 > 0 && (ch[n2 - 1] == ' ' || ch[n2 - 1] == '\t'))
+								--n2;
+							ch[n2] = 0;
+							const bool absolu = ch[0] == '/' || ch[0] == '\\' || (ch[0] && ch[1] == ':');
+							if (absolu)
+								Copier(k.carte, 260, ch);
+							else {
+								char dossier[520];
+								Copier(dossier, 520, cm);
+								int32 fin = -1;
+								for (int32 i = 0; dossier[i]; ++i)
+									if (dossier[i] == '/' || dossier[i] == '\\')
+										fin = i;
+								dossier[fin >= 0 ? fin : 0] = 0;
+								NkSnprintf(k.carte, 260, "%s%s%s", dossier, dossier[0] ? "/" : "", ch);
+							}
+						} else if (Egal(mot, "map_d") && !kds.Empty()) {
+							kds[kds.Size() - 1].masque = 0.5f; // le detourage : l'alpha de la carte, coupe a mi-hauteur
+						} else if (Egal(mot, "nk_translucide") && !kds.Empty()) {
+							(void)Reel32(q, kds[kds.Size() - 1].trans);
 						}
 					}
 				}
-				NkVector<float32> V, VN;
+				NkVector<float32> V, VN, VT;
 				const char *c = t.CStr();
 				char l[1024], mot[128], groupe[128] = {0}, mtl[96] = {0};
 				float32 kd[3] = {0.8f, 0.8f, 0.8f};
 				int32 mat = -1;
+				int32 ikd = -1; // (11/11) l'entree du .mtl courante (sa carte d'objet)
 				while (*c) {
 					c = Ligne(c, l, 1024);
 					const char *q = Mot(l, mot, 128);
-					if (Egal(mot, "o")) {
+					if (Egal(mot, "vt")) {
+						// (11/11/2026) UV du maillage : l'OBJ les ecrit v = 0 en BAS ; la scene les garde v = 0 en HAUT
+						float32 u = 0.f, v = 0.f;
+						q = Reel32(q, u);
+						(void)Reel32(q, v);
+						VT.PushBack(u);
+						VT.PushBack(1.f - v);
+					} else if (Egal(mot, "o")) {
 						char sc[96];
 						(void)Mot(q, sc, 96);
 						at.Document(sc, pc.doc, 96);
@@ -903,29 +977,35 @@ namespace nkentseu {
 						mat = -1;
 					} else if (Egal(mot, "usemtl")) {
 						(void)Mot(q, mtl, 96);
+						ikd = -1;
 						for (usize k = 0; k < kds.Size(); ++k)
 							if (Egal(kds[k].nom, mtl)) {
 								kd[0] = kds[k].c[0];
 								kd[1] = kds[k].c[1];
 								kd[2] = kds[k].c[2];
+								ikd = (int32)k;
 							}
 						mat = -1;
 					} else if (Egal(mot, "f")) {
-						if (mat < 0)
+						if (mat < 0) {
 							mat = matDe(pc.doc, groupe, kd);
-						int32 iv[32], in[32], nr = 0;
+							// (11/11/2026) une entree du .mtl a carte : la matiere attribuee la RECOIT (copie
+							// marquee : carte, masque, translucide) -- la feuille detouree garde son contour
+							if (ikd >= 0 && kds[(usize)ikd].carte[0])
+								mat = variante(mat, kds[(usize)ikd].carte, kds[(usize)ikd].masque, kds[(usize)ikd].trans);
+						}
+						const bool cartee = ikd >= 0 && kds[(usize)ikd].carte[0] != 0;
+						int32 iv[32], in[32], it[32], nr = 0;
 						while (*q && nr < 32) {
 							q = Blancs(q);
 							if (!*q)
 								break;
-							int32 a = 0, nn = 0;
+							int32 a = 0, nn = 0, tt = 0;
 							q = Entier(q, a);
 							if (*q == '/') {
 								++q;
-								if (*q != '/') {
-									int32 tt = 0;
+								if (*q != '/')
 									q = Entier(q, tt);
-								}
 								if (*q == '/') {
 									++q;
 									q = Entier(q, nn);
@@ -935,11 +1015,13 @@ namespace nkentseu {
 								++q;
 							iv[nr] = a > 0 ? a - 1 : (int32)(V.Size() / 3) + a;
 							in[nr] = nn > 0 ? nn - 1 : -1;
+							it[nr] = tt > 0 ? tt - 1 : (tt < 0 ? (int32)(VT.Size() / 2) + tt : -1);
 							++nr;
 						}
 						for (int32 k = 1; k + 1 < nr; ++k) {
 							const int32 ids[3] = {iv[0], iv[k], iv[k + 1]};
 							const int32 nds[3] = {in[0], in[k], in[k + 1]};
+							const int32 tds[3] = {it[0], it[k], it[k + 1]};
 							bool ok = true;
 							for (int32 j = 0; j < 3; ++j)
 								if (ids[j] < 0 || ids[j] >= (int32)(V.Size() / 3))
@@ -978,6 +1060,11 @@ namespace nkentseu {
 								} else {
 									u = p[0] * (g[2] >= 0.f ? 1.f : -1.f);
 									v = p[1];
+								}
+								// (11/11/2026) une carte d'objet se lit aux UV DU MAILLAGE, pas en metres
+								if (cartee && tds[j] >= 0 && tds[j] < (int32)(VT.Size() / 2)) {
+									u = VT[(usize)tds[j] * 2];
+									v = VT[(usize)tds[j] * 2 + 1];
 								}
 								for (int32 m = 0; m < 3; ++m) {
 									s.P.PushBack(p[m]);
