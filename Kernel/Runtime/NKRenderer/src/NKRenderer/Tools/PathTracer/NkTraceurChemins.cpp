@@ -435,7 +435,10 @@ namespace nkentseu {
 				// une paillette ne se retourne pas : trop couchee, elle reprend la normale lisse
 				return Dot(t, n) > 0.1f ? t : n;
 			}
-			void Surf(const Scene &g, const Impact &h, V3 o, V3 d, bool sansCartes, bool sansVernis, Surface &S) {
+			// (10/11) l'argile : albedo et rugosite de la maquette blanche (le meme chiffre que le nuanceur GPU et le temps reel)
+			constexpr float32 kArgileAlbedo = 0.8f;
+			constexpr float32 kArgileRug = 0.6f;
+			void Surf(const Scene &g, const Impact &h, V3 o, V3 d, bool sansCartes, bool sansVernis, bool argile, Surface &S) {
 				const Tri &t = g.tris.Data()[h.tri];
 				const float32 w0 = 1.f - h.b1 - h.b2;
 				S.p = o + d * h.t;
@@ -496,6 +499,16 @@ namespace nkentseu {
 					S.vernisRug = Max(m.vernisRug, 0.03f);
 					if (m.paillettes > 0.f)
 						S.nb = NormalePaillette(S.p, S.ns, m.paillettes, NkCpTaillePaillette(m.paillettesDensite));
+				}
+				// (10/11) L'ARGILE : la matiere opaque devient le blanc mat ; le verre reste, l'emission (calculee
+				// plus haut de la couleur de la matiere) reste
+				if (argile && !S.verre) {
+					S.albedo = Mk(kArgileAlbedo, kArgileAlbedo, kArgileAlbedo);
+					S.rug = kArgileRug;
+					S.metal = 0.f;
+					S.lustre = 0.f;
+					S.vernis = 0.f;
+					S.nb = S.ns;
 				}
 			}
 
@@ -792,7 +805,7 @@ namespace nkentseu {
 						break;
 					}
 					Surface S;
-					Surf(g, h, o, d, c.r->sansCartes, c.r->sansVernis, S);
+					Surf(g, h, o, d, c.r->sansCartes, c.r->sansVernis, c.r->argile, S);
 					// (10/11) regularisation apres le premier rebond : un reflet net vu PAR un rebond diffus
 					// ne fait que des pics (caustiques) que le debruiteur ne sait pas lisser ; le vernis aussi
 					if (c.r->regulariser && rebond > 0 && !S.verre) {
@@ -1315,6 +1328,9 @@ namespace nkentseu {
 					sl += math::NkLog((float64)Lum(Mk(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2])) + 1e-4);
 				expo = 0.18f / (float32)math::NkExp(sl / (float64)n);
 			}
+			// (10/11) l'argile : exposition « haute cle » (+1 IL), le blanc d'une maquette de jour
+			if (r.argile)
+				expo *= 2.f;
 			char brut[600];
 			{
 				int32 n = 0;
@@ -1697,6 +1713,45 @@ namespace nkentseu {
 					}
 				return (float32)(som / (float64)(n > 0 ? n : 1));
 			}
+			// (10/11/2026) LE MODE ARGILE : la sphere d'une matiere sous le ciel uniforme ET une source ponctuelle ;
+			// les sommes de l'image (L x H x 3) dans `out`
+			void SphereArgile(const NkScMateriau &m, bool argile, NkVector<float32> &out) {
+				Scene &g = G();
+				NkScArchviz s;
+				s.mats.PushBack(m);
+				const float32 c[3] = {0.f, 0.f, 0.f};
+				AjouterSphere(s, c, 1.f, 0, 3);
+				s.cielZenith[0] = s.cielZenith[1] = s.cielZenith[2] = 1.f;
+				s.cielHorizon[0] = s.cielHorizon[1] = s.cielHorizon[2] = 0.6f;
+				s.cielIntensite = 1.f;
+				s.soleilE = 0.f;
+				NkScSource q;
+				q.p[0] = 2.f;
+				q.p[1] = 3.f;
+				q.p[2] = 3.f;
+				q.intensite = 4.f;
+				q.puissance = 4.f * 4.f * kPi;
+				q.rayon = 0.05f;
+				s.sources.PushBack(q);
+				g.s = s;
+				PreparerInterne(g, nullptr);
+				NkTcCamera cam;
+				cam.oeil[0] = 0.f;
+				cam.oeil[1] = 0.5f;
+				cam.oeil[2] = 4.f;
+				cam.cible[0] = cam.cible[1] = cam.cible[2] = 0.f;
+				cam.focaleMM = 50.f;
+				cam.L = cam.H = 32;
+				NkTcReglages r;
+				r.ecretage = 1e9f;
+				r.rebonds = 4;
+				r.argile = argile;
+				Tampons tb;
+				InitTampons(tb, cam.L, cam.H);
+				uint64 ry = 0;
+				Passe(g, cam, r, tb, 16, 13, ry);
+				out = tb.somme;
+			}
 			float32 PointSurPlan(int32 spp) {
 				// plan lambertien (albedo 0,5) a y = 0, source ponctuelle P = 1 a h = 2 m : E = P/(4 pi h^2)
 				Scene &g = G();
@@ -1805,6 +1860,46 @@ namespace nkentseu {
 						   ok4m ? "VERT (le banc voit la faute)" : "ROUGE (le banc ne voit rien)");
 			NkPrintfSortie("[traceur] BANC paillettes 0,5 : %.4f / vernie %.4f, rapport %.4f (attendu 0,93 a 1,01) %s\n", (double)fp,
 						   (double)fv, (double)rp, ok5 ? "VERT" : "ROUGE");
+			// (6) (10/11) LE MODE ARGILE : une matiere rouge, metallique, vernie, a paillettes et a carte, en argile, rend
+			// EXACTEMENT la sphere blanche mate (0,8 ; 0,6) du mode normal (la classe ignoree, la lumiere la meme) ;
+			// contre-epreuve : la meme matiere en mode normal s'en ecarte.
+			{
+				NkScMateriau rouge;
+				rouge.couleur[0] = 0.7f;
+				rouge.couleur[1] = 0.05f;
+				rouge.couleur[2] = 0.04f;
+				rouge.rugosite = 0.15f;
+				rouge.metal = 0.6f;
+				rouge.vernis = 1.f;
+				rouge.paillettes = 0.5f;
+				rouge.classe = kMatBois;
+				NkScMateriau blanc;
+				blanc.couleur[0] = blanc.couleur[1] = blanc.couleur[2] = kArgileAlbedo;
+				blanc.rugosite = kArgileRug;
+				NkVector<float32> ia, ib, ic;
+				SphereArgile(rouge, true, ia);
+				SphereArgile(blanc, false, ib);
+				SphereArgile(rouge, false, ic);
+				float32 dmax = 0.f;
+				float64 sb = 0.0, dc = 0.0;
+				for (usize i = 0; i < ia.Size() && i < ib.Size() && i < ic.Size(); ++i) {
+					dmax = Max(dmax, Abs(ia[i] - ib[i]));
+					sb += (float64)ib[i];
+					dc += (float64)Abs(ic[i] - ib[i]);
+				}
+				const float64 ecartNormal = sb > 0.0 ? dc / sb : 0.0;
+				const bool ok6 = !ia.Empty() && dmax < 1e-4f;
+				const bool ok6m = ecartNormal > 0.05;
+				if (!ok6)
+					++echecs;
+				if (!ok6m)
+					++echecs;
+				NkPrintfSortie("[traceur] BANC argile : matiere rouge vernie a paillettes en argile contre blanc mat en mode normal, "
+							   "ecart max %.2e (attendu 0) %s\n",
+							   (double)dmax, ok6 ? "VERT" : "ROUGE");
+				NkPrintfSortie("[traceur] BANC contre-epreuve (la meme matiere en mode normal) : ecart relatif %.3f (doit depasser 0,05) %s\n",
+							   ecartNormal, ok6m ? "VERT (le banc voit la difference)" : "ROUGE (le banc ne voit rien)");
+			}
 			NkPrintfSortie("[traceur] BANC four blanc lambertien : %.4f (attendu 0,8 a 4 %%) %s\n", (double)f1, ok1 ? "VERT" : "ROUGE");
 			NkPrintfSortie("[traceur] BANC contre-epreuve (Lambert sans 1/pi) : %.4f (doit s'ecarter de 0,8) %s\n", (double)f1m,
 						   ok1m ? "VERT (le banc voit la faute)" : "ROUGE (le banc ne voit rien)");

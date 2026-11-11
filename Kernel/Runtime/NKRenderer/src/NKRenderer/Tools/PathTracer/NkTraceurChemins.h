@@ -57,6 +57,10 @@ namespace nkentseu {
 				bool sansSoleil = false, sansCiel = false, sansSources = false, unRebond = false;
 				bool sansCartes = false;
 				bool sansVernis = false; ///< (10/11) contre-epreuve : ni vernis ni paillettes (la base seule)
+				/// (10/11) LE MODE ARGILE : toute matiere opaque devient un blanc mat (albedo 0,8, rugosite 0,6,
+				/// ni metal, ni carte, ni vernis, ni lustre) ; le verre reste verre, l'emission reste ; exposition
+				/// « haute cle » (+1 IL). La modelisation et la lumiere seules, comme une maquette d'argile.
+				bool argile = false;
 				// (10/11/2026) LES LUCIOLES des surfaces sombres et brillantes (ecrans, bureaux noirs) :
 				// le disque solaire et l'emission ne comptent plus par un rebond GGX (la lumiere directe
 				// les compte deja : double compte et pics geants), la rugosite est regularisee apres le
