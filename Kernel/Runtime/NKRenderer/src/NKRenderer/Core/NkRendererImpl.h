@@ -268,6 +268,10 @@ namespace nkentseu {
 
 				bool InitRHI();
 				void BuildDefaultRenderGraph();
+				// (12/11/2026) LE MSAA : le nombre d'echantillons de la passe Geometry (msaaSamples, ou NK_MSAA=<n>
+				// pour un banc), borne a 2, 4 ou 8 et a ce que le materiel accepte ; 1 sans post-traitement.
+				uint32 MsaaEffectif(bool hasPP) const;
+				uint32 mMsaaActif = 1;
 
 				// Seuil du bright pass, ancre sur le BLANC AFFICHE (donc divise par
 				// l'exposition effective). A APPELER A L'EXECUTION DE LA PASSE, pas

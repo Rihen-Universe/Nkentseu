@@ -12,6 +12,7 @@
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKTime/NkChrono.h" // cap FPS : pacing haute précision (Now/Sleep)
+#include "NKPlatform/NkEnv.h" // (12/11) NK_MSAA
 #include <cstdlib>			 // getenv (NK_FPS_CAP)
 #include <cstdio>			 // sonde NK_AGENT_TONELDR
 #include "NKImage/Core/NkImage.h" // sonde NK_AGENT_TONELDR : PNG du transient
@@ -873,6 +874,41 @@ namespace nkentseu {
 			return sAmp;
 		}
 
+		uint32 NkRendererImpl::MsaaEffectif(bool hasPP) const {
+			uint32 n = mCfg.msaaSamples;
+			if (const char *v = env::GetEnvVar("NK_MSAA")) {
+				uint32 k = 0;
+				for (const char *c = v; *c >= '0' && *c <= '9'; ++c)
+					k = k * 10u + (uint32)(*c - '0');
+				n = k;
+			}
+			if (n < 2 || !mDevice)
+				return 1;
+			if (!hasPP) {
+				// (12/11) le dire : sans post-traitement, la passe Geometry ecrit dans la chaine d'echange (pas
+				// d'echantillons) ; le temoin des 4 applications avec NK_MSAA=4 sortait identique sans le dire
+				logger.Info("[NkRenderer] MSAA x{0} demande : aucun post-traitement actif (pas de cible HDR), 1x\n", n);
+				return 1;
+			}
+			// le DX11 (le nombre d'echantillons n'est pas dans ses pipelines) et le Vulkan (le dorsal cree la
+			// variante d'un pipeline aux echantillons de la passe : NkVulkanDevice::VariantePipelineEchantillons) ;
+			// (13/11) l'OPENGL de bureau (glTextureStorage2DMultisample ; pas d'echantillons dans ses pipelines non
+			// plus ; la MEME resolution par nuanceur que DX11 et Vulkan -- glBlitFramebuffer ferait une moyenne
+			// simple et sa resolution de profondeur est laissee au pilote : pas « la plus proche ») ;
+			// les autres dorsaux (DX12, Metal, OpenGL ES) : pas eprouves, 1x
+			const NkGraphicsApi api = mDevice->GetApi();
+			if (api != NkGraphicsApi::NK_GFX_API_DX11 && api != NkGraphicsApi::NK_GFX_API_VULKAN &&
+				api != NkGraphicsApi::NK_GFX_API_OPENGL) {
+				logger.Info("[NkRenderer] MSAA x{0} demande : pas eprouve sur ce dorsal, 1x\n", n);
+				return 1;
+			}
+			n = n >= 8 ? 8u : (n >= 4 ? 4u : 2u);
+			while (n > 1 && !mDevice->GetCaps().SupportsSamples((NkSampleCount)n))
+				n /= 2;
+			logger.Info("[NkRenderer] MSAA x{0} actif (passe Geometry multi-echantillonnee, resolution MSAA_Resolve)\n", n);
+			return n;
+		}
+
 		void NkRendererImpl::BuildDefaultRenderGraph() {
 			auto &g = *mRenderGraph;
 			const bool has3D = (mRender3D.Get() != nullptr);
@@ -969,14 +1005,47 @@ namespace nkentseu {
 					.SetDepth(mainDepth, NkLoadOp::NK_LOAD);
 				fwd.Execute([this](NkICommandBuffer *cmd) { mRender3D->FlushForwardRest(cmd); });
 			} else if (has3D) {
-				auto &geom = g.AddPass("Geometry", NkPassType::NK_GEOMETRY);
-				geom.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, mClearColor)
-					.SetDepth(mainDepth, NkLoadOp::NK_CLEAR, 1.f);
-				// shadowId n'est plus dans le graph (NkShadowSystem gere son atlas
-				// hors-graph). Le sequencing Shadows->Geometry est garanti par
-				// l'ordre d'AddPass et le bind du shadow atlas se fait via le
-				// descriptor set frame de Render3D (set au Init).
-				geom.Execute([this](NkICommandBuffer *cmd) { mRender3D->Flush(cmd); });
+				// (12/11/2026) LE MSAA (msaaSamples, NK_MSAA=<n> pour un banc) : la passe Geometry dessine dans une
+				// couleur HDR et une profondeur MULTI-ECHANTILLONNEES, puis « MSAA_Resolve » les ramene a 1x dans
+				// HDR / MainDepth -- tout ce qui suit (VFX, SSAO, bloom, tonemap, FXAA, TAA) lit les cibles d'avant.
+				// Seulement en forward avec post-traitement (sans HDR transient, la passe ecrit dans la chaine
+				// d'echange, qui n'a pas d'echantillons) ; 1 (le defaut) : le graphe d'avant, a l'identique.
+				const uint32 ms = MsaaEffectif(hasPP);
+				mMsaaActif = ms;
+				if (ms > 1) {
+					NkTextureDesc cd = NkTextureDesc::RenderTarget(mCfg.width, mCfg.height, NkGPUFormat::NK_RGBA16_FLOAT);
+					cd.samples = (NkSampleCount)ms;
+					cd.debugName = "HDR_MS";
+					NkTextureDesc dd = NkTextureDesc::DepthStencil(mCfg.width, mCfg.height);
+					dd.samples = (NkSampleCount)ms;
+					dd.debugName = "MainDepth_MS";
+					const NkGraphResId hdrMS = g.CreateTransient("HDR_MS", cd);
+					const NkGraphResId depthMS = g.CreateTransient("MainDepth_MS", dd);
+					auto &geom = g.AddPass("Geometry", NkPassType::NK_GEOMETRY);
+					geom.SetColor(0, hdrMS, NkLoadOp::NK_CLEAR, mClearColor).SetDepth(depthMS, NkLoadOp::NK_CLEAR, 1.f);
+					geom.Execute([this](NkICommandBuffer *cmd) { mRender3D->Flush(cmd); });
+					auto &rs = g.AddPass("MSAA_Resolve", NkPassType::NK_POST_PROCESS);
+					rs.Reads(hdrMS);
+					rs.Reads(depthMS);
+					rs.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, mClearColor).SetDepth(mainDepth, NkLoadOp::NK_CLEAR, 1.f);
+					rs.Execute([this, hdrMS, depthMS, ms](NkICommandBuffer *cmd) {
+						if (mPostProcess)
+							(void)mPostProcess->RunResolveMSInPass(cmd, mRenderGraph->GetResourceTexture(hdrMS),
+																	mRenderGraph->GetResourceTexture(depthMS), ms,
+																	mRenderGraph->GetPassRenderPass("MSAA_Resolve"));
+					});
+				} else {
+					auto &geom = g.AddPass("Geometry", NkPassType::NK_GEOMETRY);
+					geom.SetColor(0, mainColor, NkLoadOp::NK_CLEAR, mClearColor)
+						.SetDepth(mainDepth, NkLoadOp::NK_CLEAR, 1.f);
+					// shadowId n'est plus dans le graph (NkShadowSystem gere son atlas
+					// hors-graph). Le sequencing Shadows->Geometry est garanti par
+					// l'ordre d'AddPass et le bind du shadow atlas se fait via le
+					// descriptor set frame de Render3D (set au Init).
+					geom.Execute([this](NkICommandBuffer *cmd) { mRender3D->Flush(cmd); });
+				}
+				if (mRender3D)
+					mRender3D->SetSceneSamples(mMsaaActif);
 			}
 
 			// ── VECTEURS DE MOUVEMENT PAR PIXEL (17/09/2026) ──────────────────

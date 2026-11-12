@@ -110,6 +110,8 @@ namespace nkentseu {
 			bool mRecording = false;
 			VkPipelineLayout mBoundLayout = VK_NULL_HANDLE;
 			bool mIsCompute = false;
+			uint32 mPasseEchantillons = 1;	  // (12/11) MSAA : les echantillons de la passe courante
+			NkRenderPassHandle mPasseHandle{}; // et sa passe (pour creer la variante d'un pipeline)
 			float mClearColor[4] = {0.f, 0.f, 0.f, 1.f};
 			float mClearDepth = 1.f;
 			uint32 mClearStencil = 0;

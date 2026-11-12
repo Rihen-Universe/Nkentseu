@@ -304,6 +304,16 @@ void main() {
 			for (int i = 0; i < kTAADescSets; i++)
 				mTAASets[i] = mDevice->AllocateDescriptorSet(mTAALayout);
 			mTAASetCursor = 0;
+			// ── (12/11/2026) LA RESOLUTION DU MSAA : couleur et profondeur multi-echantillonnees ──
+			{
+				NkDescriptorSetLayoutDesc rlay;
+				rlay.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+				rlay.Add(1, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+				mResolveMSLayout = mDevice->CreateDescriptorSetLayout(rlay);
+				for (int i = 0; i < kResolveMSDescSets; i++)
+					mResolveMSSets[i] = mDevice->AllocateDescriptorSet(mResolveMSLayout);
+				mResolveMSSetCursor = 0;
+			}
 
 			// ── Sonde des vecteurs de mouvement : UN sampler (la cible RG16F) ────
 			NkDescriptorSetLayoutDesc mdlay;
@@ -538,6 +548,8 @@ void main() {
 				logger.Info("[NkPostProcessStack] MotionDbg shader : valid={0}\n", mShaderMotionDbg.IsValid() ? 1 : 0);
 			}
 
+			// (12/11/2026) la resolution du MSAA : chargee a la demande (RunResolveMSInPass), le MSAA eteint par
+			// defaut ne compile rien de plus
 			if (mShaderLib) {
 				auto progTAA = mShaderLib->LoadOrCompileVF("PP_TAA", "", "");
 				if (progTAA.IsValid())
@@ -631,6 +643,17 @@ void main() {
 			if (mPipeTAA.IsValid())
 				mDevice->DestroyPipeline(mPipeTAA);
 			mPipeTAA = {};
+			for (int i = 0; i < kResolveMSDescSets; i++) {
+				if (mResolveMSSets[i].IsValid())
+					mDevice->FreeDescriptorSet(mResolveMSSets[i]);
+				mResolveMSSets[i] = {};
+			}
+			if (mResolveMSLayout.IsValid())
+				mDevice->DestroyDescriptorSetLayout(mResolveMSLayout);
+			mResolveMSLayout = {};
+			if (mPipeResolveMS.IsValid())
+				mDevice->DestroyPipeline(mPipeResolveMS);
+			mPipeResolveMS = {};
 			for (int i = 0; i < kTAADescSets; i++) {
 				if (mTAASets[i].IsValid())
 					mDevice->FreeDescriptorSet(mTAASets[i]);
@@ -1851,6 +1874,60 @@ void main() {
 			mPipeTAA = mDevice->CreateGraphicsPipeline(pd);
 			logger.Info("[NkPostProcessStack] TAA pipeline (lazy) : valid={0}\n", mPipeTAA.IsValid() ? 1 : 0);
 			return mPipeTAA.IsValid();
+		}
+
+		bool NkPostProcessStack::RunResolveMSInPass(NkICommandBuffer *cmd, NkTextureHandle couleurMS, NkTextureHandle profondeurMS,
+													 uint32 echantillons, NkRenderPassHandle rp) {
+			if (!cmd || !mDevice || !couleurMS.IsValid() || !profondeurMS.IsValid() || echantillons < 2)
+				return false;
+			if (!mShaderResolveMS.IsValid() && mShaderLib) {
+				auto prog = mShaderLib->LoadOrCompileVF("PP_ResolveMS", "", "");
+				if (prog.IsValid())
+					mShaderResolveMS = mShaderLib->GetRHIHandle(prog);
+				logger.Info("[NkPostProcessStack] ResolveMS shader : valid={0}\n", mShaderResolveMS.IsValid() ? 1 : 0);
+			}
+			if (!mShaderResolveMS.IsValid() || !mResolveMSLayout.IsValid())
+				return false;
+			// le pipeline suit la passe du graphe (son RP change quand le graphe se reconstruit)
+			if (mPipeResolveMS.IsValid() && mPipeResolveMSRP.id != rp.id) {
+				mDevice->DestroyPipeline(mPipeResolveMS);
+				mPipeResolveMS = {};
+			}
+			if (!mPipeResolveMS.IsValid()) {
+				NkGraphicsPipelineDesc pd;
+				pd.shader = mShaderResolveMS;
+				// la profondeur s'ECRIT (gl_FragDepth) sans test : la cible 1x est effacee juste avant
+				pd.depthStencil = NkDepthStencilDesc::Default();
+				pd.depthStencil.depthTestEnable = true;
+				pd.depthStencil.depthWriteEnable = true;
+				pd.depthStencil.depthCompareOp = NkCompareOp::NK_ALWAYS;
+				pd.rasterizer = NkRasterizerDesc::NoCull();
+				pd.blend = NkBlendDesc::Opaque();
+				pd.debugName = "PP_ResolveMS";
+				pd.renderPass = rp;
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 16);
+				pd.descriptorSetLayouts.PushBack(mResolveMSLayout);
+				mPipeResolveMS = mDevice->CreateGraphicsPipeline(pd);
+				mPipeResolveMSRP = rp;
+				logger.Info("[NkPostProcessStack] ResolveMS pipeline : valid={0}\n", mPipeResolveMS.IsValid() ? 1 : 0);
+			}
+			if (!mPipeResolveMS.IsValid())
+				return false;
+			NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
+			if (!samp.IsValid())
+				return false;
+			NkDescSetHandle set = mResolveMSSets[mResolveMSSetCursor % kResolveMSDescSets];
+			mResolveMSSetCursor++;
+			if (!set.IsValid())
+				return false;
+			mDevice->BindTextureSampler(set, 0, couleurMS, samp);
+			mDevice->BindTextureSampler(set, 1, profondeurMS, samp);
+			cmd->BindGraphicsPipeline(mPipeResolveMS);
+			cmd->BindDescriptorSet(set, 0);
+			const float32 pc[4] = {(float32)echantillons, 0.f, 0.f, 0.f};
+			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), pc);
+			cmd->Draw(3, 1, 0, 0);
+			return true;
 		}
 
 		void NkPostProcessStack::RunMotionDebugInPass(NkICommandBuffer *cmd, NkTextureHandle motion,

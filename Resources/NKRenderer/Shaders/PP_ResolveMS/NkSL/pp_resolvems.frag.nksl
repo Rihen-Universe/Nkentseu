@@ -1,0 +1,44 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// pp_resolvems.frag.nksl — NKRenderer — LA RESOLUTION DU MSAA (12/11/2026, rendu-realiste).
+//
+// La passe Geometry dessine dans une couleur HDR et une profondeur MULTI-ECHANTILLONNEES (msaaSamples) ;
+// cette passe les ramene a UN echantillon pour tout ce qui suit (VFX, SSAO, bloom, tonemap, TAA) :
+//   - la COULEUR : moyenne des echantillons ponderee par 1 / (1 + max(r, g, b)) (la resolution « tonemappee »
+//     de Karis : sans elle, un echantillon de ciel tres clair ecrase les autres et l'escalier revient sur les
+//     bords contre le ciel -- les rails, les fils et les montants du simulateur) ;
+//   - la PROFONDEUR : la plus proche des echantillons (la SSAO et les transparents voient l'objet du bord).
+// Le DX11 et le Vulkan n'ont pas de resolution materielle dans le RHI (une copie multi-echantillonnee y est
+// gardee muette) : la resolution est donc ce nuanceur, sur les deux.
+
+@location(0) in vec2 vUV;
+@location(0) out vec4 fragColor;
+
+@binding(set=0, binding=0) uniform sampler2DMS tCouleurMS;
+@binding(set=0, binding=1) uniform sampler2DMS tProfondeurMS;
+
+layout(push_constant) uniform PC {
+    vec4 p0;   // (echantillons, -, -, -)
+} pc;
+
+@stage(fragment)
+@entry
+void main() {
+    ivec2 px = ivec2(gl_FragCoord.xy);
+    int n = int(pc.p0.x + 0.5);
+    vec3 somme = vec3(0.0, 0.0, 0.0);
+    float poids = 0.0;
+    float alpha = 0.0;
+    float prof = 1.0;
+    for (int i = 0; i < 8; ++i) {
+        if (i < n) {
+            vec4 c = texelFetch(tCouleurMS, px, i);
+            float w = 1.0 / (1.0 + max(c.r, max(c.g, c.b)));
+            somme += c.rgb * w;
+            poids += w;
+            alpha += c.a;
+            prof = min(prof, texelFetch(tProfondeurMS, px, i).r);
+        }
+    }
+    fragColor = vec4(somme / max(poids, 1e-6), alpha / float(max(n, 1)));
+    gl_FragDepth = prof;
+}

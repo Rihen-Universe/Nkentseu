@@ -113,6 +113,9 @@ namespace nkentseu {
 		rpbi.clearValueCount = clearCount;
 		rpbi.pClearValues = clearCount > 0 ? clears : nullptr;
 		vkCmdBeginRenderPass(mCmdBuf, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
+		// (12/11/2026, MSAA) les echantillons de la passe : BindGraphicsPipeline y accorde le pipeline
+		mPasseHandle = rp.IsValid() ? rp : mDev->GetFramebufferRenderPass(fb);
+		mPasseEchantillons = rp.IsValid() ? mDev->GetVkRenderPassSamples(rp.id) : mDev->GetVkFramebufferSamples(fb.id);
 		return true;
 	}
 
@@ -179,6 +182,11 @@ namespace nkentseu {
 	// lisible. Un temoin qui se declenche une fois nomme le defaut ; repete
 	// soixante fois par seconde, il l'enterre.
 	void NkVulkanCommandBuffer::BindGraphicsPipeline(NkPipelineHandle p) {
+		// (12/11/2026, MSAA) un pipeline cree pour d'autres echantillons que ceux de la passe courante : sa
+		// variante a ces echantillons (creee une fois par le dorsal) -- en 1x partout, rien ne change
+		if (mPasseEchantillons > 1 || mDev->GetVkPipelineSamples(p.id) > 1)
+			if (mDev->GetVkPipelineSamples(p.id) != mPasseEchantillons)
+				p = mDev->VariantePipelineEchantillons(p, mPasseEchantillons, mPasseHandle);
 		const VkPipeline vkp = mDev->GetVkPipeline(p.id);
 		if (vkp == VK_NULL_HANDLE) {
 			static bool dit = false;

@@ -86,6 +86,13 @@ namespace nkentseu {
 			VkPipelineLayout layout = VK_NULL_HANDLE;
 			VkDescriptorSetLayout descLayout = VK_NULL_HANDLE;
 			bool isCompute = false;
+			// (12/11/2026, MSAA) le nombre d'echantillons du pipeline et sa description : lie dans une passe
+			// d'un autre nombre d'echantillons (la passe Geometry en MSAA), le dorsal en cree une VARIANTE a ce
+			// nombre et a cette passe (le nombre d'echantillons fait partie de la compatibilite Vulkan) ;
+			// variantes[0..2] : 2, 4, 8 echantillons ; [3] : 1 (un pipeline MS lie dans une passe 1x)
+			uint32 samples = 1;
+			NkGraphicsPipelineDesc desc;
+			uint64 variantes[4] = {0, 0, 0, 0};
 	};
 
 	struct NkVkRenderPass {
@@ -286,6 +293,12 @@ namespace nkentseu {
 			VkSampler GetVkSampler(uint64 id) const;
 			VkPipeline GetVkPipeline(uint64 id) const;
 			VkPipelineLayout GetVkPipelineLayout(uint64 id) const;
+			// (12/11/2026, MSAA) les echantillons d'une passe (ses attachements), d'un framebuffer, d'un pipeline ;
+			// la variante d'un pipeline a `echantillons` pour la passe `rp` (creee a la premiere demande)
+			uint32 GetVkRenderPassSamples(uint64 id) const;
+			uint32 GetVkFramebufferSamples(uint64 id) const;
+			uint32 GetVkPipelineSamples(uint64 id) const;
+			NkPipelineHandle VariantePipelineEchantillons(NkPipelineHandle p, uint32 echantillons, NkRenderPassHandle rp);
 			VkDescriptorSet GetVkDescSet(uint64 id) const;
 			bool IsComputePipeline(uint64 id) const;
 			NkTextureDesc GetTextureDesc(uint64 id) const;

@@ -624,6 +624,7 @@ namespace nkentseu {
 								if (auto *r = FindRes(ca.resId)) {
 									NkAttachmentDesc ad;
 									ad.format = r->transientDesc.format;
+									ad.samples = r->transientDesc.samples; // (12/11) MSAA : l'attachement garde ses echantillons
 									ad.loadOp = ca.loadOp;
 									ad.storeOp = NkStoreOp::NK_STORE;
 									rpd.AddColor(ad);
@@ -633,6 +634,7 @@ namespace nkentseu {
 								if (auto *r = FindRes(pass.depth.resId)) {
 									NkAttachmentDesc dad;
 									dad.format = r->transientDesc.format;
+									dad.samples = r->transientDesc.samples;
 									dad.loadOp = pass.depth.loadOp;
 									dad.storeOp = NkStoreOp::NK_STORE;
 									rpd.SetDepth(dad);

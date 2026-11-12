@@ -1,0 +1,19 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// pp_resolvems.vert.nksl — NKRenderer — LA RESOLUTION DU MSAA, sommet (12/11/2026, rendu-realiste).
+// Le triangle plein ecran (gl_VertexID) ; le fragment lit les echantillons par leurs coordonnees de pixel
+// (gl_FragCoord), sans UV : aucune convention de retournement n'entre en jeu.
+
+@location(0) out vec2 vUV;
+
+layout(push_constant) uniform PC {
+    vec4 p0;   // (echantillons, -, -, -)
+} pc;
+
+@stage(vertex)
+@entry
+void main() {
+    vec2 pos = vec2((gl_VertexID == 1) ? 3.0 : -1.0,
+                    (gl_VertexID == 2) ? 3.0 : -1.0);
+    gl_Position = vec4(pos, 0.0, 1.0);
+    vUV = pos * 0.5 + 0.5;
+}

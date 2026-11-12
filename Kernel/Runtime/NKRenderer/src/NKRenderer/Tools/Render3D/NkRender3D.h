@@ -159,6 +159,14 @@ namespace nkentseu {
 				// leur grille (sondeMin = premiere sonde + pas, sondeMax = derniere sonde + mode :
 				// voir NkSondes.glsli). Texture invalide : eteintes. Sans appel, RIEN ne change.
 				void SetSondes(NkTextureHandle tex, NkSamplerHandle samp, const NkVec4f &premiere, const NkVec4f &derniere);
+				// (12/11/2026) LE MSAA : les echantillons de la passe Geometry (le graphe le dit a sa construction) ;
+				// 1 : rien ne change.
+				void SetSceneSamples(uint32 n) {
+					mSceneSamples = n < 1 ? 1u : n;
+				}
+				uint32 SceneSamples() const {
+					return mSceneSamples;
+				}
 				bool SondesActives() const {
 					return mSondesActives;
 				}
@@ -670,6 +678,7 @@ namespace nkentseu {
 				NkTextureHandle mSondesTex;
 				NkSamplerHandle mSondesSamp;
 				NkVec4f mSondesPremiere{0.f, 0.f, 0.f, 1.f}, mSondesDerniere{0.f, 0.f, 0.f, 2.f};
+				uint32 mSceneSamples = 1;	 // (12/11) MSAA de la passe Geometry
 				NkTextureHandle mSondesVide; // 1x1x1 : le binding 1 reste valide sans sondes
 				NkSamplerHandle mSondesVideSamp;
 				NkShaderLibrary *mShaderLib = nullptr;

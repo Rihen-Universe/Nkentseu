@@ -1124,9 +1124,22 @@ namespace nkentseu {
 				   GenExpr(call->args[2]) + ", " + GenExpr(call->args[3]) + ")";
 		}
 		// texelFetch(s, coord, lod) → s.Load(int3(coord, lod))  [2D]
+		// (12/11/2026, MSAA) texelFetch(sampler2DMS, coord, echantillon) → s.Load(int2(coord), echantillon) :
+		// Texture2DMS::Load prend l'echantillon a part (et non un niveau dans un int3)
 		if (name == "texelFetch" && call->args.Size() >= 2) {
 			NkString t = GenExpr(call->args[0]);
 			NkString lod = (call->args.Size() >= 3) ? GenExpr(call->args[2]) : NkString("0");
+			bool ms = false;
+			{
+				const NkString texLow = NkSL_StripTexSuffix(t);
+				for (auto *v : mUniforms)
+					if (v && v->type && v->type->baseType == NkSLBaseType::NK_SAMPLER2DMS && v->name.ToLower() == texLow) {
+						ms = true;
+						break;
+					}
+			}
+			if (ms)
+				return t + ".Load(int2(" + GenExpr(call->args[1]) + "), " + lod + ")";
 			return t + ".Load(int3(" + GenExpr(call->args[1]) + ", " + lod + "))";
 		}
 		// imageLoad(img, coord) → img[coord] ; imageStore(img, coord, val) → img[coord] = val

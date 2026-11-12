@@ -106,7 +106,10 @@ namespace nkentseu {
 	// Détection de tokens
 	// =============================================================================
 	bool NkSLParser::IsTypeToken(NkSLTokenKind k) const {
-		return k >= NkSLTokenKind::NK_KW_VOID && k <= NkSLTokenKind::NK_KW_UIMAGE2D;
+		// (12/11/2026, MSAA) sampler2DMS : le lexeur et la table de types le connaissaient, mais il est declare
+		// APRES l'intervalle VOID..UIMAGE2D -- « Expected type name » a sa declaration. Les autres types de ce
+		// groupe tardif (sampler1D, isampler3D...) restent hors de l'intervalle : aucun nuanceur ne les demande.
+		return (k >= NkSLTokenKind::NK_KW_VOID && k <= NkSLTokenKind::NK_KW_UIMAGE2D) || k == NkSLTokenKind::NK_KW_SAMPLER2DMS;
 	}
 
 	bool NkSLParser::IsQualifierToken(NkSLTokenKind k) const {

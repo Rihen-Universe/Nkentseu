@@ -152,6 +152,12 @@ namespace nkentseu {
 								  NkTextureHandle depth, const NkMat4f &reproj, bool useHistory,
 								  NkRenderPassHandle rp, NkTextureHandle motion = NkTextureHandle{});
 
+				// (12/11/2026) LA RESOLUTION DU MSAA, dans la passe « MSAA_Resolve » du graphe (couleur 1x +
+				// profondeur 1x attachees) : lit la couleur et la profondeur multi-echantillonnees de la passe
+				// Geometry, ecrit leur moyenne ponderee (couleur) et la plus proche (profondeur). Faux si rien n'a ete fait.
+				bool RunResolveMSInPass(NkICommandBuffer *cmd, NkTextureHandle couleurMS, NkTextureHandle profondeurMS,
+										uint32 echantillons, NkRenderPassHandle rp);
+
 				bool IsTAAEnabled() const;
 
 				// ── LA SONDE DES VECTEURS DE MOUVEMENT ───────────────────────────
@@ -346,6 +352,16 @@ namespace nkentseu {
 				int mMotionDbgSetCursor = 0;
 				::nkentseu::NkShaderHandle mShaderMotionDbg;
 				NkPipelineHandle mPipeMotionDbg;
+
+				// ── (12/11/2026) LA RESOLUTION DU MSAA (PP_ResolveMS) : 2 echantillonneurs multi-echantillonnes
+				// (couleur HDR, profondeur), une passe du graphe qui ecrit la couleur ET la profondeur a 1x ──
+				NkDescSetHandle mResolveMSLayout;
+				static constexpr int kResolveMSDescSets = 4;
+				NkDescSetHandle mResolveMSSets[kResolveMSDescSets];
+				int mResolveMSSetCursor = 0;
+				::nkentseu::NkShaderHandle mShaderResolveMS;
+				NkPipelineHandle mPipeResolveMS;
+				NkRenderPassHandle mPipeResolveMSRP;
 
 				NkDescSetHandle mTAALayout; // 3 samplers : courant + historique + depth
 				static constexpr int kTAADescSets = 6;

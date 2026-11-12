@@ -1763,7 +1763,13 @@ namespace nkentseu {
 		rsci.lineWidth = 1.f;
 
 		VkPipelineMultisampleStateCreateInfo msci{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-		msci.rasterizationSamples = ToVkSamples(d.samples);
+		// (12/11/2026, MSAA) les echantillons sont ceux de la PASSE quand elle est connue (Vulkan les exige
+		// egaux a ceux des attachements) : un pipeline cree pendant la passe Geometry multi-echantillonnee
+		// sans le dire devient multi-echantillonne ; ailleurs, sa variante (VariantePipelineEchantillons)
+		NkSampleCount echantPipe = d.samples;
+		if (d.renderPass.IsValid() && mRenderPasses.Find(d.renderPass.id))
+			echantPipe = (NkSampleCount)GetVkRenderPassSamples(d.renderPass.id);
+		msci.rasterizationSamples = ToVkSamples(echantPipe);
 		msci.alphaToCoverageEnable = d.blend.alphaToCoverage;
 
 		// Depth/stencil
@@ -1848,10 +1854,69 @@ namespace nkentseu {
 
 		const VkDescriptorSetLayout firstSetLayout = setLayouts.IsEmpty() ? VK_NULL_HANDLE : setLayouts[0];
 		uint64 hid = NextId();
-		mPipelines[hid] = {pipe, layout, firstSetLayout, false};
+		NkVkPipeline vp;
+		vp.pipeline = pipe;
+		vp.layout = layout;
+		vp.descLayout = firstSetLayout;
+		vp.isCompute = false;
+		// (12/11/2026, MSAA) de quoi en faire une variante a un autre nombre d'echantillons
+		vp.samples = (uint32)echantPipe;
+		vp.desc = d;
+		vp.desc.debugName = nullptr; // la chaine de l'appelant ne vit pas forcement aussi longtemps
+		mPipelines[hid] = vp;
 		NkPipelineHandle h;
 		h.id = hid;
 		return h;
+	}
+
+	uint32 NkVulkanDevice::GetVkPipelineSamples(uint64 id) const {
+		const auto *it = mPipelines.Find(id);
+		return it ? it->samples : 1u;
+	}
+
+	NkPipelineHandle NkVulkanDevice::VariantePipelineEchantillons(NkPipelineHandle p, uint32 echantillons, NkRenderPassHandle rp) {
+		const int32 k = echantillons == 2 ? 0 : (echantillons == 4 ? 1 : (echantillons == 8 ? 2 : (echantillons == 1 ? 3 : -1)));
+		if (k < 0)
+			return p;
+		NkGraphicsPipelineDesc d;
+		{
+			threading::NkScopedLockMutex lock(mMutex);
+			auto *it = mPipelines.Find(p.id);
+			if (!it || it->isCompute || it->samples == echantillons)
+				return p;
+			if (it->variantes[k] != 0 && mPipelines.Find(it->variantes[k]))
+				return NkPipelineHandle{it->variantes[k]};
+			d = it->desc;
+		}
+		d.samples = (NkSampleCount)echantillons;
+		if (rp.IsValid())
+			d.renderPass = rp;
+		d.debugName = "variante MSAA";
+		// hors du verrou : CreateGraphicsPipeline le prend lui-meme
+		const NkPipelineHandle v = CreateGraphicsPipeline(d);
+		if (!v.IsValid())
+			return p;
+		threading::NkScopedLockMutex lock(mMutex);
+		auto *it = mPipelines.Find(p.id);
+		if (it)
+			it->variantes[k] = v.id;
+		NK_VK_LOG("Pipeline id=%llu : variante a %u echantillon(s) creee (id=%llu)\n", (unsigned long long)p.id,
+				  (unsigned)echantillons, (unsigned long long)v.id);
+		return v;
+	}
+
+	uint32 NkVulkanDevice::GetVkRenderPassSamples(uint64 id) const {
+		const auto *it = mRenderPasses.Find(id);
+		if (!it)
+			return 1u;
+		if (!it->desc.colorAttachments.IsEmpty())
+			return (uint32)it->desc.colorAttachments[0].samples;
+		return it->desc.hasDepth ? (uint32)it->desc.depthAttachment.samples : 1u;
+	}
+
+	uint32 NkVulkanDevice::GetVkFramebufferSamples(uint64 id) const {
+		const auto *it = mFramebuffers.Find(id);
+		return it ? GetVkRenderPassSamples(it->renderPassHandle.id) : 1u;
 	}
 
 	NkPipelineHandle NkVulkanDevice::CreateComputePipeline(const NkComputePipelineDesc &d) {
@@ -1904,6 +1969,18 @@ namespace nkentseu {
 	void NkVulkanDevice::DestroyPipeline(NkPipelineHandle &h) {
 		threading::NkScopedLockMutex lock(mMutex);
 		auto it = mPipelines.Find(h.id);
+		if (!it)
+			return;
+		// (12/11) ses variantes a d'autres nombres d'echantillons partent avec lui
+		for (int32 k = 0; k < 4; ++k)
+			if (it->variantes[k] != 0) {
+				if (auto *v = mPipelines.Find(it->variantes[k])) {
+					vkDestroyPipeline(mDevice, v->pipeline, nullptr);
+					vkDestroyPipelineLayout(mDevice, v->layout, nullptr);
+					mPipelines.Erase(it->variantes[k]);
+				}
+			}
+		it = mPipelines.Find(h.id);
 		if (!it)
 			return;
 		vkDestroyPipeline(mDevice, it->pipeline, nullptr);
