@@ -61,6 +61,15 @@ namespace nkentseu {
 				/// ni metal, ni carte, ni vernis, ni lustre) ; le verre reste verre, l'emission reste ; exposition
 				/// « haute cle » (+1 IL). La modelisation et la lumiere seules, comme une maquette d'argile.
 				bool argile = false;
+				/// (12/11) LES REGLAGES DE L'IMAGE (le mode argile de NKCraft les pose ; ailleurs, les defauts
+				/// donnent l'image d'avant) : la balance « monde » neutralise la teinte MOYENNE de l'image (en argile :
+				/// des seules surfaces d'argile, albedo 0,8 -- toutes de la meme couleur, leur teinte est celle de
+				/// la lumiere) ; la cle de l'exposition automatique ; une exposition manuelle (EV, < -100 : celle de
+				/// la scene) ; les niveaux de gris.
+				bool balanceMonde = false;
+				float32 cleExpo = 0.18f;
+				float32 evManuel = -1000.f;
+				bool gris = false;
 				// (10/11/2026) LES LUCIOLES des surfaces sombres et brillantes (ecrans, bureaux noirs) :
 				// le disque solaire et l'emission ne comptent plus par un rebond GGX (la lumiere directe
 				// les compte deja : double compte et pics geants), la rugosite est regularisee apres le

@@ -1413,10 +1413,25 @@ namespace nkentseu {
 			// (10/11/2026) LA BALANCE DES BLANCS, sur la radiance (avant l'exposition et le debruiteur) :
 			// une temperature a neutraliser (K, la teinte de NkLightEffectiveColor), ou la moyenne d'une
 			// fenetre posee sur une surface blanche. Gains a luminance constante : seule la teinte bouge.
-			if (r.balanceK > 0.f || r.balanceX >= 0) {
+			if (r.balanceK > 0.f || r.balanceX >= 0 || r.balanceMonde) {
 				V3 teinte{1.f, 1.f, 1.f};
 				const char *quoi = "temperature";
-				if (r.balanceX >= 0 && r.balanceY >= 0) {
+				if (r.balanceMonde && !(r.balanceX >= 0 && r.balanceY >= 0)) {
+					// (12/11) la teinte MOYENNE : en argile, celle des seules surfaces d'argile (albedo 0,8 : le
+					// ciel et les vitres, d'albedo 1, n'y entrent pas)
+					quoi = r.argile ? "argile moyenne" : "image moyenne";
+					V3 s{0.f, 0.f, 0.f};
+					int32 nb = 0;
+					const usize n = (usize)cam.L * (usize)cam.H;
+					for (usize i = 0; i < n; ++i) {
+						if (r.argile && Abs(alb[i * 3 + 1] - kArgileAlbedo) > 0.02f)
+							continue;
+						s = s + Mk(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]);
+						++nb;
+					}
+					if (nb > 0)
+						teinte = s * (1.f / (float32)nb);
+				} else if (r.balanceX >= 0 && r.balanceY >= 0) {
 					quoi = "surface blanche";
 					V3 s{0.f, 0.f, 0.f};
 					int32 nb = 0;
@@ -1450,18 +1465,26 @@ namespace nkentseu {
 				NkPrintfSortie("[traceur] BALANCE DES BLANCS (%s) : gains %.3f %.3f %.3f\n", quoi, (double)gain.x, (double)gain.y,
 							   (double)gain.z);
 			}
-			// l'exposition
-			float32 expo = 1000.f / (1.2f * (float32)math::NkPow(2.0, (float64)g.s.expositionEV));
+			// (12/11) les niveaux de gris : la luminance, avant l'exposition (le debruiteur garde ses aretes)
+			if (r.gris) {
+				const usize n = (usize)cam.L * (usize)cam.H;
+				for (usize i = 0; i < n; ++i) {
+					const float32 l = Lum(Mk(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]));
+					rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = l;
+				}
+			}
+			// l'exposition : celle de la scene (EV), ou une EV manuelle, ou automatique a la cle `cleExpo`
+			const float32 ev = r.evManuel > -100.f ? r.evManuel : g.s.expositionEV;
+			float32 expo = 1000.f / (1.2f * (float32)math::NkPow(2.0, (float64)ev));
 			if (r.expoAuto) {
 				float64 sl = 0.0;
 				const usize n = (usize)cam.L * (usize)cam.H;
 				for (usize i = 0; i < n; ++i)
 					sl += math::NkLog((float64)Lum(Mk(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2])) + 1e-4);
-				expo = 0.18f / (float32)math::NkExp(sl / (float64)n);
+				expo = r.cleExpo / (float32)math::NkExp(sl / (float64)n);
 			}
-			// (10/11) l'argile : exposition « haute cle » (+1 IL), le blanc d'une maquette de jour
-			if (r.argile)
-				expo *= 2.f;
+			// (10/11) l'argile avait une exposition « haute cle » (+1 IL) en dur ; (12/11) c'est desormais la cle des
+			// reglages de l'argile (NKCraft : 0,13 par defaut), posee par l'appelant dans `cleExpo`
 			char brut[600];
 			{
 				int32 n = 0;
