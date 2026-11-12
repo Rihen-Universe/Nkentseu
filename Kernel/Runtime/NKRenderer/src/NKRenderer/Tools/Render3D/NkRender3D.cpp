@@ -15,6 +15,9 @@
 #include "NKFileSystem/NkFile.h" // tables LTC (Resources/NKRenderer/LUT)
 #include "NKRenderer/Core/NkRendererResourcePath.h"
 #include "NkRender3D_PBRShaders.inl"
+#include "NkTriProfondeur.h" // (sim-cabine, 12/11) le tri stable des dessins
+#include "NKPlatform/NkEnv.h"
+#include "NKCore/Text/NkSnprintf.h"
 #include "NKLogger/NkLog.h"
 #include <cstring>
 #include <algorithm>
@@ -1958,27 +1961,69 @@ namespace nkentseu {
 		}
 
 		// ── Sort ──────────────────────────────────────────────────────────────────
-		void NkRender3D::SortDrawCalls() {
-			for (uint32 i = 1; i < (uint32)mOpaque.Size(); i++) {
-				SortedDC key = mOpaque[i];
-				int32 j = (int32)i - 1;
-				while (j >= 0 && mOpaque[j].depth > key.depth) {
-					mOpaque[j + 1] = mOpaque[j];
-					j--;
+		// (sim-cabine, 12/11/2026) Le tri par INSERTION qui vivait ici recopiait des
+		// SortedDC entiers (~400 octets, un NkVector) a chaque decalage : O(n2)
+		// recopies lourdes (~2,5 ms par image dans le demonstrateur CAMRAIL, des
+		// pieces proches soumises apres ~430 dessins). Il est GARDE, a l'identique
+		// mais sur des indices, dans NkTriProfondeur.h (NkTriInsertionReference) :
+		// c'est la reference des bancs et le repli si une profondeur est NaN.
+		// Desormais : tri STABLE de CLES (profondeur rendue entiere) et d'indices,
+		// en base 256, puis une seule permutation des dessins, par deplacements.
+		// L'ordre final est EXACTEMENT celui de l'insertion (egalites departagees
+		// par l'ordre d'arrivee). Ancien corps, pour memoire :
+		//   for (i = 1; i < n; i++) { key = mOpaque[i]; j = i - 1;
+		//     while (j >= 0 && mOpaque[j].depth > key.depth) { mOpaque[j+1] = mOpaque[j]; j--; }
+		//     mOpaque[j+1] = key; }   (transparents : meme chose avec < , arriere -> avant)
+		namespace {
+			/// NK_TRI_EMPREINTE=<prefixe> : ecrit UNE fois, pour chaque file d'au moins
+			/// 100 dessins, les profondeurs d'arrivee et l'ordre rendu (<prefixe>_<file>.txt).
+			/// Le banc d'empreinte (demonstrateur, BancTri) le relit et le compare a
+			/// l'ancien tri.
+			void EcrireEmpreinte(const char *file, const float32 *prof, const uint32 *ordre, uint32 n, uint32 taille) {
+				static bool sDejaOpaque = false, sDejaTransparent = false;
+				bool &deja = (file[0] == 'o') ? sDejaOpaque : sDejaTransparent;
+				const char *prefixe = nkentseu::env::GetEnvVar("NK_TRI_EMPREINTE");
+				if (deja || prefixe == nullptr || prefixe[0] == '\0' || n < 100u) {
+					return;
 				}
-				mOpaque[j + 1] = key;
+				deja = true;
+				NkVector<char> texte;
+				texte.Resize((usize)n * 40u + 64u);
+				usize pos = 0;
+				auto ecrire = [&](const char *fmt, float64 a, uint32 b) {
+					const int l = NkSnprintf(texte.Data() + pos, texte.Size() - pos, fmt, a, b);
+					pos += l > 0 ? (usize)l : 0u;
+				};
+				ecrire("%.0f %u\n", (float64)n, taille); // n, et la taille d'un dessin trie (octets)
+				for (uint32 i = 0; i < n; ++i) {
+					ecrire("%.9g %u\n", (float64)prof[i], ordre[i]);
+				}
+				char chemin[512];
+				NkSnprintf(chemin, sizeof(chemin), "%s_%s.txt", prefixe, file);
+				(void)NkFile::WriteAllText(chemin, texte.Data());
 			}
+
+			void RappelEmpreinte(const float32 *prof, const uint32 *ordre, uint32 n, void *donnee) {
+				const uint32 *info = static_cast<const uint32 *>(donnee); // {taille, opaque ? 1 : 0}
+				EcrireEmpreinte(info[1] ? "opaques" : "transparents", prof, ordre, n, info[0]);
+			}
+
+			/// Trie une file de dessins par profondeur, croissante (opaques) ou
+			/// decroissante (transparents) : NkTrierParProfondeur (NkTriProfondeur.h),
+			/// la meme fonction que mesure le banc du tri.
+			template <typename T> void TrierFile(NkVector<T> &l, bool decroissant) {
+				NkVector<float32> prof;
+				NkVector<uint32> tampon;
+				uint32 info[2] = {(uint32)sizeof(T), decroissant ? 0u : 1u};
+				(void)NkTrierParProfondeur(l.Data(), (uint32)l.Size(), decroissant, prof, tampon, &RappelEmpreinte, info);
+			}
+		} // namespace
+
+		void NkRender3D::SortDrawCalls() {
+			TrierFile(mOpaque, false);
 			// Transparents : ARRIERE -> AVANT (l'inverse des opaques) — la
 			// fusion alpha n'est correcte que dans cet ordre.
-			for (uint32 i = 1; i < (uint32)mTransparent.Size(); i++) {
-				SortedDC key = mTransparent[i];
-				int32 j = (int32)i - 1;
-				while (j >= 0 && mTransparent[j].depth < key.depth) {
-					mTransparent[j + 1] = mTransparent[j];
-					j--;
-				}
-				mTransparent[j + 1] = key;
-			}
+			TrierFile(mTransparent, true);
 		}
 
 		// ── Flush ────────────────────────────────────────────────────────────────
