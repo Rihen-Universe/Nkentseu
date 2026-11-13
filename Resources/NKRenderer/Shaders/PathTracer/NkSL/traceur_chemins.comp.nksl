@@ -57,7 +57,7 @@ vec3 Inverse(vec3 d) {
                 1.0 / (abs(d.z) > 1e-12 ? d.z : 1e-12));
 }
 bool Boite(int ni, vec3 o, vec3 inv, float tmax) {
-    int base = int(P.off0.x) + 2 * ni;
+    int base = floatBitsToInt(P.off0.x) + 2 * ni;
     vec3 t0 = (S.d[base].xyz - o) * inv;
     vec3 t1 = (S.d[base + 1].xyz - o) * inv;
     vec3 a = min(t0, t1);
@@ -90,13 +90,13 @@ bool MT(int k, vec3 o, vec3 d, float tmax, out float t, out float u, out float v
 // NkTcEmpaqueter) : le texel RGBA8 de la carte `carte` au triangle de bloc `k`, barycentriques (b1, b2), UV
 // du maillage repetees, v = 0 en HAUT de l'image -- le meme calcul que TexelObjet de NkTraceurChemins.cpp
 uint TexelObjet(int k, int carte, float b1, float b2) {
-    int X = int(P.cartes[15].w);
-    int bs = int(P.off0.z);
-    int i0 = int(S.d[k + 1].w);
-    int i1 = int(S.d[k + 2].w);
-    int i2 = int(S.d[k + 3].x);
+    int X = floatBitsToInt(P.cartes[15].w);
+    int bs = floatBitsToInt(P.off0.z);
+    int i0 = floatBitsToInt(S.d[k + 1].w);
+    int i1 = floatBitsToInt(S.d[k + 2].w);
+    int i2 = floatBitsToInt(S.d[k + 3].x);
     float w0 = 1.0 - b1 - b2;
-    vec4 de = S.d[int(S.d[X].z) + carte];
+    vec4 de = S.d[floatBitsToInt(S.d[X].z) + carte];
     // (13/11) une PHOTO (de.w > 0, metres par repetition) : les UV divisees -- comme TexelCarte du processeur
     float ie = de.w > 0.0 ? 1.0 / de.w : 1.0;
     float u = (S.d[bs + 2 * i0].w * w0 + S.d[bs + 2 * i1].w * b1 + S.d[bs + 2 * i2].w * b2) * ie;
@@ -109,11 +109,11 @@ uint TexelObjet(int k, int carte, float b1, float b2) {
     int h = int(de.z);
     int x = clamp(int(fu * float(w)), 0, w - 1);
     int y = clamp(int(fv * float(h)), 0, h - 1);
-    return T.t[int(de.x) + y * w + x];
+    return T.t[floatBitsToInt(de.x) + y * w + x];
 }
 // le masque : faux si l'impact tombe sur un texel plus transparent que le seuil (feuille detouree)
 bool AlphaPasse(int k, float b1, float b2) {
-    int X = int(P.cartes[15].w);
+    int X = floatBitsToInt(P.cartes[15].w);
     if (X <= 0) return true;
     vec4 e = S.d[X + 1 + int(S.d[k].w)];
     if (e.x < 0.0 || e.y <= 0.0) return true;
@@ -130,13 +130,13 @@ bool Tracer(vec3 o, vec3 d, float tmax, out float th, out int tri, out float b1,
     tri = -1;
     b1 = 0.0;
     b2 = 0.0;
-    int bt = int(P.off0.y);
+    int bt = floatBitsToInt(P.off0.y);
     while (np > 0) {
         np = np - 1;
         int ni = pile[np];
         if (!Boite(ni, o, inv, th)) continue;
-        int base = int(P.off0.x) + 2 * ni;
-        int g = int(S.d[base].w);
+        int base = floatBitsToInt(P.off0.x) + 2 * ni;
+        int g = floatBitsToInt(S.d[base].w);
         int nb = int(S.d[base + 1].w);
         if (nb > 0) {
             for (int i = 0; i < nb; ++i) {
@@ -165,14 +165,14 @@ vec3 Transmission(vec3 o, vec3 d, float tmax) {
     int pile[64];
     int np = 1;
     pile[0] = 0;
-    int bt = int(P.off0.y);
-    int bm = int(P.off0.w);
+    int bt = floatBitsToInt(P.off0.y);
+    int bm = floatBitsToInt(P.off0.w);
     while (np > 0) {
         np = np - 1;
         int ni = pile[np];
         if (!Boite(ni, o, inv, tmax)) continue;
-        int base = int(P.off0.x) + 2 * ni;
-        int g = int(S.d[base].w);
+        int base = floatBitsToInt(P.off0.x) + 2 * ni;
+        int g = floatBitsToInt(S.d[base].w);
         int nb = int(S.d[base + 1].w);
         if (nb > 0) {
             for (int i = 0; i < nb; ++i) {
@@ -224,11 +224,11 @@ vec3 NormalePaillette(vec3 p, vec3 n, float q, float taille) {
 // Surface au point d'impact : p, ng, ns, albedo, emission, rugosite, metal, verre
 void Surf(int tri, float b1, float b2, vec3 o, vec3 d, float th, out vec3 p, out vec3 ng, out vec3 ns, out vec3 alb,
           out vec3 emis, out float rug, out float met, out bool verre) {
-    int k = int(P.off0.y) + 4 * tri;
-    int i0 = int(S.d[k + 1].w);
-    int i1 = int(S.d[k + 2].w);
-    int i2 = int(S.d[k + 3].x);
-    int bs = int(P.off0.z);
+    int k = floatBitsToInt(P.off0.y) + 4 * tri;
+    int i0 = floatBitsToInt(S.d[k + 1].w);
+    int i1 = floatBitsToInt(S.d[k + 2].w);
+    int i2 = floatBitsToInt(S.d[k + 3].x);
+    int bs = floatBitsToInt(P.off0.z);
     float w0 = 1.0 - b1 - b2;
     p = o + d * th;
     vec4 a0 = S.d[bs + 2 * i0];
@@ -238,7 +238,7 @@ void Surf(int tri, float b1, float b2, vec3 o, vec3 d, float th, out vec3 p, out
     ng = normalize(cross(S.d[k + 1].xyz, S.d[k + 2].xyz));
     if (dot(ng, ns) < 0.0) ng = -ng;
     int mat = int(S.d[k].w);
-    int bm = int(P.off0.w) + 4 * mat;
+    int bm = floatBitsToInt(P.off0.w) + 4 * mat;
     vec4 m0 = S.d[bm];
     vec4 m1 = S.d[bm + 1];
     vec4 m2 = S.d[bm + 2];
@@ -274,7 +274,7 @@ void Surf(int tri, float b1, float b2, vec3 o, vec3 d, float th, out vec3 p, out
     }
     // (11/11/2026) la carte de l'objet : texel x couleur (comme le temps reel) ; la feuille mince
     gTrans = 0.0;
-    int X = int(P.cartes[15].w);
+    int X = floatBitsToInt(P.cartes[15].w);
     if (X > 0) {
         vec4 e = S.d[X + 1 + mat];
         if (!verre) gTrans = e.z;
@@ -283,7 +283,7 @@ void Surf(int tri, float b1, float b2, vec3 o, vec3 d, float th, out vec3 p, out
             vec3 to = vec3(Lin(pxo & 255u), Lin((pxo >> 8u) & 255u), Lin((pxo >> 16u) & 255u));
             alb = min(vec3(0.98, 0.98, 0.98), alb * to);
             // (13/11) une PHOTO CC0 (descripteur .w > 0) : l'alpha est la rugosite (orm.g) x celle de la matiere
-            if (S.d[int(S.d[X].z) + int(e.x)].w > 0.0) rug = max(m0.w * float(pxo >> 24u) / 255.0, 0.03);
+            if (S.d[floatBitsToInt(S.d[X].z) + int(e.x)].w > 0.0) rug = max(m0.w * float(pxo >> 24u) / 255.0, 0.03);
         }
         // (13/11) LA NORMALE D'UNE PHOTO (e.w = carte + 1) : T = derivee des UV du triangle, B = cross(N, T) comme
         // le temps reel ; le vert de la carte cuite suit B -- le meme calcul que Surf de NkTraceurChemins.cpp
@@ -315,8 +315,8 @@ void Surf(int tri, float b1, float b2, vec3 o, vec3 d, float th, out vec3 p, out
     gNb = ns;
     gVernis = 0.0;
     gVernisRug = 0.03;
-    if (P.cartes[13].w > 0.5 && !verre) {
-        vec4 vv = S.d[int(P.cartes[13].w) + mat];
+    if (floatBitsToInt(P.cartes[13].w) > 0 && !verre) { // (13/11) le decalage au bit pres
+        vec4 vv = S.d[floatBitsToInt(P.cartes[13].w) + mat];
         gVernis = vv.x;
         gVernisRug = max(vv.y, 0.03);
         if (vv.z > 0.0) gNb = NormalePaillette(p, ns, vv.z, vv.w);
@@ -490,10 +490,10 @@ vec3 CielTexel(float x, float y) {
     float H = P.solE.w;
     float xx = x - W * floor(x / W);
     float yy = clamp(y, 0.0, H - 1.0);
-    return S.d[int(P.off1.w) + int(yy) * int(W) + int(xx)].xyz;
+    return S.d[floatBitsToInt(P.off1.w) + int(yy) * int(W) + int(xx)].xyz;
 }
 vec3 Ciel(vec3 d) {
-    if (P.off1.w > 0.5) {
+    if (floatBitsToInt(P.off1.w) > 0) { // (13/11) au bit pres
         float th = acos(clamp(d.y, -1.0, 1.0));
         // atan2(0, 0) est indefini sur la carte (NaN) : un rayon exactement vertical l'atteint
         float ph = (abs(d.x) + abs(d.z) > 1e-7) ? atan(d.z, d.x) : 0.0;
@@ -536,11 +536,13 @@ vec3 Directe(vec3 p, vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo) 
     int ns2 = int(P.off1.y);
     float ptot = P.off1.z;
     if (P.drap.z < 0.5 && ns2 > 0 && ptot > 0.0) {
-        int bsrc = int(P.off1.x);
-        int cand[8];
-        float w[8];
+        int bsrc = floatBitsToInt(P.off1.x);
+        // (13/11) le nombre de candidates (cartes[6].w ; 0 : 8, l'image d'avant ; 32 au plus) -- comme Directe du processeur
+        int M = P.cartes[6].w > 0.5 ? min(int(P.cartes[6].w), 32) : 8;
+        int cand[32];
+        float w[32];
         float somme = 0.0;
-        for (int k = 0; k < 8; ++k) {
+        for (int k = 0; k < M; ++k) {
             float u = Rnd() * ptot;
             int lo = 0;
             int hi = ns2 - 1;
@@ -564,7 +566,7 @@ vec3 Directe(vec3 p, vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo) 
         if (somme > 0.0) {
             float u = Rnd() * somme;
             int k = 0;
-            while (k < 7 && u >= w[k]) {
+            while (k < M - 1 && u >= w[k]) {
                 u = u - w[k];
                 k = k + 1;
             }
@@ -592,7 +594,7 @@ vec3 Directe(vec3 p, vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo) 
                 float phy = s2.w * (mince ? abs(dot(ns, cw)) : max(0.0, dot(ns, cw))) / dc2;
                 if (s0.w > 0.5) phy = phy * FacteurSpot(s1, cw);
                 if (phy > 0.0) {
-                    float W = (somme / 8.0) / phy;
+                    float W = (somme / float(M)) / phy;
                     L = L + f * s2.xyz * (I / d2) * tr * W;
                 }
             }

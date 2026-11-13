@@ -101,6 +101,9 @@ namespace nkentseu {
 				/// (13/11/2026) LE DEBRUITEUR : 2 = le nouveau (direct et indirect a part, variance prefiltree, a-trous
 				/// de type SVGF) ; 1 = l'ancien (la contre-epreuve du banc)
 				int32 debruiteur = 2;
+				/// (13/11/2026) LES CANDIDATES de l'echantillonnage des lampes (RIS, 1 a 32) : 8 par defaut (l'image
+				/// d'avant) ; une scene aux centaines de lampes (la nuit) en demande plus
+				int32 risCandidats = 8;
 		};
 
 		struct NkTcStats {
@@ -143,6 +146,9 @@ namespace nkentseu {
 				int32 offObjet = 0;
 		};
 		bool NkTcEmpaqueter(NkTcPaquet &p);
+		/// (13/11/2026) un entier rendu AU BIT PRES dans un flottant du paquet (son motif binaire ; le nuanceur le relit par
+		/// floatBitsToInt) : les indices et decalages du paquet depassent 2^24 dans une grande scene
+		float32 NkTcBits(int32 v);
 		/// La fin commune (moyennes, exposition, image brute, debruiteur, image) depuis les sommes de la
 		/// carte graphique : `o4` = 4 sections de L x H vec4 (couleur, albedo, normale, (profondeur,
 		/// luminance au carre)), sommees sur `spp` echantillons.

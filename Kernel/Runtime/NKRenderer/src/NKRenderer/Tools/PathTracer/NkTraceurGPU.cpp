@@ -182,8 +182,9 @@ namespace nkentseu {
 			Pose(pr.zen, pq.zenith[0], pq.zenith[1], pq.zenith[2], pq.cielIntensite);
 			Pose(pr.hor, pq.horizon[0], pq.horizon[1], pq.horizon[2], (float32)pq.cielW);
 			Pose(pr.drap, r.sansSoleil ? 1.f : 0.f, r.sansCiel ? 1.f : 0.f, r.sansSources ? 1.f : 0.f, r.sansCartes ? 1.f : 0.f);
-			Pose(pr.off0, (float32)pq.offNoeuds, (float32)pq.offTris, (float32)pq.offSommets, (float32)pq.offMats);
-			Pose(pr.off1, (float32)pq.offSources, (float32)pq.nSources, pq.puissanceTotale, (float32)pq.offCiel);
+			// (13/11) les decalages AU BIT PRES (NkTcBits, relus par floatBitsToInt) : au-dela de 2^24 vec4, un flottant les arrondissait
+			Pose(pr.off0, NkTcBits(pq.offNoeuds), NkTcBits(pq.offTris), NkTcBits(pq.offSommets), NkTcBits(pq.offMats));
+			Pose(pr.off1, NkTcBits(pq.offSources), (float32)pq.nSources, pq.puissanceTotale, NkTcBits(pq.offCiel));
 			// cartes[12].w (libre) : (10/11) la regularisation contre les lucioles (NkTcReglages.regulariser) ;
 			// cartes[13].w : (10/11) le decalage du vernis et des paillettes (0 : aucun, ou `sansVernis`)
 			for (int32 c = 0; c < 16; ++c) {
@@ -191,13 +192,16 @@ namespace nkentseu {
 				if (c == 12 && r.regulariser)
 					w = 1.f;
 				if (c == 13 && !r.sansVernis)
-					w = (float32)pq.offVernis;
+					w = NkTcBits(pq.offVernis);
 				if (c == 14 && r.argile)
 					w = 1.f; // (10/11) cartes[14].w : le mode argile (0 dans les executables d'avant)
 				if (c == 15)
-					w = (float32)pq.offObjet; // (11/11) cartes[15].w : cartes d'objet, masque, feuille mince (0 : aucun)
+					w = NkTcBits(pq.offObjet); // (11/11) cartes[15].w : cartes d'objet, masque, feuille mince (0 : aucun)
 				// (13/11) cartes[10].w : le rayon de la lentille (m ; 0 : le stenope d'avant) ; cartes[11].w : la
 				// distance nette le long de l'axe (m) -- NkTcCamera.ouverture et miseAuPoint, comme Passe du processeur
+				// (13/11) cartes[6].w : les candidates de l'echantillonnage des lampes (0 : 8, l'image d'avant)
+				if (c == 6 && r.risCandidats != 8)
+					w = (float32)r.risCandidats;
 				if (c == 10 && cam.ouverture > 0.f)
 					w = (cam.focaleMM * 1e-3f) / (2.f * cam.ouverture);
 				if (c == 11 && cam.ouverture > 0.f)
@@ -208,7 +212,12 @@ namespace nkentseu {
 			// LES PASSES : 1 echantillon par pixel et par bande de 200 lignes par envoi (un envoi
 			// trop long declencherait la remise a zero du pilote, TDR ~2 s sous Windows)
 			const NkElapsedTime t1 = NkChrono::Now();
-			const int32 bande = 200;
+			// (13/11) LES ENVOIS SOUS 0,5 s (le 13/11 a 05 h, 20 reinitialisations du pilote nvlddmkm 153 : un envoi qui
+			// depasse ~2 s est tue par Windows, et l'image sort noire) : la bande part a 64 lignes, double tant que l'envoi
+			// reste sous 40 ms (200 au plus), se divise par deux des qu'il depasse 150 ms (8 au moins ; la nuit aux 579 lampes : 382 ms avec 60 et 250) ; l'envoi le plus
+			// long est ecrit dans le journal
+			int32 bande = 64, bandeMin = 64, bandeMax = 64;
+			float64 envoiMax = 0.0, envoiPremier = -1.0;
 			int32 fait = 0;
 			// (13/11) L'ECHANTILLONNAGE ADAPTATIF (NkTcReglages.adaptSeuil) : apres `adaptMin` passes, le plancher de
 			// luminance (une fraction de la moyenne de l'image) est pose, le nuanceur saute les pixels convergés ;
@@ -216,13 +225,33 @@ namespace nkentseu {
 			float32 plancher = 0.f;
 			NkVector<float32> s0, s3;
 			int32 actifsFin = -1;
+			// (13/11) un envoi d'ECHAUFFEMENT (une ligne, 0 echantillon : il n'ajoute que des zeros) : la mise en memoire des
+			// tampons se paie sur un envoi qui ne calcule rien, pas sur une vraie bande
+			{
+				const NkElapsedTime tw = NkChrono::Now();
+				Pose(pr.p0, 0.f, 0.f, (float32)r.rebonds, r.ecretage);
+				Pose(pr.p1, 0.f, 1.f, mutation ? 1.f : 0.f, r.unRebond ? 1.f : 0.f);
+				device->WriteBuffer(bUbo, &pr, sizeof(Params));
+				NkICommandBuffer *cmd = device->CreateCommandBuffer(NkCommandBufferType::NK_COMPUTE);
+				cmd->Begin();
+				cmd->BindComputePipeline(pipe);
+				cmd->BindDescriptorSet(set, 0);
+				cmd->Dispatch(((uint32)cam.L + 7u) / 8u, 1u, 1);
+				cmd->UAVBarrier(bSortie);
+				cmd->End();
+				device->Submit(&cmd, 1);
+				device->WaitIdle();
+				device->DestroyCommandBuffer(cmd);
+				NkPrintfSortie("[traceur-gpu] echauffement : %.1f ms\n", (NkChrono::Now() - tw).ToMilliseconds());
+			}
 			for (int32 s = 0; s < r.spp; ++s) {
 				if (r.adaptSeuil > 0.f && plancher > 0.f) {
 					pr.cartes[9][3] = r.adaptSeuil;
 					pr.cartes[8][3] = (float32)r.adaptMin;
 					pr.cartes[7][3] = plancher;
 				}
-				for (int32 y0 = 0; y0 < cam.H; y0 += bande) {
+				for (int32 y0 = 0; y0 < cam.H;) {
+					const NkElapsedTime te0 = NkChrono::Now();
 					Pose(pr.p0, 1.f, (float32)s, (float32)r.rebonds, r.ecretage);
 					Pose(pr.p1, (float32)y0, (float32)bande, mutation ? 1.f : 0.f, r.unRebond ? 1.f : 0.f);
 					device->WriteBuffer(bUbo, &pr, sizeof(Params));
@@ -236,6 +265,19 @@ namespace nkentseu {
 					device->Submit(&cmd, 1);
 					device->WaitIdle();
 					device->DestroyCommandBuffer(cmd);
+					y0 += bande;
+					const float64 dt = (NkChrono::Now() - te0).ToMilliseconds();
+					// le PREMIER envoi a part : il paie la mise en memoire des tampons (900 ms sur 305 Mo, mesure du 13/11)
+					if (envoiPremier < 0.0)
+						envoiPremier = dt;
+					else
+						envoiMax = dt > envoiMax ? dt : envoiMax;
+					if (dt > 150.0 && bande > 8)
+						bande = bande / 2 > 8 ? bande / 2 : 8;
+					else if (dt < 40.0 && bande < 200)
+						bande = bande * 2 < 200 ? bande * 2 : 200;
+					bandeMin = bande < bandeMin ? bande : bandeMin;
+					bandeMax = bande > bandeMax ? bande : bandeMax;
 				}
 				++fait;
 				if (r.secondesMax > 0.f && (NkChrono::Now() - t1).ToMilliseconds() > (float64)r.secondesMax * 1000.0)
@@ -286,6 +328,10 @@ namespace nkentseu {
 						   (float64)pq.cartes.Size() * 4.0 / 1048576.0, msRendu / 1000.0,
 						   msRendu > 0.0 ? (float64)n * (float64)fait / msRendu / 1000.0 : 0.0,
 						   mutation ? " -- MUTATION (rayons d'ombre coupes : pas d'ombre)" : "");
+			NkPrintfSortie("[traceur-gpu] ENVOI LE PLUS LONG : %.1f ms, le premier %.1f ms (bandes de %d a %d lignes ; borne visee "
+						   "500 ms, le pilote coupe vers 2 s)%s\n",
+						   envoiMax, envoiPremier, (int)bandeMin, (int)bandeMax,
+						   (envoiMax > 500.0 || envoiPremier > 500.0) ? " -- AU-DELA DE 500 ms" : "");
 			const bool ok = NkTcFinaliserSommes(cam, r, png, o4.Data(), fait, msRendu, 0, stats);
 			device->FreeDescriptorSet(set);
 			device->DestroyBuffer(bScene);

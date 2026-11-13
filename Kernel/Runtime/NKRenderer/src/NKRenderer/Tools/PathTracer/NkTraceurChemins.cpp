@@ -830,10 +830,11 @@ namespace nkentseu {
 				const NkScSource *SRC = g.s.sources.Data();
 				const float32 *CDF = g.cdfSources.Data();
 				if (!c.r->sansSources && ns > 0 && g.puissanceTotale > 0.f) {
-					// RIS : 8 candidates tirees selon la puissance
-					const int32 M = 8;
-					int32 cand[M];
-					float32 w[M], somme = 0.f;
+					// RIS : `risCandidats` candidates (8 par defaut ; (13/11) la nuit, des centaines de lampes : la plupart
+					// des tirages tombaient dans d'autres pieces) tirees selon la puissance
+					const int32 M = c.r->risCandidats < 1 ? 1 : (c.r->risCandidats > 32 ? 32 : c.r->risCandidats);
+					int32 cand[32];
+					float32 w[32], somme = 0.f;
 					for (int32 k = 0; k < M; ++k) {
 						const float32 u = r.F() * g.puissanceTotale;
 						usize lo = 0, hi = ns - 1;
@@ -1899,6 +1900,22 @@ namespace nkentseu {
 		// =====================================================================
 		//  POUR LA CARTE GRAPHIQUE : la scene preparee, a plat (NkTraceurGPU.cpp)
 		// =====================================================================
+		// (13/11/2026) UN ENTIER AU BIT PRES dans un vec4 de flottants : son motif binaire, relu par floatBitsToInt dans le
+		// nuanceur. Un flottant n'est exact que jusqu'a 2^24 : la maison de l'agent archviz (6,8 M triangles, 20 M
+		// sommets, scene de 1,17 Go = 77 M vec4, cartes de 266 Mo) depassait -- indices de sommets et decalages arrondis,
+		// cartes melangees au-dela de 162 matieres (l'endroit ou la table tombait sur un decalage non representable).
+		float32 NkTcBits(int32 v) {
+			// NK_TRACEUR_BITS_MUTATION=1 : la contre-epreuve du banc -- l'entier passe d'abord par un flottant, comme avant
+			// (arrondi au-dela de 2^24)
+			static const bool mutation = env::GetEnvVar("NK_TRACEUR_BITS_MUTATION") != nullptr;
+			union {
+					int32 i;
+					float32 f;
+			} u;
+			u.i = mutation ? (int32)(float32)v : v;
+			return u.f;
+		}
+
 		bool NkTcEmpaqueter(NkTcPaquet &p) {
 			Scene &g = G();
 			if (!g.prete)
@@ -1924,8 +1941,18 @@ namespace nkentseu {
 			p.offNoeuds = 0;
 			for (usize i = 0; i < g.noeuds.Size(); ++i) {
 				const Noeud &n = g.noeuds[i];
-				pousse(n.mn[0], n.mn[1], n.mn[2], (float32)n.g);
+				pousse(n.mn[0], n.mn[1], n.mn[2], NkTcBits(n.g)); // (13/11) au bit pres (NkTcBits)
 				pousse(n.mx[0], n.mx[1], n.mx[2], (float32)n.nb);
+			}
+			// (13/11) NK_TRACEUR_REMPLISSAGE=<n> : n vec4 vides avant les triangles -- le banc des grandes scenes : tous les
+			// decalages qui suivent depassent 2^24 sans fabriquer des millions de triangles
+			if (const char *rv = env::GetEnvVar("NK_TRACEUR_REMPLISSAGE")) {
+				int64 nr = 0;
+				for (const char *c = rv; *c >= '0' && *c <= '9'; ++c)
+					nr = nr * 10 + (int64)(*c - '0');
+				for (int64 k = 0; k < nr; ++k)
+					pousse(0.f, 0.f, 0.f, 0.f);
+				NkPrintfSortie("[traceur-gpu] REMPLISSAGE de banc : %lld vec4 avant les triangles\n", (long long)nr);
 			}
 			// triangles DANS L'ORDRE DES FEUILLES : (v0, mat), (e1, i0), (e2, i1), (i2, -, -, -)
 			aligner();
@@ -1933,9 +1960,9 @@ namespace nkentseu {
 			for (usize i = 0; i < g.ordre.Size(); ++i) {
 				const Tri &t = g.tris[g.ordre[i]];
 				pousse(t.v0.x, t.v0.y, t.v0.z, (float32)t.mat);
-				pousse(t.e1.x, t.e1.y, t.e1.z, (float32)t.i0);
-				pousse(t.e2.x, t.e2.y, t.e2.z, (float32)t.i1);
-				pousse((float32)t.i2, 0.f, 0.f, 0.f);
+				pousse(t.e1.x, t.e1.y, t.e1.z, NkTcBits((int32)t.i0)); // (13/11) au bit pres : 20 M sommets > 2^24
+				pousse(t.e2.x, t.e2.y, t.e2.z, NkTcBits((int32)t.i1));
+				pousse(NkTcBits((int32)t.i2), 0.f, 0.f, 0.f);
 			}
 			// sommets : (normale, u), (v, -, -, -)
 			aligner();
@@ -2043,7 +2070,7 @@ namespace nkentseu {
 				p.offObjet = (int32)(p.scene.Size() / 4);
 				const int32 nm = (int32)g.s.mats.Size(), nc = (int32)g.cobj.Size();
 				const int32 offDesc = (p.offObjet + 1 + nm + 3) / 4 * 4; // aligne (voir aligner)
-				pousse((float32)nm, (float32)nc, (float32)offDesc, 0.f);
+				pousse((float32)nm, (float32)nc, NkTcBits(offDesc), 0.f); // (13/11) offDesc au bit pres
 				for (int32 i = 0; i < nm; ++i) {
 					const NkScMateriau &m = g.s.mats[(usize)i];
 					const int32 ic = (usize)i < g.carteDe.Size() ? g.carteDe[(usize)i] : -1;
@@ -2067,7 +2094,7 @@ namespace nkentseu {
 					const CarteObjet &co = g.cobj[(usize)k];
 					// (13/11) .w > 0 : une PHOTO -- les UV divisees par .w (metres par repetition) et l'alpha de la
 					// couleur est la RUGOSITE, pas un masque ; 0 : la carte d'objet d'avant
-					pousse((float32)p.cartes.Size(), (float32)co.w, (float32)co.h, co.echelle);
+					pousse(NkTcBits((int32)p.cartes.Size()), (float32)co.w, (float32)co.h, co.echelle); // (13/11) au bit pres
 					const usize n = (usize)co.w * (usize)co.h;
 					for (usize i = 0; i < n; ++i)
 						p.cartes.PushBack((uint32)co.rgba[i * 4] | ((uint32)co.rgba[i * 4 + 1] << 8) |

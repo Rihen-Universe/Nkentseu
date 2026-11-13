@@ -392,6 +392,11 @@ namespace nkentseu {
 			return "fmod";
 		if (name == "inversesqrt")
 			return "rsqrt";
+		// (13/11/2026) les reinterpretations de bits (comme NkSLCodeGenHLSL)
+		if (name == "floatBitsToInt")
+			return "asint";
+		if (name == "intBitsToFloat" || name == "uintBitsToFloat")
+			return "asfloat";
 		if (name == "dFdx")
 			return "ddx";
 		if (name == "dFdy")

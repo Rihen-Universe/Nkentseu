@@ -439,6 +439,11 @@ namespace nkentseu {
 			return "fmod";
 		if (name == "inversesqrt")
 			return "rsqrt";
+		// (13/11/2026) les reinterpretations de bits (le traceur : indices au bit pres dans des flottants)
+		if (name == "floatBitsToInt")
+			return "asint";
+		if (name == "intBitsToFloat" || name == "uintBitsToFloat")
+			return "asfloat";
 		if (name == "dFdx")
 			return "ddx";
 		if (name == "dFdy")
