@@ -527,6 +527,12 @@ with workspace("Nkentseu", location="."):
     with includeprive("Kernel/AnimaAtelier/NKAnimaAtelier.jenga"):
         pass
 
+    # NKSplat (08/10/2026, PRIVE) : le rendu par projection de gaussiennes 3D (lieux
+    # reconstruits depuis des videos). Branche le 13/11/2026 pour son jalon J1 (le
+    # lecteur .ply) et son banc NKSplatBanc ; aucun projet public n en depend.
+    with includeprive("Kernel/Splat/NKSplat.jenga"):
+        pass
+
     # NKNavigation (NavMesh + pathfinding A*, sur NKCollision -- raycast reel
     # de sondage walkable). Voir Engine/Noge/ROADMAP.md, pilier Navigation IA.
     with include("Kernel/Runtime/NKNavigation/NKNavigation.jenga"):
