@@ -302,6 +302,45 @@ namespace nkentseu {
 				tEntree = tn;
 				return tf >= Max(tn, 0.f) && tn < tmax;
 			}
+			// (13/11/2026) LE MILIEU PARTICIPANT (la lumiere volumetrique : brouillard, rayons de soleil, poussiere) -- un
+			// milieu HOMOGENE dans une boite : coefficient d'extinction `sigma` (par metre), albedo de diffusion, phase de
+			// Henyey-Greenstein `g`. Pose pour un rendu (NkTcReglages.volDensite > 0), lu par Chemin et Transmission.
+			struct Milieu {
+					bool actif = false;
+					float32 sigma = 0.f, albedo = 0.9f, g = 0.3f;
+					V3 mn{0.f, 0.f, 0.f}, mx{0.f, 0.f, 0.f};
+			};
+			Milieu gMilieu;
+			// l'intervalle [t0, t1] du rayon dans la boite du milieu, borne a [0, tmax] ; faux s'il est vide
+			inline bool IntervalleMilieu(V3 o, V3 d, float32 tmax, float32 &t0, float32 &t1) {
+				const float32 ix = 1.f / (Abs(d.x) > 1e-12f ? d.x : 1e-12f), iy = 1.f / (Abs(d.y) > 1e-12f ? d.y : 1e-12f),
+							  iz = 1.f / (Abs(d.z) > 1e-12f ? d.z : 1e-12f);
+				float32 a = (gMilieu.mn.x - o.x) * ix, b = (gMilieu.mx.x - o.x) * ix;
+				float32 tn = Min(a, b), tf = Max(a, b);
+				a = (gMilieu.mn.y - o.y) * iy;
+				b = (gMilieu.mx.y - o.y) * iy;
+				tn = Max(tn, Min(a, b));
+				tf = Min(tf, Max(a, b));
+				a = (gMilieu.mn.z - o.z) * iz;
+				b = (gMilieu.mx.z - o.z) * iz;
+				tn = Max(tn, Min(a, b));
+				tf = Min(tf, Max(a, b));
+				t0 = Max(tn, 0.f);
+				t1 = Min(tf, tmax);
+				return t1 > t0;
+			}
+			// la transmittance du milieu le long d'un segment [0, tmax] (l'ombre a travers le brouillard)
+			inline float32 TrMilieu(V3 o, V3 d, float32 tmax) {
+				float32 t0, t1;
+				if (!gMilieu.actif || !IntervalleMilieu(o, d, tmax, t0, t1))
+					return 1.f;
+				return math::NkExp(-gMilieu.sigma * (t1 - t0));
+			}
+			// la phase de Henyey-Greenstein (par steradian) ; `c` : cosinus entre la propagation entrante et sortante
+			inline float32 PhaseHG(float32 c, float32 gg) {
+				const float32 den = 1.f + gg * gg - 2.f * gg * c;
+				return (1.f - gg * gg) / (4.f * kPi * den * Racine(Max(den, 1e-6f)));
+			}
 			inline bool MT(const Tri &t, V3 o, V3 d, float32 tmin, float32 tmax, float32 &tt, float32 &u, float32 &v) {
 				const V3 p = Cross(d, t.e2);
 				const float32 det = Dot(t.e1, p);
@@ -416,7 +455,36 @@ namespace nkentseu {
 			}
 			// Transmission le long d'un segment : 0 si un opaque le coupe ; le verre (mince)
 			// laisse passer (1 - F normal) x teinte.
+			V3 TransmissionSurfaces(const Scene &g, V3 o, V3 d, float32 tmax);
+			// (13/11) LES CONTRE-EPREUVES des bancs du milieu (processeur), lues une fois : NK_MILIEU_MUTATION=1 -> 1, les
+			// rayons d'ombre ignorent le milieu ; =phase -> 2, la phase est retournee (evaluee et tiree avec -g) ; =suite -> 3,
+			// le chemin s'arrete a la premiere diffusion (diffusion simple seulement). Sans la variable : 0.
+			int32 MutationMilieu() {
+				static const int32 m = [] {
+					const char *v = env::GetEnvVar("NK_MILIEU_MUTATION");
+					if (!v)
+						return 0;
+					if (v[0] == 'p')
+						return 2;
+					if (v[0] == 's')
+						return 3;
+					return 1;
+				}();
+				return m;
+			}
+			// le parametre g de la phase, tel que le chemin l'emploie (retourne par la contre-epreuve « phase »)
+			float32 GMilieu() {
+				return MutationMilieu() == 2 ? -gMilieu.g : gMilieu.g;
+			}
+			// (13/11) la transmission d'un rayon d'ombre : les surfaces (vitres, feuilles) x le milieu participant
 			V3 Transmission(const Scene &g, V3 o, V3 d, float32 tmax) {
+				const V3 ts = TransmissionSurfaces(g, o, d, tmax);
+				const bool mutation = MutationMilieu() == 1;
+				if (!gMilieu.actif || mutation || (ts.x <= 0.f && ts.y <= 0.f && ts.z <= 0.f))
+					return ts;
+				return ts * TrMilieu(o, d, tmax);
+			}
+			V3 TransmissionSurfaces(const Scene &g, V3 o, V3 d, float32 tmax) {
 				V3 tr{1.f, 1.f, 1.f};
 				const V3 inv = Inv(d);
 				const Noeud *NO = g.noeuds.Data();
@@ -904,6 +972,64 @@ namespace nkentseu {
 			}
 
 			// UN chemin ; aov : albedo et normale du premier impact diffus, profondeur
+			// (13/11) la LUMIERE DIRECTE en un point du milieu : le soleil (phase x eclairement x transmission, la boite
+			// comprise) et une source tiree selon la puissance (intensite / d^2 x phase x transmission / probabilite)
+			V3 DirecteMilieu(const Scene &g, Ctx &c, V3 p, V3 d, Rng &r) {
+				V3 L{0.f, 0.f, 0.f};
+				if (!c.r->sansSoleil && Lum(c.soleilE) > 0.f) {
+					++c.rayons;
+					const V3 tr = Transmission(g, p, c.soleil, 1e6f);
+					L = L + Mul(c.soleilE, tr) * PhaseHG(Dot(d, c.soleil), GMilieu());
+				}
+				const usize ns = g.s.sources.Size();
+				if (!c.r->sansSources && ns > 0 && g.puissanceTotale > 0.f) {
+					const float32 u = r.F() * g.puissanceTotale;
+					const float32 *CDF = g.cdfSources.Data();
+					usize lo = 0, hi = ns - 1;
+					while (lo < hi) {
+						const usize mi = (lo + hi) / 2;
+						if (CDF[mi] < u)
+							lo = mi + 1;
+						else
+							hi = mi;
+					}
+					const NkScSource &q = g.s.sources.Data()[lo];
+					const float32 pr = q.puissance / g.puissanceTotale;
+					const V3 dv = Mk(q.p[0], q.p[1], q.p[2]) - p;
+					const float32 d2 = Max(Dot(dv, dv), q.rayon * q.rayon + 1e-4f);
+					const float32 dl = Racine(d2);
+					const V3 wi = dv * (1.f / dl);
+					float32 I = q.intensite;
+					if (q.type == 1) {
+						const float32 ca = -Dot(wi, Mk(q.dir[0], q.dir[1], q.dir[2]));
+						I *= Max(0.f, Min(1.f, (ca - q.cosExt) / Max(1e-3f, (1.f - q.cosExt) * 0.15f)));
+					}
+					if (I > 0.f && pr > 0.f) {
+						++c.rayons;
+						const V3 tr = Transmission(g, p, wi, dl - 2e-3f);
+						L = L + Mul(Mk(q.couleur[0], q.couleur[1], q.couleur[2]), tr) * (I / d2 * PhaseHG(Dot(d, wi), GMilieu()) / pr);
+					}
+				}
+				return L;
+			}
+			// une direction tiree selon la phase de Henyey-Greenstein autour de la propagation `d`
+			V3 TirerHG(V3 d, float32 gg, Rng &r) {
+				const float32 u1 = r.F(), u2 = r.F();
+				float32 ct;
+				if (Abs(gg) < 1e-3f)
+					ct = 1.f - 2.f * u1;
+				else {
+					const float32 s = (1.f - gg * gg) / (1.f - gg + 2.f * gg * u1);
+					ct = (1.f + gg * gg - s * s) / (2.f * gg);
+				}
+				ct = Max(-1.f, Min(1.f, ct));
+				const float32 st = Racine(Max(0.f, 1.f - ct * ct)), ph = 2.f * kPi * u2;
+				const V3 a = Abs(d.x) > 0.9f ? Mk(0.f, 1.f, 0.f) : Mk(1.f, 0.f, 0.f);
+				const V3 t = Norm(Cross(a, d));
+				const V3 b = Cross(d, t);
+				return Norm(t * (st * math::NkCos(ph)) + b * (st * math::NkSin(ph)) + d * ct);
+			}
+
 			// (13/11) `aDir` : la part DIRECTE du chemin (tout ce qui est compte jusqu'a la lumiere directe du premier
 			// impact non speculaire compris : emission vue, ciel vu par une vitre, soleil et sources sur ce point) ; le
 			// reste est l'INDIRECT -- le debruiteur les filtre a part (Debruiter2). Le meme partage que le nuanceur.
@@ -914,7 +1040,44 @@ namespace nkentseu {
 				for (int32 rebond = 0; rebond <= maxRebonds; ++rebond) {
 					Impact h;
 					++c.rayons;
-					if (!Tracer(g, o, d, 1e6f, h)) {
+					const bool touche = Tracer(g, o, d, 1e6f, h);
+					// (13/11) LE MILIEU PARTICIPANT : un vol libre tire dans la boite (-ln(u) / sigma) ; s'il finit avant la
+					// surface (ou le ciel), le chemin DIFFUSE dans le milieu : poids x albedo, lumiere directe au point,
+					// nouvelle direction selon la phase. Sinon il passe (la transmittance est la probabilite du passage).
+					if (gMilieu.actif && !c.sonde) {
+						float32 t0, t1;
+						if (IntervalleMilieu(o, d, touche ? h.t : 1e30f, t0, t1)) {
+							const float32 ts = t0 - (float32)math::NkLog((float64)Max(1e-7f, 1.f - r.F())) / gMilieu.sigma;
+							if (ts < t1) {
+								const V3 p = o + d * ts;
+								beta = beta * gMilieu.albedo;
+								if (!aov) {
+									aAlb = V3{1.f, 1.f, 1.f};
+									aNrm = d * -1.f;
+									aZ = ts;
+									aov = true;
+								}
+								if (aDir && !dirPris) {
+									*aDir = L; // la lumiere du milieu va a l'indirect (douce, filtree large)
+									dirPris = true;
+								}
+								L = L + Mul(beta, DirecteMilieu(g, c, p, d, r));
+								if (rebond == maxRebonds || MutationMilieu() == 3)
+									break;
+								d = TirerHG(d, GMilieu(), r);
+								o = p;
+								speculaire = false;
+								if (rebond >= 3) {
+									const float32 q = Min(0.95f, Max(beta.x, Max(beta.y, beta.z)));
+									if (r.F() > q)
+										break;
+									beta = beta * (1.f / q);
+								}
+								continue;
+							}
+						}
+					}
+					if (!touche) {
 						if (!c.r->sansCiel)
 							L = L + Mul(beta, Ciel(g, d));
 						// une sonde ne voit JAMAIS le disque solaire, meme par une vitre : le temps reel
@@ -1668,10 +1831,198 @@ namespace nkentseu {
 		static bool Finaliser(const NkTcCamera &cam, const NkTcReglages &r, const char *png, const Tampons &tb, float64 msRendu,
 							  uint64 rayons, const char *materiel, NkTcStats *stats);
 
+		// (13/11) le milieu participant d'un rendu (NkTcReglages.vol*) : la boite donnee, ou celle de la scene
+		void NkTcPoserMilieu(const NkTcReglages &r) {
+			Scene &g = G();
+			gMilieu = Milieu();
+			if (r.volDensite <= 0.f)
+				return;
+			gMilieu.actif = true;
+			gMilieu.sigma = r.volDensite;
+			gMilieu.albedo = Max(0.f, Min(1.f, r.volAlbedo));
+			gMilieu.g = Max(-0.95f, Min(0.95f, r.volG));
+			if (r.volBoiteDonnee) {
+				gMilieu.mn = Mk(r.volBoite[0], r.volBoite[1], r.volBoite[2]);
+				gMilieu.mx = Mk(r.volBoite[3], r.volBoite[4], r.volBoite[5]);
+			} else {
+				gMilieu.mn = Mk(g.s.mn[0], g.s.mn[1], g.s.mn[2]);
+				gMilieu.mx = Mk(g.s.mx[0], g.s.mx[1], g.s.mx[2]);
+			}
+			NkPrintfSortie("[traceur] MILIEU : extinction %.4f /m, albedo %.2f, phase g %.2f, boite %.2f %.2f %.2f -> %.2f %.2f %.2f\n",
+						   (double)gMilieu.sigma, (double)gMilieu.albedo, (double)gMilieu.g, (double)gMilieu.mn.x, (double)gMilieu.mn.y,
+						   (double)gMilieu.mn.z, (double)gMilieu.mx.x, (double)gMilieu.mx.y, (double)gMilieu.mx.z);
+		}
+		bool NkTcMilieuBoite(float32 *mn3, float32 *mx3, float32 *sag3) {
+			if (!gMilieu.actif)
+				return false;
+			mn3[0] = gMilieu.mn.x;
+			mn3[1] = gMilieu.mn.y;
+			mn3[2] = gMilieu.mn.z;
+			mx3[0] = gMilieu.mx.x;
+			mx3[1] = gMilieu.mx.y;
+			mx3[2] = gMilieu.mx.z;
+			sag3[0] = gMilieu.sigma;
+			sag3[1] = gMilieu.albedo;
+			sag3[2] = gMilieu.g;
+			return true;
+		}
+
+		// (13/11) LE BANC DU MILIEU PARTICIPANT (processeur), contre des valeurs EXACTES -- NK_REALISTE=banc_milieu.
+		// Le banc d'absorption de NKCraft (vol_abs_*) mesure la transmittance ; celui-ci mesure la lumiere DIFFUSEE :
+		//   1. le four blanc : ciel uniforme de radiance 1, milieu d'albedo 1 (boite de +-3 m, extinction 0,5 /m) -- chaque
+		//      chemin vaut 1 en moyenne : le milieu ne cree ni ne perd d'energie (vol libre, phase tiree, poursuite) ;
+		//   2. la diffusion SIMPLE (rebonds = 0), soleil vertical E = 1, boite de +-3 m en x et z, +-1 m en y, regard
+		//      horizontal : L = a E p(0) exp(-sigma) (1 - exp(-3 sigma)) -- la probabilite du vol libre et la transmittance
+		//      vers le soleil ;
+		//   3. le soleil a 45 deg, boite immense en x et z : face au soleil L = a E p(+0,7071) exp(-sigma V2), dos au soleil
+		//      p(-0,7071) -- le SENS de la phase de Henyey-Greenstein ;
+		//   4. la phase tiree : la moyenne de cos(theta) vaut g.
+		// Contre-epreuves : NK_MILIEU_MUTATION=1 (ombres sans milieu) rougit 2 et 3 ; =phase rougit 3 et 4 ; =suite rougit 1.
+		int32 NkTcBancMilieu() {
+			int32 echecs = 0;
+			auto verdict = [&](bool ok, const char *quoi, float64 mesure, float64 attendu) {
+				NkPrintfSortie("[milieu-banc] %-52s mesure %.5f attendu %.5f (ecart %+.2f %%) : %s\n", quoi, mesure, attendu,
+							   attendu != 0.0 ? (mesure / attendu - 1.0) * 100.0 : 0.0, ok ? "VERT" : "ROUGE");
+				if (!ok)
+					++echecs;
+			};
+			auto relatif = [](float64 m, float64 a) -> float64 {
+				const float64 e = m / a - 1.0;
+				return e < 0.0 ? -e : e;
+			};
+			// une scene sans surface utile (un grain tres loin : le traceur veut un triangle), un ciel uniforme, un soleil
+			auto preparer = [&](float32 ciel, V3 sol, float32 E) -> bool {
+				NkScArchviz s;
+				const float32 pts[12] = {5000.f, 5000.f, 5000.f, 5000.01f, 5000.f, 5000.f, 5000.f, 5000.f, 5000.01f, 5000.01f, 5000.f, 5000.01f};
+				for (int32 i = 0; i < 4; ++i) {
+					for (int32 a = 0; a < 3; ++a) {
+						s.P.PushBack(pts[i * 3 + a]);
+						s.N.PushBack(a == 1 ? 1.f : 0.f);
+					}
+					s.UV.PushBack(0.f);
+					s.UV.PushBack(0.f);
+				}
+				NkScMateriau m;
+				m.couleur[0] = m.couleur[1] = m.couleur[2] = 0.5f;
+				m.rugosite = 1.f;
+				s.mats.PushBack(m);
+				const uint32 q[6] = {0, 1, 2, 0, 2, 3};
+				for (int32 i = 0; i < 6; ++i)
+					s.tri.PushBack(q[i]);
+				s.triMat.PushBack(0);
+				s.triMat.PushBack(0);
+				s.soleilE = E;
+				s.soleilDir[0] = sol.x;
+				s.soleilDir[1] = sol.y;
+				s.soleilDir[2] = sol.z;
+				for (int32 a = 0; a < 3; ++a) {
+					s.soleilCouleur[a] = 1.f;
+					s.cielZenith[a] = 1.f;
+					s.cielHorizon[a] = 1.f;
+					s.mn[a] = -50.f;
+					s.mx[a] = 50.f;
+				}
+				s.cielIntensite = ciel;
+				return NkTcPreparer(s, nullptr, nullptr);
+			};
+			// la radiance moyenne (sur les trois canaux) de n chemins partis de l'origine dans la direction d
+			auto mesurer = [&](const NkTcReglages &r, V3 d, int32 n, uint64 graine) -> float64 {
+				Scene &g = G();
+				Ctx c;
+				c.r = &r;
+				c.soleil = Norm(Mk(g.s.soleilDir[0], g.s.soleilDir[1], g.s.soleilDir[2]));
+				c.soleilE = Mk(g.s.soleilCouleur[0], g.s.soleilCouleur[1], g.s.soleilCouleur[2]) * g.s.soleilE;
+				c.cosSoleil = 0.99998918f;
+				c.rayons = 0;
+				c.nonFinis = 0;
+				float64 somme = 0.0;
+				for (int32 i = 0; i < n; ++i) {
+					Rng rng{Melange(graine ^ ((uint64)(uint32)i * 0x9E3779B97F4A7C15ULL) ^ 0x3E1E3E1EULL)};
+					V3 a{1.f, 1.f, 1.f}, nn{0.f, 1.f, 0.f};
+					float32 zz = 1e4f;
+					const V3 L = Chemin(g, c, Mk(0.f, 0.f, 0.f), Norm(d), rng, a, nn, zz);
+					somme += ((float64)L.x + (float64)L.y + (float64)L.z) / 3.0;
+				}
+				return somme / (float64)n;
+			};
+			auto phase = [](float64 cth, float64 gg) -> float64 {
+				const float64 den = 1.0 + gg * gg - 2.0 * gg * cth;
+				return (1.0 - gg * gg) / (4.0 * 3.14159265358979 * den * math::NkSqrt(den));
+			};
+			NkTcReglages r;
+			r.regulariser = false;
+			r.volBoiteDonnee = true;
+			const V3 dirs[6] = {Mk(1.f, 0.f, 0.f), Mk(-1.f, 0.f, 0.f), Mk(0.f, 0.f, 1.f), Mk(0.f, 0.f, -1.f), Mk(0.6f, 0.48f, 0.64f), Mk(-0.3f, -0.9f, 0.3f)};
+			// 1. le four blanc
+			if (preparer(1.f, Mk(0.f, 1.f, 0.f), 0.f)) {
+				r.rebonds = 64;
+				r.volDensite = 0.5f;
+				r.volAlbedo = 1.f;
+				r.volG = 0.6f;
+				const float32 b[6] = {-3.f, -3.f, -3.f, 3.f, 3.f, 3.f};
+				for (int32 k = 0; k < 6; ++k)
+					r.volBoite[k] = b[k];
+				NkTcPoserMilieu(r);
+				float64 m = 0.0;
+				for (int32 k = 0; k < 6; ++k)
+					m += mesurer(r, dirs[k], 20000, 101u + (uint64)k) / 6.0;
+				verdict(relatif(m, 1.0) < 0.01, "four blanc (albedo 1) : radiance moyenne", m, 1.0);
+			} else
+				verdict(false, "four blanc : preparation", 0.0, 1.0);
+			// 2. la diffusion simple, soleil vertical, regard horizontal : 3 m de milieu devant, 1 m au-dessus
+			const float64 sig = 0.3, alb = 0.8, gg = 0.6;
+			if (preparer(0.f, Mk(0.f, 1.f, 0.f), 1.f)) {
+				r.rebonds = 0;
+				r.volDensite = (float32)sig;
+				r.volAlbedo = (float32)alb;
+				r.volG = (float32)gg;
+				const float32 b[6] = {-3.f, -1.f, -3.f, 3.f, 1.f, 3.f};
+				for (int32 k = 0; k < 6; ++k)
+					r.volBoite[k] = b[k];
+				NkTcPoserMilieu(r);
+				float64 m = 0.0;
+				for (int32 k = 0; k < 4; ++k)
+					m += mesurer(r, dirs[k], 40000, 201u + (uint64)k) / 4.0;
+				const float64 att = alb * phase(0.0, gg) * math::NkExp(-sig) * (1.0 - math::NkExp(-3.0 * sig));
+				verdict(relatif(m, att) < 0.015, "diffusion simple, soleil vertical (vol libre, ombre)", m, att);
+			} else
+				verdict(false, "diffusion simple : preparation", 0.0, 1.0);
+			// 3. le soleil a 45 deg : face et dos
+			if (preparer(0.f, Norm(Mk(1.f, 1.f, 0.f)), 1.f)) {
+				r.rebonds = 0;
+				const float32 b[6] = {-1000.f, -1.f, -1000.f, 1000.f, 1.f, 1000.f};
+				for (int32 k = 0; k < 6; ++k)
+					r.volBoite[k] = b[k];
+				NkTcPoserMilieu(r);
+				const float64 tr = math::NkExp(-sig * 1.41421356237);
+				const float64 mf = mesurer(r, Mk(1.f, 0.f, 0.f), 20000, 301u);
+				const float64 mb = mesurer(r, Mk(-1.f, 0.f, 0.f), 20000, 302u);
+				const float64 af = alb * phase(0.70710678, gg) * tr, ab = alb * phase(-0.70710678, gg) * tr;
+				verdict(relatif(mf, af) < 0.01, "soleil a 45 deg, face au soleil (phase avant)", mf, af);
+				verdict(relatif(mb, ab) < 0.01, "soleil a 45 deg, dos au soleil (phase arriere)", mb, ab);
+			} else
+				verdict(false, "soleil a 45 deg : preparation", 0.0, 1.0);
+			// 4. la phase tiree : E[cos theta] = g (Henyey-Greenstein)
+			{
+				gMilieu.g = (float32)gg;
+				Rng rng{Melange(401u)};
+				const V3 d = Mk(0.f, 0.f, 1.f);
+				float64 s = 0.0;
+				const int32 n = 200000;
+				for (int32 i = 0; i < n; ++i)
+					s += (float64)Dot(TirerHG(d, GMilieu(), rng), d);
+				s /= (float64)n;
+				verdict((s - gg < 0.0 ? gg - s : s - gg) < 0.005, "phase tiree : moyenne de cos(theta) = g", s, gg);
+			}
+			gMilieu = Milieu();
+			return echecs;
+		}
+
 		bool NkTcRendre(const NkTcCamera &cam, const NkTcReglages &r, const char *png, NkTcStats *stats) {
 			Scene &g = G();
 			if (!g.prete)
 				return false;
+			NkTcPoserMilieu(r);
 			Tampons tb;
 			InitTampons(tb, cam.L, cam.H);
 			const NkElapsedTime t0 = NkChrono::Now();
@@ -1707,7 +2058,9 @@ namespace nkentseu {
 				}
 			}
 			const float64 msRendu = (NkChrono::Now() - t0).ToMilliseconds();
-			return Finaliser(cam, r, png, tb, msRendu, rayons, "processeur", stats);
+			const bool ok = Finaliser(cam, r, png, tb, msRendu, rayons, "processeur", stats);
+			gMilieu = Milieu(); // (13/11) le milieu ne survit pas au rendu (les sondes, le rendu suivant)
+			return ok;
 		}
 
 		// LA FIN COMMUNE au processeur et a la carte graphique : moyennes, exposition, image brute,

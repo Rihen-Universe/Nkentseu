@@ -159,7 +159,7 @@ bool Tracer(vec3 o, vec3 d, float tmax, out float th, out int tri, out float b1,
     }
     return tri >= 0;
 }
-vec3 Transmission(vec3 o, vec3 d, float tmax) {
+vec3 TransmissionSurfaces(vec3 o, vec3 d, float tmax) {
     vec3 tr = vec3(1.0, 1.0, 1.0);
     vec3 inv = Inverse(d);
     int pile[64];
@@ -198,6 +198,38 @@ vec3 Transmission(vec3 o, vec3 d, float tmax) {
         }
     }
     return tr;
+}
+// (13/11) LE MILIEU PARTICIPANT (cartes[5].w = decalage au bit pres de trois vec4 : (extinction, albedo, phase g, -),
+// (boite min, -), (boite max, -) ; 0 : aucun) -- comme Milieu, IntervalleMilieu, TrMilieu de NkTraceurChemins.cpp
+bool IntervalleMilieu(vec3 o, vec3 d, float tmax, int offM, out float t0, out float t1) {
+    vec3 mn = S.d[offM + 1].xyz;
+    vec3 mx = S.d[offM + 2].xyz;
+    vec3 iv = vec3(1.0 / (abs(d.x) > 1e-12 ? d.x : 1e-12), 1.0 / (abs(d.y) > 1e-12 ? d.y : 1e-12), 1.0 / (abs(d.z) > 1e-12 ? d.z : 1e-12));
+    vec3 a = (mn - o) * iv;
+    vec3 b = (mx - o) * iv;
+    vec3 lo = min(a, b);
+    vec3 hi = max(a, b);
+    t0 = max(max(lo.x, max(lo.y, lo.z)), 0.0);
+    t1 = min(min(hi.x, min(hi.y, hi.z)), tmax);
+    return t1 > t0;
+}
+float TrMilieu(vec3 o, vec3 d, float tmax) {
+    int offM = floatBitsToInt(P.cartes[5].w);
+    if (offM <= 0) return 1.0;
+    float t0;
+    float t1;
+    if (!IntervalleMilieu(o, d, tmax, offM, t0, t1)) return 1.0;
+    return exp(-S.d[offM].x * (t1 - t0));
+}
+float PhaseHG(float c, float g) {
+    float den = 1.0 + g * g - 2.0 * g * c;
+    return (1.0 - g * g) / (12.5663706 * den * sqrt(max(den, 1e-6)));
+}
+// la transmission d'un rayon d'ombre : les surfaces x le milieu
+vec3 Transmission(vec3 o, vec3 d, float tmax) {
+    vec3 ts = TransmissionSurfaces(o, d, tmax);
+    if (ts.x <= 0.0 && ts.y <= 0.0 && ts.z <= 0.0) return ts;
+    return ts * TrMilieu(o, d, tmax);
 }
 float Lin(uint c) {
     float x = float(c) / 255.0;
@@ -602,6 +634,59 @@ vec3 Directe(vec3 p, vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo) 
     }
     return L;
 }
+// (13/11) la lumiere directe en un point du milieu : le soleil et une source tiree selon la puissance -- comme
+// DirecteMilieu de NkTraceurChemins.cpp
+vec3 DirecteMilieu(vec3 p, vec3 d, float g) {
+    vec3 L = vec3(0.0, 0.0, 0.0);
+    if (P.drap.x < 0.5 && LumC(P.solE.xyz) > 0.0) {
+        vec3 tr = Transmission(p, P.sol.xyz, 1e6);
+        L = L + P.solE.xyz * tr * PhaseHG(dot(d, P.sol.xyz), g);
+    }
+    int ns2 = int(P.off1.y);
+    float ptot = P.off1.z;
+    if (P.drap.z < 0.5 && ns2 > 0 && ptot > 0.0) {
+        int bsrc = floatBitsToInt(P.off1.x);
+        float u = Rnd() * ptot;
+        int lo = 0;
+        int hi = ns2 - 1;
+        while (lo < hi) {
+            int mi = (lo + hi) / 2;
+            if (S.d[bsrc + 4 * mi + 3].z < u) lo = mi + 1; else hi = mi;
+        }
+        vec4 s0 = S.d[bsrc + 4 * lo];
+        vec4 s1 = S.d[bsrc + 4 * lo + 1];
+        vec4 s2 = S.d[bsrc + 4 * lo + 2];
+        vec4 s3 = S.d[bsrc + 4 * lo + 3];
+        float pr = s3.y / ptot;
+        vec3 dv = s0.xyz - p;
+        float d2 = max(dot(dv, dv), s3.x * s3.x + 1e-4);
+        float dl = sqrt(d2);
+        vec3 wi = dv / dl;
+        float I = s2.w;
+        if (s0.w > 0.5) I = I * FacteurSpot(s1, wi);
+        if (I > 0.0 && pr > 0.0) {
+            vec3 tr = Transmission(p, wi, dl - 2e-3);
+            L = L + s2.xyz * tr * (I / d2 * PhaseHG(dot(d, wi), g) / pr);
+        }
+    }
+    return L;
+}
+vec3 TirerHG(vec3 d, float g) {
+    float u1 = Rnd();
+    float u2 = Rnd();
+    float ct = 1.0 - 2.0 * u1;
+    if (abs(g) >= 1e-3) {
+        float s = (1.0 - g * g) / (1.0 - g + 2.0 * g * u1);
+        ct = (1.0 + g * g - s * s) / (2.0 * g);
+    }
+    ct = clamp(ct, -1.0, 1.0);
+    float st = sqrt(max(0.0, 1.0 - ct * ct));
+    float ph = 6.28318531 * u2;
+    vec3 a = abs(d.x) > 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    vec3 t = normalize(cross(a, d));
+    vec3 b = cross(d, t);
+    return normalize(t * (st * cos(ph)) + b * (st * sin(ph)) + d * ct);
+}
 // (13/11) `aDir` : la part DIRECTE (tout jusqu'a la lumiere directe du premier impact non speculaire compris) ; le
 // reste est l'INDIRECT -- comme Chemin de NkTraceurChemins.cpp
 vec3 Chemin(vec3 o, vec3 d, out vec3 aAlb, out vec3 aNrm, out float aZ, out vec3 aDir) {
@@ -621,7 +706,44 @@ vec3 Chemin(vec3 o, vec3 d, out vec3 aAlb, out vec3 aNrm, out float aZ, out vec3
         int tri;
         float b1;
         float b2;
-        if (!Tracer(o, d, 1e6, th, tri, b1, b2)) {
+        bool touche = Tracer(o, d, 1e6, th, tri, b1, b2);
+        // (13/11) LE MILIEU PARTICIPANT : vol libre dans la boite ; avant la surface (ou le ciel), le chemin diffuse --
+        // comme Chemin de NkTraceurChemins.cpp
+        int offM = floatBitsToInt(P.cartes[5].w);
+        if (offM > 0) {
+            float mt0;
+            float mt1;
+            if (IntervalleMilieu(o, d, touche ? th : 1e30, offM, mt0, mt1)) {
+                vec4 mc = S.d[offM];
+                float ts = mt0 - log(max(1e-7, 1.0 - Rnd())) / mc.x;
+                if (ts < mt1) {
+                    vec3 pm = o + d * ts;
+                    beta = beta * mc.y;
+                    if (!aov) {
+                        aAlb = vec3(1.0, 1.0, 1.0);
+                        aNrm = -d;
+                        aZ = ts;
+                        aov = true;
+                    }
+                    if (!dirPris) {
+                        aDir = L;
+                        dirPris = true;
+                    }
+                    L = L + beta * DirecteMilieu(pm, d, mc.z);
+                    if (rebond == maxR) break;
+                    d = TirerHG(d, mc.z);
+                    o = pm;
+                    spec = false;
+                    if (rebond >= 3) {
+                        float qm = min(0.95, max(beta.x, max(beta.y, beta.z)));
+                        if (Rnd() > qm) break;
+                        beta = beta / qm;
+                    }
+                    continue;
+                }
+            }
+        }
+        if (!touche) {
             if (P.drap.y < 0.5) L = L + beta * Ciel(d);
             if (spec && P.drap.x < 0.5 && dot(d, P.sol.xyz) >= P.sol.w) L = L + beta * P.solE.xyz * coneSol;
             break;

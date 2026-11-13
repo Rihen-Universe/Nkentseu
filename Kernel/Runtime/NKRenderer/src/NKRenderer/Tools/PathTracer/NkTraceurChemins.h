@@ -104,6 +104,15 @@ namespace nkentseu {
 				/// (13/11/2026) LES CANDIDATES de l'echantillonnage des lampes (RIS, 1 a 32) : 8 par defaut (l'image
 				/// d'avant) ; une scene aux centaines de lampes (la nuit) en demande plus
 				int32 risCandidats = 8;
+				/// (13/11/2026) LA LUMIERE VOLUMETRIQUE : un milieu homogene (brouillard, poussiere) dans une boite --
+				/// extinction `volDensite` par metre (0 : aucun, l'image d'avant), albedo de diffusion, phase de
+				/// Henyey-Greenstein `volG` (> 0 : vers l'avant, les rayons de soleil) ; la boite `volBoite` (min xyz, max
+				/// xyz) si `volBoiteDonnee`, sinon celle de la scene
+				float32 volDensite = 0.f;
+				float32 volAlbedo = 0.9f;
+				float32 volG = 0.3f;
+				float32 volBoite[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+				bool volBoiteDonnee = false;
 		};
 
 		struct NkTcStats {
@@ -149,6 +158,13 @@ namespace nkentseu {
 		/// (13/11/2026) un entier rendu AU BIT PRES dans un flottant du paquet (son motif binaire ; le nuanceur le relit par
 		/// floatBitsToInt) : les indices et decalages du paquet depassent 2^24 dans une grande scene
 		float32 NkTcBits(int32 v);
+		/// (13/11/2026) le milieu participant du rendu qui commence (NkTcReglages.vol*) ; et sa boite / ses coefficients
+		/// (extinction, albedo, phase) pour la carte graphique -- faux sans milieu
+		void NkTcPoserMilieu(const NkTcReglages &r);
+		bool NkTcMilieuBoite(float32 *mn3, float32 *mx3, float32 *sag3);
+		/// (13/11) le banc du milieu participant (processeur) contre des valeurs exactes : four blanc, diffusion simple,
+		/// sens de la phase, phase tiree ; renvoie le nombre d'echecs (NK_REALISTE=banc_milieu dans NKCraft)
+		int32 NkTcBancMilieu();
 		/// La fin commune (moyennes, exposition, image brute, debruiteur, image) depuis les sommes de la
 		/// carte graphique : `o4` = 4 sections de L x H vec4 (couleur, albedo, normale, (profondeur,
 		/// luminance au carre)), sommees sur `spp` echantillons.

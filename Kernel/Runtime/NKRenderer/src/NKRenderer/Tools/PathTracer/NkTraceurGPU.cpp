@@ -103,6 +103,21 @@ namespace nkentseu {
 				NkPrintfSortie("[traceur-gpu] scene non preparee\n");
 				return false;
 			}
+			// (13/11) LE MILIEU PARTICIPANT (NkTcReglages.vol*) : trois vec4 a la suite de la scene -- (extinction,
+			// albedo, phase, -), (boite min, -), (boite max, -) -- lus par cartes[5].w (0 : aucun, l'image d'avant)
+			int32 offMilieu = 0;
+			{
+				NkTcPoserMilieu(r);
+				float32 mn[3], mx[3], sag[3];
+				if (NkTcMilieuBoite(mn, mx, sag)) {
+					while (pq.scene.Size() % 16u != 0u)
+						pq.scene.PushBack(0.f);
+					offMilieu = (int32)(pq.scene.Size() / 4u);
+					const float32 v[12] = {sag[0], sag[1], sag[2], 0.f, mn[0], mn[1], mn[2], 0.f, mx[0], mx[1], mx[2], 0.f};
+					for (int32 k = 0; k < 12; ++k)
+						pq.scene.PushBack(v[k]);
+				}
+			}
 			::nkentseu::NkShaderHandle sh = Compiler(device);
 			if (!sh.IsValid()) {
 				NkPrintfSortie("[traceur-gpu] nuanceur refuse\n");
@@ -200,6 +215,8 @@ namespace nkentseu {
 				// (13/11) cartes[10].w : le rayon de la lentille (m ; 0 : le stenope d'avant) ; cartes[11].w : la
 				// distance nette le long de l'axe (m) -- NkTcCamera.ouverture et miseAuPoint, comme Passe du processeur
 				// (13/11) cartes[6].w : les candidates de l'echantillonnage des lampes (0 : 8, l'image d'avant)
+				if (c == 5 && offMilieu > 0) // (13/11) cartes[5].w : le milieu participant (au bit pres)
+					w = NkTcBits(offMilieu);
 				if (c == 6 && r.risCandidats != 8)
 					w = (float32)r.risCandidats;
 				if (c == 10 && cam.ouverture > 0.f)
@@ -340,6 +357,7 @@ namespace nkentseu {
 			device->DestroyBuffer(bUbo);
 			device->DestroyPipeline(pipe);
 			device->DestroyShader(sh);
+			NkTcPoserMilieu(NkTcReglages{}); // (13/11) le milieu ne survit pas au rendu
 			return ok;
 		}
 
