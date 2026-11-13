@@ -35,6 +35,7 @@
 
 #include "NKCore/NkTypes.h"
 #include "NKRenderer/Tools/PathTracer/NkSceneArchviz.h"
+#include "NKRenderer/Tools/PathTracer/NkFinitionImage.h" // (13/11) la finition de l'image
 
 namespace nkentseu {
 	namespace renderer {
@@ -44,6 +45,11 @@ namespace nkentseu {
 				float32 cible[3] = {0.f, 1.6f, 0.f};
 				float32 focaleMM = 24.f; ///< capteur VERTICAL de 36 mm (comme NkCameraPoser)
 				int32 L = 1280, H = 800;
+				/// (13/11/2026) LA PROFONDEUR DE CHAMP (lentille mince) : le nombre d'ouverture f/N (0 : stenope, tout
+				/// net -- l'image d'avant) ; le rayon de la lentille vaut focale / (2 N). `miseAuPoint` : la distance
+				/// nette en metres le long de l'axe (0 : celle de la cible).
+				float32 ouverture = 0.f;
+				float32 miseAuPoint = 0.f;
 		};
 
 		struct NkTcReglages {
@@ -81,6 +87,9 @@ namespace nkentseu {
 				// de (2 balanceR + 1)^2 pixels posee sur une surface blanche devient grise. Rien par defaut.
 				float32 balanceK = 0.f;
 				int32 balanceX = -1, balanceY = -1, balanceR = 8;
+				/// (13/11/2026) LA FINITION (halo, etoiles, aberration, vignette, etalonnage : NkFinitionImage) ; a
+				/// zero par defaut
+				NkFinition fin;
 		};
 
 		struct NkTcStats {

@@ -1167,6 +1167,11 @@ namespace nkentseu {
 				const V3 up = Cross(rt, fw);
 				const float32 th = 18.f / Max(1.f, cam.focaleMM); // tan du demi-angle vertical
 				const float32 asp = (float32)L / (float32)H;
+				// (13/11) LA PROFONDEUR DE CHAMP : lentille mince de rayon focale / (2 N), plan net a `mise` le long de
+				// l'axe ; 0 : le stenope d'avant (aucun tirage aleatoire en plus : l'image d'avant au pixel)
+				const float32 rayonLentille = cam.ouverture > 0.f ? (cam.focaleMM * 1e-3f) / (2.f * cam.ouverture) : 0.f;
+				const V3 versCible = Mk(cam.cible[0], cam.cible[1], cam.cible[2]) - oeil;
+				const float32 mise = cam.miseAuPoint > 0.f ? cam.miseAuPoint : math::NkSqrt(Dot(versCible, versCible));
 				const float32 az = g.s.soleilDir[1];
 				(void)az;
 				threading::NkThreadPool &pool = threading::NkThreadPool::GetGlobal();
@@ -1192,10 +1197,27 @@ namespace nkentseu {
 						for (int32 sm = 0; sm < sppPasse; ++sm) {
 							const float32 px = ((float32)x + rng.F()) / (float32)L * 2.f - 1.f;
 							const float32 py = 1.f - ((float32)y + rng.F()) / (float32)H * 2.f;
-							const V3 d = Norm(fw + rt * (px * th * asp) + up * (py * th));
+							V3 d = Norm(fw + rt * (px * th * asp) + up * (py * th));
+							V3 o = oeil;
+							if (rayonLentille > 0.f) {
+								// le point net du rayon central, puis un point de la lentille (disque concentrique,
+								// Shirley et Chiu 1997 : pas de tassement au centre) ; le meme calcul que le nuanceur
+								const V3 pf = oeil + d * (mise / Dot(d, fw));
+								const float32 ua = 2.f * rng.F() - 1.f, ub = 2.f * rng.F() - 1.f;
+								float32 lr = 0.f, lphi = 0.f;
+								if (Abs(ua) > Abs(ub)) {
+									lr = ua;
+									lphi = 0.78539816f * (ub / ua);
+								} else if (ub != 0.f) {
+									lr = ub;
+									lphi = 1.57079633f - 0.78539816f * (ua / ub);
+								}
+								o = oeil + rt * (lr * math::NkCos(lphi) * rayonLentille) + up * (lr * math::NkSin(lphi) * rayonLentille);
+								d = Norm(pf - o);
+							}
 							V3 a{1.f, 1.f, 1.f}, nn{0.f, 1.f, 0.f};
 							float32 zz = 1e4f;
-							V3 Lc = Chemin(g, c, oeil, d, rng, a, nn, zz);
+							V3 Lc = Chemin(g, c, o, d, rng, a, nn, zz);
 							// un echantillon non fini (NaN, infini) est ecarte et compte : sinon il noircit
 							// le pixel apres le rendu des tons (points noirs lus sur `tc1`)
 							if (!(Lc.x == Lc.x && Lc.y == Lc.y && Lc.z == Lc.z) || Lc.x > 1e20f || Lc.y > 1e20f ||
@@ -1544,7 +1566,16 @@ namespace nkentseu {
 			if (r.debruiter)
 				Debruiter(rgb, alb, nrm, z, var, cam.L, cam.H, r.regulariser);
 			const float64 msDeb = (NkChrono::Now() - t1).ToMilliseconds();
-			ok = EcrirePng(png, rgb, cam.L, cam.H, expo) && ok;
+			// (13/11) LA FINITION (NkFinitionImage) : sur l'image exposee, avant l'ACES ; l'image brute n'est pas
+			// touchee ; tout a zero (le defaut) : le chemin d'avant, au pixel
+			if (r.fin.Actif()) {
+				const usize nn = (usize)cam.L * (usize)cam.H * 3u;
+				for (usize i = 0; i < nn; ++i)
+					rgb[i] *= expo;
+				NkFinitionAppliquer(r.fin, rgb.Data(), cam.L, cam.H, 18.f / Max(1.f, cam.focaleMM));
+				ok = EcrirePng(png, rgb, cam.L, cam.H, 1.f) && ok;
+			} else
+				ok = EcrirePng(png, rgb, cam.L, cam.H, expo) && ok;
 			if (stats) {
 				stats->msRendu = msRendu;
 				stats->msDebruitage = msDeb;

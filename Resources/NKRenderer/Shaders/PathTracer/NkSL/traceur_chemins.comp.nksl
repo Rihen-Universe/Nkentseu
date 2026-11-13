@@ -726,10 +726,30 @@ void main() {
         float px = (float(x) + Rnd()) / float(L) * 2.0 - 1.0;
         float py = 1.0 - (float(y) + Rnd()) / float(H) * 2.0;
         vec3 d = normalize(P.fw.xyz + P.rt.xyz * (px * P.oeil.w * P.fw.w) + P.up.xyz * (py * P.oeil.w));
+        vec3 o = P.oeil.xyz;
+        // (13/11) LA PROFONDEUR DE CHAMP (cartes[10].w = rayon de la lentille, cartes[11].w = distance nette ; 0 :
+        // le stenope d'avant, sans tirage en plus) : lentille mince, disque concentrique -- comme Passe du processeur
+        float rl = P.cartes[10].w;
+        if (rl > 0.0) {
+            vec3 pf = o + d * (P.cartes[11].w / dot(d, P.fw.xyz));
+            float ua = 2.0 * Rnd() - 1.0;
+            float ub = 2.0 * Rnd() - 1.0;
+            float lr = 0.0;
+            float lphi = 0.0;
+            if (abs(ua) > abs(ub)) {
+                lr = ua;
+                lphi = 0.78539816 * (ub / ua);
+            } else if (ub != 0.0) {
+                lr = ub;
+                lphi = 1.57079633 - 0.78539816 * (ua / ub);
+            }
+            o = o + P.rt.xyz * (lr * cos(lphi) * rl) + P.up.xyz * (lr * sin(lphi) * rl);
+            d = normalize(pf - o);
+        }
         vec3 a;
         vec3 nn;
         float zz;
-        vec3 c = Chemin(P.oeil.xyz, d, a, nn, zz);
+        vec3 c = Chemin(o, d, a, nn, zz);
         if (!(c.x == c.x && c.y == c.y && c.z == c.z) || c.x > 1e20 || c.y > 1e20 || c.z > 1e20) c = vec3(0.0, 0.0, 0.0);
         // (10/11) le test x == x peut etre optimise par le compilateur HLSL : max/min ecartent un NaN
         // (semantique D3D : min(NaN, x) = x), la borne reste celle du processeur

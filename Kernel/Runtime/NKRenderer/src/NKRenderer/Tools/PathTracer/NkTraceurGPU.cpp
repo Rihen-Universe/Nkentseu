@@ -196,6 +196,12 @@ namespace nkentseu {
 					w = 1.f; // (10/11) cartes[14].w : le mode argile (0 dans les executables d'avant)
 				if (c == 15)
 					w = (float32)pq.offObjet; // (11/11) cartes[15].w : cartes d'objet, masque, feuille mince (0 : aucun)
+				// (13/11) cartes[10].w : le rayon de la lentille (m ; 0 : le stenope d'avant) ; cartes[11].w : la
+				// distance nette le long de l'axe (m) -- NkTcCamera.ouverture et miseAuPoint, comme Passe du processeur
+				if (c == 10 && cam.ouverture > 0.f)
+					w = (cam.focaleMM * 1e-3f) / (2.f * cam.ouverture);
+				if (c == 11 && cam.ouverture > 0.f)
+					w = cam.miseAuPoint > 0.f ? cam.miseAuPoint : fl;
 				Pose(pr.cartes[c], (float32)pq.carteOff[c], (float32)pq.carteW[c], (float32)pq.carteH[c], w);
 			}
 			const float64 msPrep = (NkChrono::Now() - t0).ToMilliseconds();
