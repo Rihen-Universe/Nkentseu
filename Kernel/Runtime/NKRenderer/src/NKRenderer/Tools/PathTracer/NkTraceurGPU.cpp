@@ -210,7 +210,18 @@ namespace nkentseu {
 			const NkElapsedTime t1 = NkChrono::Now();
 			const int32 bande = 200;
 			int32 fait = 0;
+			// (13/11) L'ECHANTILLONNAGE ADAPTATIF (NkTcReglages.adaptSeuil) : apres `adaptMin` passes, le plancher de
+			// luminance (une fraction de la moyenne de l'image) est pose, le nuanceur saute les pixels convergés ;
+			// toutes les 8 passes, on relit les sommes et on s'arrete quand moins de 0,2 % des pixels restent actifs
+			float32 plancher = 0.f;
+			NkVector<float32> s0, s3;
+			int32 actifsFin = -1;
 			for (int32 s = 0; s < r.spp; ++s) {
+				if (r.adaptSeuil > 0.f && plancher > 0.f) {
+					pr.cartes[9][3] = r.adaptSeuil;
+					pr.cartes[8][3] = (float32)r.adaptMin;
+					pr.cartes[7][3] = plancher;
+				}
 				for (int32 y0 = 0; y0 < cam.H; y0 += bande) {
 					Pose(pr.p0, 1.f, (float32)s, (float32)r.rebonds, r.ecretage);
 					Pose(pr.p1, (float32)y0, (float32)bande, mutation ? 1.f : 0.f, r.unRebond ? 1.f : 0.f);
@@ -229,7 +240,42 @@ namespace nkentseu {
 				++fait;
 				if (r.secondesMax > 0.f && (NkChrono::Now() - t1).ToMilliseconds() > (float64)r.secondesMax * 1000.0)
 					break;
+				if (r.adaptSeuil > 0.f && fait >= r.adaptMin && (fait - r.adaptMin) % 8 == 0) {
+					s0.Resize(n * 4);
+					s3.Resize(n * 4);
+					device->ReadBuffer(bSortie, s0.Data(), (uint64)n * 16u, 0);
+					device->ReadBuffer(bSortie, s3.Data(), (uint64)n * 16u, (uint64)n * 48u);
+					auto lum = [](const float32 *c) { return 0.2126f * c[0] + 0.7152f * c[1] + 0.0722f * c[2]; };
+					if (plancher <= 0.f) {
+						float64 sm = 0.0;
+						for (usize i = 0; i < n; ++i)
+							sm += (float64)lum(&s0[i * 4]) / (float64)(s3[i * 4 + 2] > 0.f ? s3[i * 4 + 2] : 1.f);
+						plancher = (float32)(sm / (float64)n) * r.adaptPlancherRel;
+						plancher = plancher > 1e-6f ? plancher : 1e-6f;
+					}
+					int32 actifs = 0;
+					for (usize i = 0; i < n; ++i) {
+						const float32 nb = s3[i * 4 + 2];
+						if (nb < (float32)r.adaptMin || nb <= 0.f) {
+							++actifs;
+							continue;
+						}
+						const float32 m = lum(&s0[i * 4]) / nb;
+						const float32 vv = s3[i * 4 + 1] / nb - m * m;
+						const float32 v = (vv > 0.f ? vv : 0.f) / nb;
+						if (math::NkSqrt(v) > r.adaptSeuil * (m > plancher ? m : plancher))
+							++actifs;
+					}
+					actifsFin = actifs;
+					if ((float64)actifs < 0.002 * (float64)n)
+						break;
+				}
 			}
+			if (actifsFin >= 0)
+				NkPrintfSortie("[traceur-gpu] ADAPTATIF : seuil %.3f, minimum %d, plancher %.5f ; %d passe(s), %d pixel(s) encore actifs "
+							   "(%.2f %%)\n",
+							   (double)r.adaptSeuil, (int)r.adaptMin, (double)plancher, (int)fait, (int)actifsFin,
+							   100.0 * (float64)actifsFin / (float64)n);
 			const float64 msRendu = (NkChrono::Now() - t1).ToMilliseconds();
 			NkVector<float32> o4;
 			o4.Resize(n * 16);

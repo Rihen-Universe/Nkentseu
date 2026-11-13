@@ -600,11 +600,15 @@ vec3 Directe(vec3 p, vec3 ng, vec3 ns, vec3 alb, float rug, float met, vec3 wo) 
     }
     return L;
 }
-vec3 Chemin(vec3 o, vec3 d, out vec3 aAlb, out vec3 aNrm, out float aZ) {
+// (13/11) `aDir` : la part DIRECTE (tout jusqu'a la lumiere directe du premier impact non speculaire compris) ; le
+// reste est l'INDIRECT -- comme Chemin de NkTraceurChemins.cpp
+vec3 Chemin(vec3 o, vec3 d, out vec3 aAlb, out vec3 aNrm, out float aZ, out vec3 aDir) {
     vec3 L = vec3(0.0, 0.0, 0.0);
     vec3 beta = vec3(1.0, 1.0, 1.0);
     bool spec = true;
     bool aov = false;
+    bool dirPris = false;
+    aDir = vec3(0.0, 0.0, 0.0);
     aAlb = vec3(1.0, 1.0, 1.0);
     aNrm = -d;
     aZ = 1e4;
@@ -683,6 +687,10 @@ vec3 Chemin(vec3 o, vec3 d, out vec3 aAlb, out vec3 aNrm, out float aZ) {
             if (l > P.p0.w) Ld = Ld * (P.p0.w / l);
         }
         L = L + beta * Ld;
+        if (!dirPris) {
+            aDir = L;
+            dirPris = true;
+        }
         if (rebond == maxR) break;
         vec3 wi = TirerBsdf(ns, rug, met, wo);
         float pdf = PdfBsdf(ng, ns, rug, met, wo, wi);
@@ -700,6 +708,7 @@ vec3 Chemin(vec3 o, vec3 d, out vec3 aAlb, out vec3 aNrm, out float aZ) {
         o = p + ng * ((gTrans > 0.0 && dot(ng, wi) < 0.0) ? -2e-3 : 2e-3); // (11/11) transmis : de l'autre cote
         d = wi;
     }
+    if (!dirPris) aDir = L; // aucun impact diffus (ciel, vitres) : tout est direct
     return L;
 }
 
@@ -713,11 +722,26 @@ void main() {
     if (x >= L || y >= H || y >= int(P.p1.x) + int(P.p1.y)) return;
     int pix = y * L + x;
     int N = L * H;
+    // (13/11) L'ECHANTILLONNAGE ADAPTATIF (cartes[9].w = seuil d'erreur relative, 0 : sans ; cartes[8].w = minimum
+    // d'echantillons ; cartes[7].w = plancher de luminance) : un pixel CONVERGE ne recoit plus rien -- le meme
+    // critere que PixelConverge de NkTraceurChemins.cpp ; le nombre d'echantillons du pixel est en O[3N + pix].z
+    if (P.cartes[9].w > 0.0) {
+        vec4 a0 = O.o[pix];
+        vec4 a3 = O.o[3 * N + pix];
+        float nb = a3.z;
+        if (nb >= max(P.cartes[8].w, 1.0)) {
+            float m = LumC(a0.xyz) / nb;
+            float v = max(0.0, a3.y / nb - m * m) / nb;
+            if (sqrt(v) <= P.cartes[9].w * max(m, P.cartes[7].w)) return;
+        }
+    }
     vec3 sL = vec3(0.0, 0.0, 0.0);
     vec3 sA = vec3(0.0, 0.0, 0.0);
     vec3 sN = vec3(0.0, 0.0, 0.0);
+    vec3 sD = vec3(0.0, 0.0, 0.0);
     float sZ = 0.0;
     float sL2 = 0.0;
+    float sI2 = 0.0;
     int spp = int(P.p0.x);
     for (int s = 0; s < spp; ++s) {
         gEtat = uint(pix) * 1973u + uint(P.p0.y) * 9277u + uint(s) * 26699u + 1u;
@@ -749,20 +773,36 @@ void main() {
         vec3 a;
         vec3 nn;
         float zz;
-        vec3 c = Chemin(o, d, a, nn, zz);
+        vec3 dc;
+        vec3 c = Chemin(o, d, a, nn, zz, dc);
         if (!(c.x == c.x && c.y == c.y && c.z == c.z) || c.x > 1e20 || c.y > 1e20 || c.z > 1e20) c = vec3(0.0, 0.0, 0.0);
+        if (!(dc.x == dc.x && dc.y == dc.y && dc.z == dc.z) || dc.x > 1e20 || dc.y > 1e20 || dc.z > 1e20) dc = vec3(0.0, 0.0, 0.0);
         // (10/11) le test x == x peut etre optimise par le compilateur HLSL : max/min ecartent un NaN
         // (semantique D3D : min(NaN, x) = x), la borne reste celle du processeur
         c = min(max(c, vec3(0.0, 0.0, 0.0)), vec3(1e20, 1e20, 1e20));
+        dc = min(max(dc, vec3(0.0, 0.0, 0.0)), c);
+        // (13/11) LES LUCIOLES : la part INDIRECTE de l'echantillon ecretee a P.p0.w (l'ecretage du chemin : il
+        // bornait deja la lumiere directe et l'emission vues apres un rebond ; le CIEL vu apres un rebond y echappait,
+        // et une reference a 4096 ech. gardait des points blancs, plus nombreux qu'a 256) -- avec la regularisation
+        if (P.cartes[12].w > 0.5) {
+            vec3 ci = c - dc;
+            float li0 = LumC(ci);
+            if (li0 > P.p0.w) c = dc + ci * (P.p0.w / li0);
+        }
         sL = sL + c;
         sA = sA + a;
         sN = sN + nn;
         sZ = sZ + zz;
+        sD = sD + dc;
         float l = LumC(c);
         sL2 = sL2 + l * l;
+        float li = l - LumC(dc);
+        sI2 = sI2 + li * li;
     }
-    O.o[pix] = O.o[pix] + vec4(sL, 0.0);
-    O.o[N + pix] = O.o[N + pix] + vec4(sA, 0.0);
-    O.o[2 * N + pix] = O.o[2 * N + pix] + vec4(sN, 0.0);
-    O.o[3 * N + pix] = O.o[3 * N + pix] + vec4(sZ, sL2, 0.0, 0.0);
+    // (13/11) la part DIRECTE dans les .w des trois premieres sections (r, g, b), le nombre d'echantillons et le
+    // carre de la luminance INDIRECTE dans la quatrieme (z, w) : le debruiteur 2 filtre direct et indirect a part
+    O.o[pix] = O.o[pix] + vec4(sL, sD.x);
+    O.o[N + pix] = O.o[N + pix] + vec4(sA, sD.y);
+    O.o[2 * N + pix] = O.o[2 * N + pix] + vec4(sN, sD.z);
+    O.o[3 * N + pix] = O.o[3 * N + pix] + vec4(sZ, sL2, float(spp), sI2);
 }

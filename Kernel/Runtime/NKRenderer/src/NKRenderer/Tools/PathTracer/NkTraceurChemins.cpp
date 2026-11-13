@@ -903,9 +903,12 @@ namespace nkentseu {
 			}
 
 			// UN chemin ; aov : albedo et normale du premier impact diffus, profondeur
-			V3 Chemin(const Scene &g, Ctx &c, V3 o, V3 d, Rng &r, V3 &aAlb, V3 &aNrm, float32 &aZ) {
+			// (13/11) `aDir` : la part DIRECTE du chemin (tout ce qui est compte jusqu'a la lumiere directe du premier
+			// impact non speculaire compris : emission vue, ciel vu par une vitre, soleil et sources sur ce point) ; le
+			// reste est l'INDIRECT -- le debruiteur les filtre a part (Debruiter2). Le meme partage que le nuanceur.
+			V3 Chemin(const Scene &g, Ctx &c, V3 o, V3 d, Rng &r, V3 &aAlb, V3 &aNrm, float32 &aZ, V3 *aDir = nullptr) {
 				V3 L{0.f, 0.f, 0.f}, beta{1.f, 1.f, 1.f};
-				bool speculaire = !c.sonde, aov = false;
+				bool speculaire = !c.sonde, aov = false, dirPris = false;
 				const int32 maxRebonds = c.r->unRebond ? 1 : c.r->rebonds;
 				for (int32 rebond = 0; rebond <= maxRebonds; ++rebond) {
 					Impact h;
@@ -983,6 +986,10 @@ namespace nkentseu {
 							Ld = Ld * (c.r->ecretage / l);
 					}
 					L = L + Mul(beta, Ld);
+					if (aDir && !dirPris) {
+						*aDir = L;
+						dirPris = true;
+					}
 					if (rebond == maxRebonds)
 						break;
 					const V3 wi = TirerBsdf(S, wo, r);
@@ -1005,6 +1012,8 @@ namespace nkentseu {
 					o = S.p + S.ng * ((S.trans > 0.f && Dot(S.ng, wi) < 0.f) ? -2e-3f : 2e-3f); // (11/11) transmis : de l'autre cote
 					d = wi;
 				}
+				if (aDir && !dirPris)
+					*aDir = L; // aucun impact diffus (ciel, vitres) : tout est direct
 				return L;
 			}
 
@@ -1049,14 +1058,24 @@ namespace nkentseu {
 				// le filtre gardait. 0,08 (l'ordre du reflet speculaire dielectrique, F0 = 0,04, plus un peu de
 				// diffus) le divise par 12. Le meme plancher sert a remoduler : l'image moyenne ne bouge pas.
 				const float32 plancher = rejeter ? 0.08f : 0.02f;
+				// (13/11) NK_DEBRUIT_MUTATION=1 : la contre-epreuve du banc de nettete (outils\mesure_nettete.py) --
+				// SANS demodulation (albedo pris a 1) : le detail des textures passe alors dans le filtre et s'y floute
+				static const bool sansDemod = env::GetEnvVar("NK_DEBRUIT_MUTATION") != nullptr;
+				NkVector<float32> unite;
+				if (sansDemod) {
+					unite.Resize(n * 3);
+					for (usize i = 0; i < n * 3; ++i)
+						unite[i] = 1.f;
+				}
+				const NkVector<float32> &A = sansDemod ? unite : alb;
 				for (usize i = 0; i < n; ++i) {
 					for (int32 k = 0; k < 3; ++k)
-						il[i * 3 + (usize)k] = rgb[i * 3 + (usize)k] / Max(alb[i * 3 + (usize)k], plancher);
+						il[i * 3 + (usize)k] = rgb[i * 3 + (usize)k] / Max(A[i * 3 + (usize)k], plancher);
 					// la variance suit la demodulation (elle mesurait la luminance BRUTE : sur une surface
 					// sombre, l'arret sur la luminance demodulee etait 1 / albedo^2 trop severe -- le filtre
 					// n'y lissait presque rien)
 					if (rejeter) {
-						const float32 a = Max(Lum(Mk(alb[i * 3], alb[i * 3 + 1], alb[i * 3 + 2])), plancher);
+						const float32 a = Max(Lum(Mk(A[i * 3], A[i * 3 + 1], A[i * 3 + 2])), plancher);
 						va[i] = var[i] / (a * a);
 					} else
 						va[i] = var[i];
@@ -1150,14 +1169,170 @@ namespace nkentseu {
 				}
 				for (usize i = 0; i < n; ++i)
 					for (int32 k = 0; k < 3; ++k)
-						rgb[i * 3 + (usize)k] = il[i * 3 + (usize)k] * Max(alb[i * 3 + (usize)k], plancher);
+						rgb[i * 3 + (usize)k] = il[i * 3 + (usize)k] * Max(A[i * 3 + (usize)k], plancher);
+			}
+
+			// (13/11/2026) UNE PASSE A-TROUS GUIDEE PAR LA VARIANCE (SVGF, Schied et al. 2017), en image fixe : `c` (n x 3,
+			// eclairement demodule) et `v` (n, variance de la moyenne de sa luminance) filtres ensemble sur `iter`
+			// iterations (pas 1, 2, 4...). La variance est PREFILTREE (gaussienne 3 x 3) a chaque iteration : l'arret
+			// sur la luminance suivait sinon le bruit de son estimation, et le filtre laissait des plaques.
+			void AtrousVariance(NkVector<float32> &c, NkVector<float32> &v, const NkVector<float32> &nrm, const NkVector<float32> &z,
+								int32 L, int32 H, int32 iter, float32 sigmaL) {
+				const usize n = (usize)L * (usize)H;
+				NkVector<float32> c2, v2, vf;
+				c2.Resize(n * 3);
+				v2.Resize(n);
+				vf.Resize(n);
+				const float32 h5[5] = {1.f / 16.f, 1.f / 4.f, 3.f / 8.f, 1.f / 4.f, 1.f / 16.f};
+				const float32 g3[3] = {0.25f, 0.5f, 0.25f};
+				threading::NkThreadPool &pool = threading::NkThreadPool::GetGlobal();
+				for (int32 it = 0; it < iter; ++it) {
+					const int32 pas = 1 << it;
+					for (int32 y = 0; y < H; ++y)
+						for (int32 x = 0; x < L; ++x) {
+							float32 s = 0.f, w = 0.f;
+							for (int32 j = -1; j <= 1; ++j)
+								for (int32 i = -1; i <= 1; ++i) {
+									const int32 xq = x + i, yq = y + j;
+									if (xq < 0 || yq < 0 || xq >= L || yq >= H)
+										continue;
+									const float32 k = g3[i + 1] * g3[j + 1];
+									s += k * v[(usize)yq * (usize)L + (usize)xq];
+									w += k;
+								}
+							vf[(usize)y * (usize)L + (usize)x] = s / w;
+						}
+					auto ligne = [&](nk_size yy) {
+						const int32 y = (int32)yy;
+						for (int32 x = 0; x < L; ++x) {
+							const usize p = (usize)y * (usize)L + (usize)x;
+							const V3 cp = Mk(c[p * 3], c[p * 3 + 1], c[p * 3 + 2]);
+							const float32 lp = Lum(cp);
+							const V3 np = Mk(nrm[p * 3], nrm[p * 3 + 1], nrm[p * 3 + 2]);
+							const float32 zp = z[p];
+							const float32 sl = sigmaL * Racine(Max(vf[p], 0.f)) + 1e-4f;
+							V3 s{0.f, 0.f, 0.f};
+							float32 ws = 0.f, vs = 0.f;
+							for (int32 j = -2; j <= 2; ++j) {
+								const int32 yq = y + j * pas;
+								if (yq < 0 || yq >= H)
+									continue;
+								for (int32 i = -2; i <= 2; ++i) {
+									const int32 xq = x + i * pas;
+									if (xq < 0 || xq >= L)
+										continue;
+									const usize q = (usize)yq * (usize)L + (usize)xq;
+									const V3 cq = Mk(c[q * 3], c[q * 3 + 1], c[q * 3 + 2]);
+									const V3 nq = Mk(nrm[q * 3], nrm[q * 3 + 1], nrm[q * 3 + 2]);
+									const float32 dn = Max(0.f, Dot(np, nq));
+									float32 wn = dn * dn;
+									wn = wn * wn;
+									wn = wn * wn;
+									wn = wn * wn;
+									wn = wn * wn; // dn^32
+									const float32 wz = math::NkExp(-Abs(zp - z[q]) / Max(1e-3f, 0.03f * zp * (float32)pas));
+									const float32 wl = math::NkExp(-Abs(lp - Lum(cq)) / sl);
+									const float32 wt = h5[i + 2] * h5[j + 2] * wn * wz * wl;
+									s = s + cq * wt;
+									ws += wt;
+									vs += wt * wt * v[q];
+								}
+							}
+							const float32 inv = ws > 1e-12f ? 1.f / ws : 0.f;
+							c2[p * 3] = ws > 1e-12f ? s.x * inv : cp.x;
+							c2[p * 3 + 1] = ws > 1e-12f ? s.y * inv : cp.y;
+							c2[p * 3 + 2] = ws > 1e-12f ? s.z * inv : cp.z;
+							v2[p] = ws > 1e-12f ? vs * inv * inv : v[p];
+						}
+					};
+					pool.ParallelFor((nk_size)H, ligne, (nk_size)4);
+					pool.Join();
+					for (usize i = 0; i < n * 3; ++i)
+						c[i] = c2[i];
+					for (usize i = 0; i < n; ++i)
+						v[i] = v2[i];
+				}
+			}
+
+			// (13/11/2026) LE DEBRUITEUR 2 (Rodolf, 13/11 : « le denoising doit etre plus efficace, il laisse des taches
+			// visibles »). Les taches sont du bruit BASSE FREQUENCE : l'indirect sous-echantillonne etale en plaques.
+			//  - DIRECT et INDIRECT filtres A PART, chacun DEMODULE par l'albedo (le detail des textures ne passe pas
+			//    dans le filtre : il revient a la remodulation) ;
+			//  - les LUCIOLES de l'indirect ecretees AVANT le filtre (pic non converge plus de 4 fois la moyenne de ses
+			//    voisins) -- sinon le filtre les etale en plaques ;
+			//  - l'indirect : 5 iterations (pas 1 a 16 : noyau large) ; le direct : 2 iterations (les ombres du soleil
+			//    restent nettes) ; variance prefiltree (AtrousVariance).
+			// L'ancien (Debruiter) reste : NkTcReglages.debruiteur = 1, la contre-epreuve du banc.
+			void Debruiter2(NkVector<float32> &rgb, const NkVector<float32> &dir, const NkVector<float32> &alb,
+							const NkVector<float32> &nrm, const NkVector<float32> &z, const NkVector<float32> &var,
+							const NkVector<float32> &varI, int32 L, int32 H) {
+				const usize n = (usize)L * (usize)H;
+				const float32 pl = 0.08f; // le plancher de la demodulation (Debruiter : surfaces noires et brillantes)
+				NkVector<float32> cD, cI, vD, vI, cI0;
+				cD.Resize(n * 3);
+				cI.Resize(n * 3);
+				vD.Resize(n);
+				vI.Resize(n);
+				for (usize i = 0; i < n; ++i) {
+					for (int32 k = 0; k < 3; ++k) {
+						const float32 a = Max(alb[i * 3 + (usize)k], pl);
+						const float32 d = dir[i * 3 + (usize)k];
+						cD[i * 3 + (usize)k] = d / a;
+						cI[i * 3 + (usize)k] = Max(0.f, rgb[i * 3 + (usize)k] - d) / a;
+					}
+					const float32 la = Max(Lum(Mk(alb[i * 3], alb[i * 3 + 1], alb[i * 3 + 2])), pl);
+					vI[i] = varI[i] / (la * la);
+					vD[i] = Max(0.f, var[i] - varI[i]) / (la * la);
+				}
+				// les lucioles de l'indirect, avant le filtre
+				cI0 = cI;
+				for (int32 y = 1; y + 1 < H; ++y)
+					for (int32 x = 1; x + 1 < L; ++x) {
+						const usize p = (usize)y * (usize)L + (usize)x;
+						float32 m = 0.f;
+						for (int32 j = -1; j <= 1; ++j)
+							for (int32 i = -1; i <= 1; ++i)
+								if (i != 0 || j != 0) {
+									const usize q = (usize)(y + j) * (usize)L + (usize)(x + i);
+									m += Lum(Mk(cI0[q * 3], cI0[q * 3 + 1], cI0[q * 3 + 2]));
+								}
+						m *= 1.f / 8.f;
+						const float32 lp = Lum(Mk(cI0[p * 3], cI0[p * 3 + 1], cI0[p * 3 + 2]));
+						const float32 plafond = 4.f * m + 1e-4f;
+						const bool converge = Racine(vI[p]) < 0.3f * Max(lp, 1e-8f);
+						if (lp > plafond && !converge) {
+							const float32 k = plafond / lp;
+							cI[p * 3] *= k;
+							cI[p * 3 + 1] *= k;
+							cI[p * 3 + 2] *= k;
+							vI[p] *= k * k;
+						}
+					}
+				AtrousVariance(cI, vI, nrm, z, L, H, 5, 4.f);
+				AtrousVariance(cD, vD, nrm, z, L, H, 2, 4.f);
+				for (usize i = 0; i < n; ++i)
+					for (int32 k = 0; k < 3; ++k)
+						rgb[i * 3 + (usize)k] = (cD[i * 3 + (usize)k] + cI[i * 3 + (usize)k]) * Max(alb[i * 3 + (usize)k], pl);
 			}
 
 			// Rendu dans des tampons (sert au banc et a NkTcRendre)
 			struct Tampons {
 					NkVector<float32> somme, alb, nrm, z, lum2;
 					int32 spp = 0;
+					// (13/11) la part DIRECTE (somme), le carre de la luminance INDIRECTE (somme) et le nombre
+					// d'echantillons DE CHAQUE PIXEL (l'echantillonnage adaptatif en donne moins aux pixels convergés)
+					NkVector<float32> dir, li2, nb;
 			};
+			// (13/11) UN PIXEL CONVERGE : au moins `adaptMin` echantillons, et l'erreur type de sa moyenne (luminance)
+			// sous `adaptSeuil` fois sa luminance -- un plancher `adaptPlancher` (une fraction de la luminance moyenne
+			// de l'image, posee apres les premieres passes) pour que le noir ne reclame pas d'echantillons sans fin
+			bool PixelConverge(const float32 *somme3, float32 lum2, float32 nb, const NkTcReglages &r) {
+				if (nb < (float32)r.adaptMin || nb <= 0.f)
+					return false;
+				const float32 m = Lum(Mk(somme3[0], somme3[1], somme3[2])) / nb;
+				const float32 v = Max(0.f, lum2 / nb - m * m) / nb;
+				return Racine(v) <= r.adaptSeuil * Max(m, r.adaptPlancher);
+			}
 			void Passe(const Scene &g, const NkTcCamera &cam, const NkTcReglages &r, Tampons &tb, int32 sppPasse,
 					   int32 graine, uint64 &rayons) {
 				const int32 L = cam.L, H = cam.H;
@@ -1193,6 +1368,10 @@ namespace nkentseu {
 					tTris = 0;
 					for (int32 x = 0; x < L; ++x) {
 						const usize p = (usize)y * (usize)L + (usize)x;
+						// (13/11) L'ECHANTILLONNAGE ADAPTATIF : un pixel CONVERGE ne recoit plus d'echantillons (le
+						// meme critere que le nuanceur : PixelConverge)
+						if (r.adaptSeuil > 0.f && PixelConverge(tb.somme.Data() + p * 3, tb.lum2[p], tb.nb[p], r))
+							continue;
 						Rng rng{Melange(((uint64)p << 20) ^ ((uint64)graine * 0x9E3779B97F4A7C15ULL) ^ 0x1234567ULL)};
 						for (int32 sm = 0; sm < sppPasse; ++sm) {
 							const float32 px = ((float32)x + rng.F()) / (float32)L * 2.f - 1.f;
@@ -1215,16 +1394,36 @@ namespace nkentseu {
 								o = oeil + rt * (lr * math::NkCos(lphi) * rayonLentille) + up * (lr * math::NkSin(lphi) * rayonLentille);
 								d = Norm(pf - o);
 							}
-							V3 a{1.f, 1.f, 1.f}, nn{0.f, 1.f, 0.f};
+							V3 a{1.f, 1.f, 1.f}, nn{0.f, 1.f, 0.f}, dirc{0.f, 0.f, 0.f};
 							float32 zz = 1e4f;
-							V3 Lc = Chemin(g, c, o, d, rng, a, nn, zz);
+							V3 Lc = Chemin(g, c, o, d, rng, a, nn, zz, &dirc);
 							// un echantillon non fini (NaN, infini) est ecarte et compte : sinon il noircit
 							// le pixel apres le rendu des tons (points noirs lus sur `tc1`)
 							if (!(Lc.x == Lc.x && Lc.y == Lc.y && Lc.z == Lc.z) || Lc.x > 1e20f || Lc.y > 1e20f ||
 								Lc.z > 1e20f) {
 								Lc = V3{0.f, 0.f, 0.f};
+								dirc = V3{0.f, 0.f, 0.f};
 								++c.nonFinis;
 							}
+							if (!(dirc.x == dirc.x && dirc.y == dirc.y && dirc.z == dirc.z))
+								dirc = V3{0.f, 0.f, 0.f};
+							// (13/11) LES LUCIOLES : la part indirecte de l'echantillon ecretee a `ecretage` (le ciel vu
+							// apres un rebond y echappait) -- comme le nuanceur
+							if (r.regulariser) {
+								const V3 ci = Lc - dirc;
+								const float32 li0 = Lum(ci);
+								if (li0 > r.ecretage)
+									Lc = dirc + ci * (r.ecretage / li0);
+							}
+							// (13/11) le direct, le carre de la luminance indirecte, le nombre d'echantillons du pixel
+							tb.dir[p * 3] += dirc.x;
+							tb.dir[p * 3 + 1] += dirc.y;
+							tb.dir[p * 3 + 2] += dirc.z;
+							{
+								const float32 li = Lum(Lc) - Lum(dirc);
+								tb.li2[p] += li * li;
+							}
+							tb.nb[p] += 1.f;
 							tb.somme[p * 3] += Lc.x;
 							tb.somme[p * 3 + 1] += Lc.y;
 							tb.somme[p * 3 + 2] += Lc.z;
@@ -1277,22 +1476,41 @@ namespace nkentseu {
 					tb.z[i] = 0.f;
 					tb.lum2[i] = 0.f;
 				}
+				tb.dir.Resize(n * 3);
+				tb.li2.Resize(n);
+				tb.nb.Resize(n);
+				for (usize i = 0; i < n * 3; ++i)
+					tb.dir[i] = 0.f;
+				for (usize i = 0; i < n; ++i)
+					tb.li2[i] = tb.nb[i] = 0.f;
 				tb.spp = 0;
 			}
 			// moyenne ; variance de la moyenne (luminance)
+			// (13/11) le nombre d'echantillons DE CHAQUE PIXEL quand il est compte (echantillonnage adaptatif) ; la part
+			// DIRECTE (moyenne) et la variance de la moyenne de la luminance INDIRECTE
 			void Moyennes(const Tampons &tb, int32 L, int32 H, NkVector<float32> &rgb, NkVector<float32> &alb,
-						  NkVector<float32> &nrm, NkVector<float32> &z, NkVector<float32> &var) {
+						  NkVector<float32> &nrm, NkVector<float32> &z, NkVector<float32> &var, NkVector<float32> &dir,
+						  NkVector<float32> &varI) {
 				const usize n = (usize)L * (usize)H;
-				const float32 inv = 1.f / (float32)(tb.spp > 0 ? tb.spp : 1);
+				const float32 invG = 1.f / (float32)(tb.spp > 0 ? tb.spp : 1);
+				const bool compte = tb.nb.Size() == n;
 				rgb.Resize(n * 3);
 				alb.Resize(n * 3);
 				nrm.Resize(n * 3);
 				z.Resize(n);
 				var.Resize(n);
+				dir.Resize(n * 3);
+				varI.Resize(n);
 				for (usize i = 0; i < n; ++i) {
+					const float32 inv = (compte && tb.nb[i] > 0.f) ? 1.f / tb.nb[i] : invG;
 					for (int32 k = 0; k < 3; ++k) {
 						rgb[i * 3 + (usize)k] = tb.somme[i * 3 + (usize)k] * inv;
 						alb[i * 3 + (usize)k] = tb.alb[i * 3 + (usize)k] * inv;
+						dir[i * 3 + (usize)k] = tb.dir.Size() == n * 3 ? tb.dir[i * 3 + (usize)k] * inv : 0.f;
+					}
+					{
+						const float32 mi = Lum(Mk(rgb[i * 3] - dir[i * 3], rgb[i * 3 + 1] - dir[i * 3 + 1], rgb[i * 3 + 2] - dir[i * 3 + 2]));
+						varI[i] = tb.li2.Size() == n ? Max(0.f, tb.li2[i] * inv - mi * mi) * inv : 0.f;
 					}
 					const V3 nn = Norm(Mk(tb.nrm[i * 3], tb.nrm[i * 3 + 1], tb.nrm[i * 3 + 2]));
 					nrm[i * 3] = nn.x;
@@ -1461,11 +1679,31 @@ namespace nkentseu {
 			gNonFinis = 0;
 			gNoeuds = 0;
 			gTris = 0;
+			// (13/11) l'echantillonnage adaptatif : le plancher de luminance se pose apres le minimum d'echantillons
+			// (une fraction de la luminance moyenne de l'image), puis les pixels convergés sont sautes ; on s'arrete
+			// quand moins de 0,2 % des pixels restent actifs
+			NkTcReglages ra = r;
+			ra.adaptPlancher = 0.f;
+			const usize npx = (usize)cam.L * (usize)cam.H;
 			while (tb.spp < r.spp) {
 				const int32 n = (r.spp - tb.spp) < 4 ? (r.spp - tb.spp) : 4;
-				Passe(g, cam, r, tb, n, passe++, rayons);
+				Passe(g, cam, ra, tb, n, passe++, rayons);
 				if (r.secondesMax > 0.f && (NkChrono::Now() - t0).ToMilliseconds() > (float64)r.secondesMax * 1000.0)
 					break;
+				if (r.adaptSeuil > 0.f && tb.spp >= r.adaptMin) {
+					if (ra.adaptPlancher <= 0.f) {
+						float64 s = 0.0;
+						for (usize i = 0; i < npx; ++i)
+							s += Lum(Mk(tb.somme[i * 3], tb.somme[i * 3 + 1], tb.somme[i * 3 + 2])) / Max(tb.nb[i], 1.f);
+						ra.adaptPlancher = Max(1e-6f, r.adaptPlancherRel * (float32)(s / (float64)npx));
+					}
+					usize actifs = 0;
+					for (usize i = 0; i < npx; ++i)
+						if (!PixelConverge(tb.somme.Data() + i * 3, tb.lum2[i], tb.nb[i], ra))
+							++actifs;
+					if ((float64)actifs < 0.002 * (float64)npx)
+						break;
+				}
 			}
 			const float64 msRendu = (NkChrono::Now() - t0).ToMilliseconds();
 			return Finaliser(cam, r, png, tb, msRendu, rayons, "processeur", stats);
@@ -1476,8 +1714,8 @@ namespace nkentseu {
 		static bool Finaliser(const NkTcCamera &cam, const NkTcReglages &r, const char *png, const Tampons &tb, float64 msRendu,
 							  uint64 rayons, const char *materiel, NkTcStats *stats) {
 			Scene &g = G();
-			NkVector<float32> rgb, alb, nrm, z, var;
-			Moyennes(tb, cam.L, cam.H, rgb, alb, nrm, z, var);
+			NkVector<float32> rgb, alb, nrm, z, var, dir, varI;
+			Moyennes(tb, cam.L, cam.H, rgb, alb, nrm, z, var, dir, varI);
 			// (10/11/2026) LA BALANCE DES BLANCS, sur la radiance (avant l'exposition et le debruiteur) :
 			// une temperature a neutraliser (K, la teinte de NkLightEffectiveColor), ou la moyenne d'une
 			// fenetre posee sur une surface blanche. Gains a luminance constante : seule la teinte bouge.
@@ -1529,6 +1767,9 @@ namespace nkentseu {
 					rgb[i * 3] *= gain.x;
 					rgb[i * 3 + 1] *= gain.y;
 					rgb[i * 3 + 2] *= gain.z;
+					dir[i * 3] *= gain.x; // (13/11) le direct suit la meme balance
+					dir[i * 3 + 1] *= gain.y;
+					dir[i * 3 + 2] *= gain.z;
 				}
 				NkPrintfSortie("[traceur] BALANCE DES BLANCS (%s) : gains %.3f %.3f %.3f\n", quoi, (double)gain.x, (double)gain.y,
 							   (double)gain.z);
@@ -1539,6 +1780,8 @@ namespace nkentseu {
 				for (usize i = 0; i < n; ++i) {
 					const float32 l = Lum(Mk(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]));
 					rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = l;
+					const float32 ld = Lum(Mk(dir[i * 3], dir[i * 3 + 1], dir[i * 3 + 2])); // (13/11) le direct suit
+					dir[i * 3] = dir[i * 3 + 1] = dir[i * 3 + 2] = ld;
 				}
 			}
 			// l'exposition : celle de la scene (EV), ou une EV manuelle, ou automatique a la cle `cleExpo`
@@ -1563,8 +1806,11 @@ namespace nkentseu {
 			}
 			bool ok = EcrirePng(brut, rgb, cam.L, cam.H, expo);
 			const NkElapsedTime t1 = NkChrono::Now();
-			if (r.debruiter)
+			// (13/11) le debruiteur 2 (direct et indirect a part, variance prefiltree) ; 1 : l'ancien (contre-epreuve)
+			if (r.debruiter && r.debruiteur == 1)
 				Debruiter(rgb, alb, nrm, z, var, cam.L, cam.H, r.regulariser);
+			else if (r.debruiter)
+				Debruiter2(rgb, dir, alb, nrm, z, var, varI, cam.L, cam.H);
 			const float64 msDeb = (NkChrono::Now() - t1).ToMilliseconds();
 			// (13/11) LA FINITION (NkFinitionImage) : sur l'image exposee, avant l'ACES ; l'image brute n'est pas
 			// touchee ; tout a zero (le defaut) : le chemin d'avant, au pixel
@@ -1848,6 +2094,13 @@ namespace nkentseu {
 				}
 				tb.z[i] = o4[(3 * n + i) * 4];
 				tb.lum2[i] = o4[(3 * n + i) * 4 + 1];
+				// (13/11) la part directe (.w des trois premieres sections), le nombre d'echantillons du pixel et le
+				// carre de la luminance indirecte (quatrieme section, z et w) -- 0 dans les nuanceurs d'avant
+				tb.dir[i * 3] = o4[i * 4 + 3];
+				tb.dir[i * 3 + 1] = o4[(n + i) * 4 + 3];
+				tb.dir[i * 3 + 2] = o4[(2 * n + i) * 4 + 3];
+				tb.nb[i] = o4[(3 * n + i) * 4 + 2];
+				tb.li2[i] = o4[(3 * n + i) * 4 + 3];
 			}
 			tb.spp = spp;
 			gNonFinis = 0;

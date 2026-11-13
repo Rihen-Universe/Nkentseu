@@ -90,6 +90,17 @@ namespace nkentseu {
 				/// (13/11/2026) LA FINITION (halo, etoiles, aberration, vignette, etalonnage : NkFinitionImage) ; a
 				/// zero par defaut
 				NkFinition fin;
+				/// (13/11/2026) L'ECHANTILLONNAGE ADAPTATIF (mode final) : `spp` devient le MAXIMUM ; au-dela de
+				/// `adaptMin` echantillons, un pixel dont l'erreur type de la moyenne passe sous `adaptSeuil` x sa
+				/// luminance (plancher : `adaptPlancherRel` x la luminance moyenne de l'image) ne recoit plus rien ;
+				/// on s'arrete quand presque tous ont converge (ou au temps). 0 : l'ancien rendu uniforme.
+				float32 adaptSeuil = 0.f;
+				int32 adaptMin = 32;
+				float32 adaptPlancherRel = 0.25f;
+				float32 adaptPlancher = 0.f; ///< pose par le rendu (luminance absolue), pas par l'appelant
+				/// (13/11/2026) LE DEBRUITEUR : 2 = le nouveau (direct et indirect a part, variance prefiltree, a-trous
+				/// de type SVGF) ; 1 = l'ancien (la contre-epreuve du banc)
+				int32 debruiteur = 2;
 		};
 
 		struct NkTcStats {
