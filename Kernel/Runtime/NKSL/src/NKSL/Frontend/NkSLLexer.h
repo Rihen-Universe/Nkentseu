@@ -101,6 +101,9 @@ namespace nkentseu {
 		NK_KW_IMAGE2D_ARRAY,
 		NK_KW_IIMAGE2D_ARRAY,
 		NK_KW_UIMAGE2D_ARRAY,
+		// (13/11/2026, plan RTX etape 2) le lancer de rayons en ligne
+		NK_KW_ACCEL_STRUCT,
+		NK_KW_RAY_QUERY,
 		// Qualificateurs de stockage
 		NK_KW_IN,
 		NK_KW_OUT,

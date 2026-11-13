@@ -492,6 +492,10 @@ namespace nkentseu {
 				return "image2DArray";
 			case NkSLBaseType::NK_HALF: // FP16 natif (additif)
 				return "half";
+			case NkSLBaseType::NK_ACCEL_STRUCT: // (13/11/2026, plan RTX etape 2)
+				return "accelerationStructure";
+			case NkSLBaseType::NK_RAY_QUERY:
+				return "rayQuery";
 			default:
 				return "unknown";
 		}

@@ -53,6 +53,11 @@ namespace nkentseu {
 				return "double";
 			case NkSLBaseType::NK_HALF: // FP16 natif (additif) — GL_EXT_shader_explicit_arithmetic_types_float16
 				return "float16_t";
+			// (13/11/2026, plan RTX etape 2) GL_EXT_ray_query (seules les cibles Vulkan / SPIR-V y arrivent)
+			case NkSLBaseType::NK_ACCEL_STRUCT:
+				return "accelerationStructureEXT";
+			case NkSLBaseType::NK_RAY_QUERY:
+				return "rayQueryEXT";
 			case NkSLBaseType::NK_DVEC2:
 				return "dvec2";
 			case NkSLBaseType::NK_DVEC3:
@@ -978,6 +983,10 @@ namespace nkentseu {
 				return "uimage2D";
 			case NkSLBaseType::NK_HALF: // FP16 natif (additif) — GL_EXT_shader_explicit_arithmetic_types_float16
 				return "float16_t";
+			case NkSLBaseType::NK_ACCEL_STRUCT: // (13/11/2026, plan RTX etape 2)
+				return "accelerationStructure";
+			case NkSLBaseType::NK_RAY_QUERY:
+				return "rayQuery";
 			default:
 				return "float";
 		}

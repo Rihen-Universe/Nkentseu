@@ -102,6 +102,7 @@ namespace nkentseu {
 			uint32 mLocalSizeX = 1;
 			uint32 mLocalSizeY = 1;
 			uint32 mLocalSizeZ = 1;
+			bool mUsesRayQuery = false; ///< (13/11/2026, plan RTX etape 2) un type accelerationStructure ou rayQuery vu
 
 			// Garde anti stack-overflow : profondeur de récursion expression/statement.
 			// Au-delà, on émet une erreur et on arrête de récurser (pas de crash).

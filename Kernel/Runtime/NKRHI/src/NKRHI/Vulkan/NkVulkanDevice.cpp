@@ -500,7 +500,7 @@ namespace nkentseu {
 		dpci.flags =
 			VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
 		dpci.maxSets = 12288; // cap 4096 × 2 frames = 8192 sets objet + globals/mirror/matériaux
-		dpci.poolSizeCount = (uint32)std::size(poolSizes) - (mRtActif ? 0u : 1u);
+		dpci.poolSizeCount = (uint32)(sizeof(poolSizes) / sizeof(poolSizes[0])) - (mRtActif ? 0u : 1u);
 		dpci.pPoolSizes = poolSizes;
 		NK_VK_CHECKRET(vkCreateDescriptorPool(mDevice, &dpci, nullptr, &mDescPool), "vkCreateDescriptorPool");
 

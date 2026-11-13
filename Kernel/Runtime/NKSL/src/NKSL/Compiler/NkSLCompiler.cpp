@@ -19,6 +19,7 @@
 #include "NKSL/VM/NkSLByteCodeIO.h"					   // sérialisation .nkbc
 #include "NKLogger/NkLog.h"
 #include "NKFileSystem/NkFile.h" // cache via NKFileSystem (pas de fopen CRT)
+#include "NKPlatform/NkEnv.h"	 // (13/11/2026) NK_NKSL_RQ_MUTATION, la contre-epreuve du banc rayQuery
 #include <cstdio>
 #include <cstring>
 #include <mutex> // std::call_once, std::once_flag
@@ -47,6 +48,30 @@ namespace nkentseu {
 	// récursivement ses enfants, donc supprimer la racine libère tout l'arbre.
 	// =============================================================================
 	namespace {
+		// (13/11/2026, plan RTX etape 2) LE LANCER DE RAYONS EN LIGNE n'existe qu'en GLSL Vulkan et en SPIR-V : toute
+		// autre cible le REFUSE avec un message qui dit pourquoi (aucune traduction approximative, aucun repli muet)
+		bool RefuserRayQuery(NkSLTarget target, NkSLStage stage, NkSLCompileResult &res) {
+			if (target == NkSLTarget::NK_GLSL_VULKAN || target == NkSLTarget::NK_SPIRV)
+				return false;
+			// NK_NKSL_RQ_MUTATION=refus : la contre-epreuve du banc -- aucune cible n'est refusee
+			static const bool mutation = [] {
+				const char *m = env::GetEnvVar("NK_NKSL_RQ_MUTATION");
+				return m && m[0] == 'r';
+			}();
+			if (mutation)
+				return false;
+			res = NkSLCompileResult{};
+			res.success = false;
+			res.target = target;
+			res.stage = stage;
+			NkSLCompileError e;
+			e.message = NkString("rayQuery / accelerationStructure : non pris en charge pour la cible ") + NkSLTargetName(target) +
+						" (GLSL Vulkan et SPIR-V seulement ; DX12 avec DXR au plan RTX etape 5, Metal plus tard)";
+			res.errors.PushBack(e);
+			NKSL_ERR("%s\n", e.message.CStr());
+			return true;
+		}
+
 		struct NkSLAstScope {
 				NkSLProgramNode *ast = nullptr;
 
@@ -303,6 +328,17 @@ namespace nkentseu {
 		NkSLSemantic semDiag(stage);
 		NkSLSemanticResult semRes = semDiag.Analyze(ast);
 
+		// 3.6. (13/11/2026, plan RTX etape 2) le lancer de rayons en ligne : refus clair hors Vulkan / SPIR-V, et
+		// SPIR-V 1.4 au moins (GL_EXT_ray_query l'exige ; le dispositif Vulkan qui le demande est en 1.2)
+		NkSLCompileOptions optsRq = opts;
+		if (ast->usesRayQuery) {
+			NkSLCompileResult refus;
+			if (RefuserRayQuery(target, stage, refus))
+				return refus;
+			if (optsRq.spirvVersion < 104u)
+				optsRq.spirvVersion = 104u;
+		}
+
 		// 4. Dispatch par target
 		NkSLCompileResult res;
 		switch (target) {
@@ -329,7 +365,7 @@ namespace nkentseu {
 					res = glslRes;
 					break;
 				}
-				res = CompileToSPIRV(glslRes.source, stage, opts);
+				res = CompileToSPIRV(glslRes.source, stage, optsRq);
 				if (!res.success) {
 					// ⚠ ON GARDE LE TEXTE POUR LE DIAGNOSTIC, JAMAIS LE VERDICT.
 					//
@@ -936,6 +972,12 @@ namespace nkentseu {
 			res.target = target;
 			res.stage = stage;
 			return res;
+		}
+		// (13/11/2026, plan RTX etape 2) le lancer de rayons en ligne : le meme refus que Compile()
+		if (ast->usesRayQuery) {
+			NkSLCompileResult refus;
+			if (RefuserRayQuery(target, stage, refus))
+				return refus;
 		}
 
 		// Génération

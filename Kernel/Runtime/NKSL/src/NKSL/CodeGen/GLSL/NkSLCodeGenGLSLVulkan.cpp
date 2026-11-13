@@ -40,6 +40,7 @@
 // =============================================================================
 #include "NKSL/CodeGen/NkSLCodeGen.h"
 #include "NKCore/Text/NkSnprintf.h"
+#include "NKPlatform/NkEnv.h" // (13/11/2026) NK_NKSL_RQ_MUTATION, la contre-epreuve du banc rayQuery
 
 namespace nkentseu {
 
@@ -52,6 +53,30 @@ namespace nkentseu {
 			return "gl_VertexIndex";
 		if (name == "gl_InstanceID")
 			return "gl_InstanceIndex";
+		// (13/11/2026, plan RTX etape 2) les constantes du lancer de rayons en ligne -> GL_EXT_ray_query
+		static const struct {
+				const char *nksl;
+				const char *glsl;
+		} kRayQuery[] = {{"RAY_FLAG_NONE", "gl_RayFlagsNoneEXT"},
+						 {"RAY_FLAG_OPAQUE", "gl_RayFlagsOpaqueEXT"},
+						 {"RAY_FLAG_NO_OPAQUE", "gl_RayFlagsNoOpaqueEXT"},
+						 {"RAY_FLAG_TERMINATE_ON_FIRST_HIT", "gl_RayFlagsTerminateOnFirstHitEXT"},
+						 {"RAY_FLAG_SKIP_CLOSEST_HIT", "gl_RayFlagsSkipClosestHitShaderEXT"},
+						 {"RAY_FLAG_CULL_BACK_FACING", "gl_RayFlagsCullBackFacingTrianglesEXT"},
+						 {"RAY_FLAG_CULL_FRONT_FACING", "gl_RayFlagsCullFrontFacingTrianglesEXT"},
+						 {"RAY_QUERY_COMMITTED_NONE", "gl_RayQueryCommittedIntersectionNoneEXT"},
+						 {"RAY_QUERY_COMMITTED_TRIANGLE", "gl_RayQueryCommittedIntersectionTriangleEXT"},
+						 {"RAY_QUERY_CANDIDATE_TRIANGLE", "gl_RayQueryCandidateIntersectionTriangleEXT"}};
+		// NK_NKSL_RQ_MUTATION=constante : la contre-epreuve du banc -- l'impact retenu « triangle » devient « aucun »
+		static const bool mutation = [] {
+			const char *m = env::GetEnvVar("NK_NKSL_RQ_MUTATION");
+			return m && m[0] == 'c';
+		}();
+		if (mutation && name == "RAY_QUERY_COMMITTED_TRIANGLE")
+			return "gl_RayQueryCommittedIntersectionNoneEXT";
+		for (const auto &c : kRayQuery)
+			if (name == c.nksl)
+				return c.glsl;
 		// Tous les autres builtins sont identiques à OpenGL
 		if (name == "gl_Position")
 			return "gl_Position";
@@ -131,6 +156,9 @@ namespace nkentseu {
 		// cf commentaire de NkSLInjectExtensionIfUsed dans NkSLCodeGen.h).
 		mOutput = NkSLInjectExtensionIfUsed(mOutput, "float16_t",
 											"#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require");
+		// (13/11/2026, plan RTX etape 2) le lancer de rayons en ligne : l'extension, si un rayQueryEXT est ecrit
+		mOutput = NkSLInjectExtensionIfUsed(mOutput, "rayQueryEXT", "#extension GL_EXT_ray_query : require");
+		mOutput = NkSLInjectExtensionIfUsed(mOutput, "accelerationStructureEXT", "#extension GL_EXT_ray_query : require");
 
 		NkSLCompileResult res;
 		res.success = mErrors.Empty();
@@ -151,6 +179,10 @@ namespace nkentseu {
 		uint32 ver = mOpts->glslVulkanVersion;
 		if (ver < 450)
 			ver = 450;
+		// (13/11/2026, plan RTX etape 2) GL_EXT_ray_query exige GLSL 460 (banc du 13/11 : en 450, glslang refusait
+		// « 'rayQueryEXT' : undeclared identifier » malgre l'extension)
+		if (prog && prog->usesRayQuery && ver < 460)
+			ver = 460;
 
 		char buf[256];
 		nkentseu::NkSnprintf(buf, sizeof(buf), "#version %u\n", ver);
@@ -234,8 +266,10 @@ namespace nkentseu {
 			bool isImage = NkSLTypeIsImage(v->type->baseType);
 			bool isSubpass = (v->type->baseType == NkSLBaseType::NK_SUBPASS_INPUT ||
 							  v->type->baseType == NkSLBaseType::NK_SUBPASS_INPUT_MS);
+			// (13/11/2026, plan RTX etape 2) layout(set=N, binding=M) uniform accelerationStructureEXT ...
+			const bool isAccel = v->type->baseType == NkSLBaseType::NK_ACCEL_STRUCT;
 
-			if (isSampler || isImage || isSubpass) {
+			if (isSampler || isImage || isSubpass || isAccel) {
 				// layout(set=N, binding=M) uniform sampler2D ...
 				// layout(input_attachment_index=K, set=N, binding=M) uniform subpassInput ...
 				line += LayoutQualifier(v->binding, false, false, false);
@@ -554,6 +588,15 @@ namespace nkentseu {
 		// FP16 natif (additif) : constructeur `half(x)` NkSL -> `float16_t(x)` GLSL.
 		if (callee == "half")
 			callee = "float16_t";
+		// (13/11/2026, plan RTX etape 2) rayQueryInitialize(...) NkSL -> rayQueryInitializeEXT(...) GLSL
+		{
+			const char *pre = "rayQuery";
+			bool rq = callee.Size() > 8;
+			for (uint32 i = 0; rq && i < 8; ++i)
+				rq = callee[i] == pre[i];
+			if (rq)
+				callee += "EXT";
+		}
 
 		// subpassLoad(attachment) → identique, juste vérifier le nom
 		// En GLSL Vulkan standard, subpassLoad est une fonction builtin

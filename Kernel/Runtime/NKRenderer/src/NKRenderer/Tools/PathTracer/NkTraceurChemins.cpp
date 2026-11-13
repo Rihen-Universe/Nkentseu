@@ -2269,6 +2269,23 @@ namespace nkentseu {
 			return u.f;
 		}
 
+		bool NkTcTrianglesOrdonnes(NkVector<float32> &pos) {
+			Scene &g = G();
+			if (!g.prete)
+				return false;
+			static const bool mutation = env::GetEnvVar("NK_RTX_ORDRE_MUTATION") != nullptr;
+			const usize n = g.ordre.Size();
+			pos.Resize(n * 9u);
+			for (usize i = 0; i < n; ++i) {
+				const Tri &t = g.tris[mutation ? i : g.ordre[i]];
+				const V3 v1 = t.v0 + t.e1, v2 = t.v0 + t.e2;
+				const float32 p9[9] = {t.v0.x, t.v0.y, t.v0.z, v1.x, v1.y, v1.z, v2.x, v2.y, v2.z};
+				for (int32 k = 0; k < 9; ++k)
+					pos[i * 9u + (usize)k] = p9[k];
+			}
+			return n > 0;
+		}
+
 		bool NkTcEmpaqueter(NkTcPaquet &p) {
 			Scene &g = G();
 			if (!g.prete)

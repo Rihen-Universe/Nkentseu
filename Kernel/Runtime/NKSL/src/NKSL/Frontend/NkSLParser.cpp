@@ -109,7 +109,9 @@ namespace nkentseu {
 		// (12/11/2026, MSAA) sampler2DMS : le lexeur et la table de types le connaissaient, mais il est declare
 		// APRES l'intervalle VOID..UIMAGE2D -- « Expected type name » a sa declaration. Les autres types de ce
 		// groupe tardif (sampler1D, isampler3D...) restent hors de l'intervalle : aucun nuanceur ne les demande.
-		return (k >= NkSLTokenKind::NK_KW_VOID && k <= NkSLTokenKind::NK_KW_UIMAGE2D) || k == NkSLTokenKind::NK_KW_SAMPLER2DMS;
+		// (13/11/2026, plan RTX etape 2) accelerationStructure et rayQuery, eux aussi hors de l'intervalle
+		return (k >= NkSLTokenKind::NK_KW_VOID && k <= NkSLTokenKind::NK_KW_UIMAGE2D) || k == NkSLTokenKind::NK_KW_SAMPLER2DMS ||
+			   k == NkSLTokenKind::NK_KW_ACCEL_STRUCT || k == NkSLTokenKind::NK_KW_RAY_QUERY;
 	}
 
 	bool NkSLParser::IsQualifierToken(NkSLTokenKind k) const {
@@ -266,6 +268,10 @@ namespace nkentseu {
 				return NkSLBaseType::NK_IIMAGE2D_ARRAY;
 			case NkSLTokenKind::NK_KW_UIMAGE2D_ARRAY:
 				return NkSLBaseType::NK_UIMAGE2D_ARRAY;
+			case NkSLTokenKind::NK_KW_ACCEL_STRUCT:
+				return NkSLBaseType::NK_ACCEL_STRUCT;
+			case NkSLTokenKind::NK_KW_RAY_QUERY:
+				return NkSLBaseType::NK_RAY_QUERY;
 			default:
 				return NkSLBaseType::NK_UNKNOWN;
 		}
@@ -293,6 +299,7 @@ namespace nkentseu {
 		prog->localSizeX = mLocalSizeX;
 		prog->localSizeY = mLocalSizeY;
 		prog->localSizeZ = mLocalSizeZ;
+		prog->usesRayQuery = mUsesRayQuery;
 
 		// Les erreurs LEXICALES (littéral mal formé, caractère inconnu…) étaient
 		// jusqu'ici collectées par le lexer et jamais lues par personne : seules
@@ -588,6 +595,8 @@ namespace nkentseu {
 		if (IsTypeToken(k)) {
 			t->baseType = TokenToBaseType(k);
 			t->typeName = Consume().text;
+			if (NkSLTypeIsRayQuery(t->baseType))
+				mUsesRayQuery = true; // (13/11/2026, plan RTX etape 2) le compilateur refuse les cibles sans rayQuery
 		} else if (k == NkSLTokenKind::NK_IDENT) {
 			// Type utilisateur (struct)
 			t->baseType = NkSLBaseType::NK_STRUCT;

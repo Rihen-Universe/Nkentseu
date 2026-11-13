@@ -103,6 +103,9 @@ namespace nkentseu {
 		{"image2DArray", NkSLTokenKind::NK_KW_IMAGE2D_ARRAY},
 		{"iimage2DArray", NkSLTokenKind::NK_KW_IIMAGE2D_ARRAY},
 		{"uimage2DArray", NkSLTokenKind::NK_KW_UIMAGE2D_ARRAY},
+		// (13/11/2026, plan RTX etape 2) le lancer de rayons en ligne
+		{"accelerationStructure", NkSLTokenKind::NK_KW_ACCEL_STRUCT},
+		{"rayQuery", NkSLTokenKind::NK_KW_RAY_QUERY},
 		// Qualificateurs de stockage
 		{"in", NkSLTokenKind::NK_KW_IN},
 		{"out", NkSLTokenKind::NK_KW_OUT},

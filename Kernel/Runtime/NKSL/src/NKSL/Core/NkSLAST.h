@@ -328,6 +328,9 @@ namespace nkentseu {
 			uint32 localSizeX = 1;
 			uint32 localSizeY = 1;
 			uint32 localSizeZ = 1;
+			// (13/11/2026, plan RTX etape 2) le programme emploie accelerationStructure ou rayQuery : seules les cibles
+			// GLSL Vulkan et SPIR-V l'acceptent (NkSLCompiler refuse les autres avec un message clair)
+			bool usesRayQuery = false;
 
 			NkSLProgramNode() : NkSLNode(NkSLNodeKind::NK_PROGRAM) {
 			}

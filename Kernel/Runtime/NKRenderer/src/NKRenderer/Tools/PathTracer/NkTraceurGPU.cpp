@@ -12,7 +12,9 @@
 #include "NKRHI/Core/NkGraphicsApi.h"
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKSL/Compiler/NkSLCompiler.h"
+#include "NKSL/Compiler/NkGLSLCompiler.h" // (13/11, plan RTX etape 3) SPIR-V 1.5 pour rayQuery
 #include "NKSL/ShaderConvert/NkShaderConvert.h"
+#include "NKRHI/Core/NkDeviceFactory.h" // (13/11, plan RTX etape 3) le dispositif Vulkan du lancer de rayons materiel
 #include "NKCore/Text/NkSortie.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKMath/NkFunctions.h"
@@ -45,13 +47,33 @@ namespace nkentseu {
 			}
 
 			// Compile le nuanceur pour le dorsal du device (le chemin de NkGpuAtomicWitness).
-			::nkentseu::NkShaderHandle Compiler(NkIDevice *device) {
-				const NkString src = NkFile::ReadAllText(kCheminNuanceur);
-				if (src.Empty()) {
+			// (13/11/2026, plan RTX etape 3) `rtx` : le MEME fichier, NK_RTX defini (la traversee par rayQuery), en
+			// SPIR-V 1.5 (rayQuery demande 1.4 ; le dispositif RTX est en Vulkan 1.2)
+			::nkentseu::NkShaderHandle Compiler(NkIDevice *device, bool rtx = false) {
+				const NkString lu = NkFile::ReadAllText(kCheminNuanceur);
+				if (lu.Empty()) {
 					NkPrintfSortie("[traceur-gpu] nuanceur introuvable : %s (lancer depuis la racine Nkentseu)\n", kCheminNuanceur);
 					return ::nkentseu::NkShaderHandle{};
 				}
+				const NkString src = rtx ? NkString("#define NK_RTX 1\n") + lu : lu;
 				NkSLCompiler slc;
+				if (rtx) {
+					const NkSLCompileResult glr = slc.Compile(src, NkSLStage::NK_COMPUTE, NkSLTarget::NK_GLSL_VULKAN);
+					if (!glr.success) {
+						for (uint32 i = 0; i < glr.errors.Size() && i < 5; ++i)
+							NkPrintfSortie("[traceur-rtx] NkSL, ligne %u : %s\n", (unsigned)glr.errors[i].line, glr.errors[i].message.CStr());
+						return ::nkentseu::NkShaderHandle{};
+					}
+					const NkGLSLCompileResult spv = NkGLSLToSPIRV(NkSLStage::NK_COMPUTE, glr.source.CStr(), "main", 105u);
+					if (!spv.success) {
+						NkPrintfSortie("[traceur-rtx] GLSL -> SPIR-V refuse : %s\n", spv.errorLog ? spv.errorLog : "?");
+						return ::nkentseu::NkShaderHandle{};
+					}
+					NkShaderDesc sdr;
+					sdr.debugName = "traceur_chemins_rtx";
+					sdr.AddSPIRV(NkShaderStage::NK_COMPUTE, spv.spirv.Data(), (uint64)spv.spirv.Size() * 4u);
+					return device->CreateShader(sdr);
+				}
 				NkSLCompileResult gl = slc.Compile(src, NkSLStage::NK_COMPUTE, NkSLTarget::NK_GLSL_VULKAN);
 				if (!gl.success) {
 					for (uint32 i = 0; i < gl.errors.Size() && i < 5; ++i)
@@ -89,10 +111,51 @@ namespace nkentseu {
 					return ::nkentseu::NkShaderHandle{};
 				return device->CreateShader(sd);
 			}
+
+			// (13/11/2026, plan RTX etape 3) le dispositif du lancer de rayons materiel : Vulkan SANS fenetre, structures
+			// d'acceleration demandees ; nullptr (et la raison au journal) si la machine ne les a pas
+			NkIDevice *DispositifRTX() {
+				NkDeviceInitInfo init;
+				init.api = NkGraphicsApi::NK_GFX_API_VULKAN;
+				init.context.api = NkGraphicsApi::NK_GFX_API_VULKAN;
+				init.context.vulkan.rayTracing = true;
+				init.width = 64;
+				init.height = 64;
+				NkIDevice *d = NkDeviceFactory::CreateForApi(NkGraphicsApi::NK_GFX_API_VULKAN, init);
+				if (!d || !d->IsValid()) {
+					NkPrintfSortie("[traceur-rtx] REPLI SUR LE CALCUL : pas de dispositif Vulkan sans fenetre\n");
+					if (d)
+						NkDeviceFactory::Destroy(d);
+					return nullptr;
+				}
+				if (!d->GetCaps().rayQuery) {
+					NkPrintfSortie("[traceur-rtx] REPLI SUR LE CALCUL : la carte n'a ni structures d'acceleration ni rayQuery\n");
+					NkDeviceFactory::Destroy(d);
+					return nullptr;
+				}
+				return d;
+			}
+			// le dispositif RTX se detruit a la sortie de NkTcRendreGPU, quel que soit le chemin (ses ressources avec lui)
+			struct FinRTX {
+					NkIDevice *d = nullptr;
+					~FinRTX() {
+						if (d)
+							NkDeviceFactory::Destroy(d);
+					}
+			};
 		} // namespace
 
 		bool NkTcRendreGPU(NkIDevice *device, const NkTcCamera &cam, const NkTcReglages &r, const char *png, NkTcStats *stats,
 						   bool mutation) {
+			// (13/11/2026, plan RTX etape 3) NkTcReglages.rtx : le lancer de rayons MATERIEL, sur son propre dispositif Vulkan ;
+			// sans lui, le calcul sur `device` (le repli est dit au journal)
+			FinRTX finRtx;
+			if (r.rtx) {
+				finRtx.d = DispositifRTX();
+				if (finRtx.d)
+					device = finRtx.d;
+			}
+			const bool rtx = finRtx.d != nullptr;
 			if (!device || !device->GetCaps().computeShaders) {
 				NkPrintfSortie("[traceur-gpu] pas de nuanceur de calcul sur ce device : rendu GPU impossible\n");
 				return false;
@@ -118,7 +181,7 @@ namespace nkentseu {
 						pq.scene.PushBack(v[k]);
 				}
 			}
-			::nkentseu::NkShaderHandle sh = Compiler(device);
+			::nkentseu::NkShaderHandle sh = Compiler(device, rtx);
 			if (!sh.IsValid()) {
 				NkPrintfSortie("[traceur-gpu] nuanceur refuse\n");
 				return false;
@@ -128,6 +191,8 @@ namespace nkentseu {
 			ld.Add(1, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
 			ld.Add(2, NkDescriptorType::NK_STORAGE_BUFFER, NkShaderStage::NK_COMPUTE);
 			ld.Add(3, NkDescriptorType::NK_UNIFORM_BUFFER, NkShaderStage::NK_COMPUTE);
+			if (rtx)
+				ld.Add(4, NkDescriptorType::NK_ACCELERATION_STRUCTURE, NkShaderStage::NK_COMPUTE); // (13/11) la TLAS
 			NkDescSetHandle layout = device->CreateDescriptorSetLayout(ld);
 			NkComputePipelineDesc cpd;
 			cpd.shader = sh;
@@ -176,6 +241,51 @@ namespace nkentseu {
 				device->UpdateDescriptorSets(w, 3);
 			}
 			device->BindUniformBuffer(set, 3, bUbo);
+			// (13/11/2026, plan RTX etape 3) LES STRUCTURES D'ACCELERATION : une BLAS de tous les triangles DANS L'ORDRE du
+			// paquet (l'indice de primitive = l'indice du bloc des triangles), non opaque (le masque des feuilles est lu par
+			// le nuanceur), et une TLAS d'une instance identite ; liee au binding 4
+			NkAccelStructHandle blas, tlas;
+			if (rtx) {
+				const NkElapsedTime ta = NkChrono::Now();
+				NkVector<float32> pos;
+				if (!NkTcTrianglesOrdonnes(pos)) {
+					NkPrintfSortie("[traceur-rtx] triangles de la scene absents\n");
+					return false;
+				}
+				const uint32 nv = (uint32)(pos.Size() / 3u);
+				NkVector<uint32> idx;
+				idx.Resize(nv);
+				for (uint32 i = 0; i < nv; ++i)
+					idx[i] = i;
+				NkBlasDesc bd;
+				bd.positions = pos.Data();
+				bd.vertexCount = nv;
+				bd.indices = idx.Data();
+				bd.indexCount = nv;
+				bd.opaque = false;
+				bd.debugName = "traceur_blas";
+				blas = device->CreateBottomLevelAS(bd);
+				NkTlasInstance inst;
+				inst.blas = blas;
+				NkTlasDesc td;
+				td.instances = &inst;
+				td.instanceCount = 1;
+				td.debugName = "traceur_tlas";
+				tlas = blas.IsValid() ? device->CreateTopLevelAS(td) : NkAccelStructHandle::Null();
+				if (!tlas.IsValid()) {
+					NkPrintfSortie("[traceur-rtx] structures d'acceleration refusees (%u triangles)\n", (unsigned)(nv / 3u));
+					return false;
+				}
+				NkDescriptorWrite wa{};
+				wa.set = set;
+				wa.binding = 4;
+				wa.type = NkDescriptorType::NK_ACCELERATION_STRUCTURE;
+				wa.accelStruct = tlas;
+				device->UpdateDescriptorSets(&wa, 1);
+				NkPrintfSortie("[traceur-rtx] MATERIEL : BLAS de %u triangles (%.1f Mo), TLAS (%.1f Ko), construites en %.0f ms\n",
+							   (unsigned)(nv / 3u), (float64)device->GetAccelStructSize(blas) / 1048576.0,
+							   (float64)device->GetAccelStructSize(tlas) / 1024.0, (NkChrono::Now() - ta).ToMilliseconds());
+			}
 			// les parametres fixes
 			Params pr{};
 			const float32 fw0[3] = {cam.cible[0] - cam.oeil[0], cam.cible[1] - cam.oeil[1], cam.cible[2] - cam.oeil[2]};
@@ -340,11 +450,12 @@ namespace nkentseu {
 			o4.Resize(n * 16);
 			device->ReadBuffer(bSortie, o4.Data(), (uint64)n * 64u, 0);
 			NkPrintfSortie("[traceur-gpu] %dx%d, %d ech./pixel : preparation %.0f ms (compilation, tampons %.1f + %.1f Mo), rendu %.2f s "
-						   "(%.1f Mech./s)%s\n",
+						   "(%.1f Mech./s)%s%s\n",
 						   (int)cam.L, (int)cam.H, (int)fait, msPrep, (float64)pq.scene.Size() * 4.0 / 1048576.0,
 						   (float64)pq.cartes.Size() * 4.0 / 1048576.0, msRendu / 1000.0,
 						   msRendu > 0.0 ? (float64)n * (float64)fait / msRendu / 1000.0 : 0.0,
-						   mutation ? " -- MUTATION (rayons d'ombre coupes : pas d'ombre)" : "");
+						   mutation ? " -- MUTATION (rayons d'ombre coupes : pas d'ombre)" : "",
+						   rtx ? " -- MATERIEL (rayQuery, plan RTX etape 3)" : "");
 			NkPrintfSortie("[traceur-gpu] ENVOI LE PLUS LONG : %.1f ms, le premier %.1f ms (bandes de %d a %d lignes ; borne visee "
 						   "500 ms, le pilote coupe vers 2 s)%s\n",
 						   envoiMax, envoiPremier, (int)bandeMin, (int)bandeMax,
@@ -357,6 +468,10 @@ namespace nkentseu {
 			device->DestroyBuffer(bUbo);
 			device->DestroyPipeline(pipe);
 			device->DestroyShader(sh);
+			if (rtx) {
+				device->DestroyAccelStruct(tlas); // la TLAS d'abord : elle reference la BLAS
+				device->DestroyAccelStruct(blas);
+			}
 			NkTcPoserMilieu(NkTcReglages{}); // (13/11) le milieu ne survit pas au rendu
 			return ok;
 		}

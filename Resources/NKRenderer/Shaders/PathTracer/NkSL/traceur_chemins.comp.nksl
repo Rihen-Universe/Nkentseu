@@ -21,6 +21,11 @@
     vec4 off1;
     vec4 cartes[16]; // (10/11) 16 classes : + tissu, velours, placage ; cartes[12].w = la regularisation
 } P;
+#ifdef NK_RTX
+// (13/11/2026, plan RTX etape 3) LE LANCER DE RAYONS MATERIEL : la TLAS des triangles de la scene, DANS L'ORDRE du bloc
+// des triangles (l'indice de primitive vaut l'indice g + i du parcours de la BVH) -- NkTraceurGPU.cpp, NkTcRendreGPU
+@binding(set=0, binding=4) uniform accelerationStructure scene;
+#endif
 layout(local_size_x = 8, local_size_y = 8) in;
 
 uint gEtat;
@@ -120,6 +125,65 @@ bool AlphaPasse(int k, float b1, float b2) {
     uint px = TexelObjet(k, int(e.x), b1, b2);
     return float(px >> 24u) >= e.y * 255.0;
 }
+#ifdef NK_RTX
+// (13/11/2026, plan RTX etape 3) LA TRAVERSEE PAR LE MATERIEL (rayQuery) : le meme contrat que la BVH du calcul -- le
+// plus proche impact au-dela de 1e-4, les feuilles a masque testees (AlphaPasse) ; toutes les primitives sont non
+// opaques pour que le masque soit lu (le meme resultat que le calcul, au prix de quelques appels)
+bool Tracer(vec3 o, vec3 d, float tmax, out float th, out int tri, out float b1, out float b2) {
+    int bt = floatBitsToInt(P.off0.y);
+    th = tmax;
+    tri = -1;
+    b1 = 0.0;
+    b2 = 0.0;
+    rayQuery q;
+    rayQueryInitialize(q, scene, RAY_FLAG_NONE, 255u, o, 1e-4, d, tmax);
+    while (rayQueryProceed(q)) {
+        if (rayQueryGetIntersectionType(q, false) == RAY_QUERY_CANDIDATE_TRIANGLE) {
+            int k = rayQueryGetIntersectionPrimitiveIndex(q, false);
+            vec2 bc = rayQueryGetIntersectionBarycentrics(q, false);
+            if (AlphaPasse(bt + 4 * k, bc.x, bc.y)) rayQueryConfirmIntersection(q);
+        }
+    }
+    if (rayQueryGetIntersectionType(q, true) == RAY_QUERY_COMMITTED_TRIANGLE) {
+        th = rayQueryGetIntersectionT(q, true);
+        tri = rayQueryGetIntersectionPrimitiveIndex(q, true);
+        vec2 bc = rayQueryGetIntersectionBarycentrics(q, true);
+        b1 = bc.x;
+        b2 = bc.y;
+    }
+    return tri >= 0;
+}
+// la transmission d'un rayon d'ombre par le materiel : chaque candidat qui passe son masque est une vitre (sa teinte
+// x 0,96) ou un opaque (0) -- l'ordre des candidats n'importe pas (un produit)
+vec3 TransmissionSurfaces(vec3 o, vec3 d, float tmax) {
+    vec3 tr = vec3(1.0, 1.0, 1.0);
+    int bt = floatBitsToInt(P.off0.y);
+    int bm = floatBitsToInt(P.off0.w);
+    rayQuery q;
+    rayQueryInitialize(q, scene, RAY_FLAG_NONE, 255u, o, 1e-4, d, tmax);
+    while (rayQueryProceed(q)) {
+        if (rayQueryGetIntersectionType(q, false) == RAY_QUERY_CANDIDATE_TRIANGLE) {
+            int k = bt + 4 * rayQueryGetIntersectionPrimitiveIndex(q, false);
+            vec2 bc = rayQueryGetIntersectionBarycentrics(q, false);
+            if (AlphaPasse(k, bc.x, bc.y)) {
+                int mat = int(S.d[k].w);
+                vec4 m1 = S.d[bm + 4 * mat + 1];
+                if (m1.y > 0.5) {
+                    tr = tr * S.d[bm + 4 * mat].xyz * 0.96;
+                    if (LumC(tr) < 1e-3) {
+                        rayQueryTerminate(q);
+                        tr = vec3(0.0, 0.0, 0.0);
+                    }
+                } else {
+                    rayQueryTerminate(q);
+                    tr = vec3(0.0, 0.0, 0.0);
+                }
+            }
+        }
+    }
+    return tr;
+}
+#else
 bool Tracer(vec3 o, vec3 d, float tmax, out float th, out int tri, out float b1, out float b2) {
     vec3 inv = Inverse(d);
     int pile[64];
@@ -199,6 +263,7 @@ vec3 TransmissionSurfaces(vec3 o, vec3 d, float tmax) {
     }
     return tr;
 }
+#endif
 // (13/11) LE MILIEU PARTICIPANT (cartes[5].w = decalage au bit pres de trois vec4 : (extinction, albedo, phase g, -),
 // (boite min, -), (boite max, -) ; 0 : aucun) -- comme Milieu, IntervalleMilieu, TrMilieu de NkTraceurChemins.cpp
 bool IntervalleMilieu(vec3 o, vec3 d, float tmax, int offM, out float t0, out float t1) {

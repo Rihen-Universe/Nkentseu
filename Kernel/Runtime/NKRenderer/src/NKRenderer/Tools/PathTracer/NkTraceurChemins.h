@@ -113,6 +113,10 @@ namespace nkentseu {
 				float32 volG = 0.3f;
 				float32 volBoite[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
 				bool volBoiteDonnee = false;
+				/// (13/11/2026, plan RTX etape 3) LE LANCER DE RAYONS MATERIEL : NkTcRendreGPU cree un dispositif Vulkan sans
+				/// fenetre qui demande les structures d'acceleration (BLAS des triangles dans l'ordre du paquet, TLAS d'une
+				/// instance) et traverse par rayQuery ; sans elles, repli sur le calcul, la raison au journal. Faux : le calcul.
+				bool rtx = false;
 		};
 
 		struct NkTcStats {
@@ -155,6 +159,10 @@ namespace nkentseu {
 				int32 offObjet = 0;
 		};
 		bool NkTcEmpaqueter(NkTcPaquet &p);
+		/// (13/11/2026, plan RTX etape 3) les triangles de la scene preparee DANS L'ORDRE du paquet (celui de la BVH : l'indice
+		/// de primitive de la BLAS vaut l'indice du bloc des triangles) : trois sommets monde par triangle, v0, v0 + e1,
+		/// v0 + e2. NK_RTX_ORDRE_MUTATION=1 : l'ordre de la scene (contre-epreuve de la parite)
+		bool NkTcTrianglesOrdonnes(NkVector<float32> &positions);
 		/// (13/11/2026) un entier rendu AU BIT PRES dans un flottant du paquet (son motif binaire ; le nuanceur le relit par
 		/// floatBitsToInt) : les indices et decalages du paquet depassent 2^24 dans une grande scene
 		float32 NkTcBits(int32 v);

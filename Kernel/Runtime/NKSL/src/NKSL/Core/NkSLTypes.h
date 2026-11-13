@@ -299,8 +299,20 @@ namespace nkentseu {
 		// glslang, automatique depuis le texte GLSL-Vulkan), HLSL → half natif,
 		// MSL → half natif. Taille 2 octets (voir NkSLBaseTypeSize).
 		// =====================================================================
-		NK_HALF
+		NK_HALF,
+		// =====================================================================
+		// (13/11/2026, plan RTX etape 2) LE LANCER DE RAYONS EN LIGNE -- additif, en tout dernier (aucune valeur ne
+		// bouge) : `accelerationStructure` (une TLAS liee comme une ressource, @binding) et `rayQuery` (une requete
+		// locale, opaque). GLSL Vulkan et SPIR-V seulement (GL_EXT_ray_query, SPIR-V 1.4) ; les autres cibles les
+		// refusent avec un message clair (NkSLCompiler).
+		// =====================================================================
+		NK_ACCEL_STRUCT,
+		NK_RAY_QUERY
 	};
+
+	inline bool NkSLTypeIsRayQuery(NkSLBaseType t) {
+		return t == NkSLBaseType::NK_ACCEL_STRUCT || t == NkSLBaseType::NK_RAY_QUERY;
+	}
 
 	inline bool NkSLTypeIsSampler(NkSLBaseType t) {
 		return t >= NkSLBaseType::NK_SAMPLER2D && t <= NkSLBaseType::NK_USAMPLER_CUBE_ARRAY;

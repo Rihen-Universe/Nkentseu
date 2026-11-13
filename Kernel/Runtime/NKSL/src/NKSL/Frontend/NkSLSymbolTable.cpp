@@ -333,6 +333,18 @@ namespace nkentseu {
 		defVar("gl_InstanceID", NkSLBaseType::NK_INT);
 		defVar("gl_FrontFacing", NkSLBaseType::NK_BOOL);
 		defVar("gl_LocalInvocationID", NkSLBaseType::NK_UVEC3);
+		// (13/11/2026, plan RTX etape 2) les drapeaux et les types d'impact du lancer de rayons en ligne (uint) ;
+		// le generateur GLSL Vulkan les ecrit avec les noms gl_*EXT
+		defVar("RAY_FLAG_NONE", NkSLBaseType::NK_UINT);
+		defVar("RAY_FLAG_OPAQUE", NkSLBaseType::NK_UINT);
+		defVar("RAY_FLAG_NO_OPAQUE", NkSLBaseType::NK_UINT);
+		defVar("RAY_FLAG_TERMINATE_ON_FIRST_HIT", NkSLBaseType::NK_UINT);
+		defVar("RAY_FLAG_SKIP_CLOSEST_HIT", NkSLBaseType::NK_UINT);
+		defVar("RAY_FLAG_CULL_BACK_FACING", NkSLBaseType::NK_UINT);
+		defVar("RAY_FLAG_CULL_FRONT_FACING", NkSLBaseType::NK_UINT);
+		defVar("RAY_QUERY_COMMITTED_NONE", NkSLBaseType::NK_UINT);
+		defVar("RAY_QUERY_COMMITTED_TRIANGLE", NkSLBaseType::NK_UINT);
+		defVar("RAY_QUERY_CANDIDATE_TRIANGLE", NkSLBaseType::NK_UINT);
 		defVar("gl_GlobalInvocationID", NkSLBaseType::NK_UVEC3);
 		defVar("gl_WorkGroupID", NkSLBaseType::NK_UVEC3);
 		defVar("gl_WorkGroupSize", NkSLBaseType::NK_UVEC3);
@@ -663,6 +675,26 @@ namespace nkentseu {
 		defFunc("emit", {}, NkSLBaseType::NK_VOID); // geometry shader
 		defFunc("EndPrimitive", {}, NkSLBaseType::NK_VOID);
 		defFunc("EmitVertex", {}, NkSLBaseType::NK_VOID);
+
+		// (13/11/2026, plan RTX etape 2) LE LANCER DE RAYONS EN LIGNE (GL_EXT_ray_query sans le suffixe EXT ; le
+		// generateur GLSL Vulkan l'ajoute). `committed` : vrai = l'impact retenu, faux = le candidat en cours.
+		const NkSLBaseType RQ = NkSLBaseType::NK_RAY_QUERY, B = NkSLBaseType::NK_BOOL;
+		defFunc("rayQueryInitialize",
+				{RQ, NkSLBaseType::NK_ACCEL_STRUCT, NkSLBaseType::NK_UINT, NkSLBaseType::NK_UINT, NkSLBaseType::NK_VEC3,
+				 NkSLBaseType::NK_FLOAT, NkSLBaseType::NK_VEC3, NkSLBaseType::NK_FLOAT},
+				NkSLBaseType::NK_VOID);
+		defFunc("rayQueryProceed", {RQ}, NkSLBaseType::NK_BOOL);
+		defFunc("rayQueryTerminate", {RQ}, NkSLBaseType::NK_VOID);
+		defFunc("rayQueryConfirmIntersection", {RQ}, NkSLBaseType::NK_VOID);
+		defFunc("rayQueryGetRayTMin", {RQ}, NkSLBaseType::NK_FLOAT);
+		defFunc("rayQueryGetIntersectionType", {RQ, B}, NkSLBaseType::NK_UINT);
+		defFunc("rayQueryGetIntersectionT", {RQ, B}, NkSLBaseType::NK_FLOAT);
+		defFunc("rayQueryGetIntersectionInstanceCustomIndex", {RQ, B}, NkSLBaseType::NK_INT);
+		defFunc("rayQueryGetIntersectionInstanceId", {RQ, B}, NkSLBaseType::NK_INT);
+		defFunc("rayQueryGetIntersectionPrimitiveIndex", {RQ, B}, NkSLBaseType::NK_INT);
+		defFunc("rayQueryGetIntersectionGeometryIndex", {RQ, B}, NkSLBaseType::NK_INT);
+		defFunc("rayQueryGetIntersectionBarycentrics", {RQ, B}, NkSLBaseType::NK_VEC2);
+		defFunc("rayQueryGetIntersectionFrontFace", {RQ, B}, NkSLBaseType::NK_BOOL);
 	}
 
 } // namespace nkentseu
