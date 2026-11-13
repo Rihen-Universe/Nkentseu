@@ -749,6 +749,9 @@ namespace nkentseu {
 		NK_COMBINED_IMAGE_SAMPLER, // texture + sampler combinés (GL style)
 		NK_SAMPLER,
 		NK_INPUT_ATTACHMENT, // subpass input (Vulkan)
+		// (13/11/2026, plan RTX etape 1) une TLAS lue par rayQuery (Vulkan avec NkVulkanDesc.rayTracing ; ailleurs :
+		// non pris en charge). AJOUTE EN FIN : les valeurs d'avant ne bougent pas.
+		NK_ACCELERATION_STRUCTURE,
 	};
 
 	struct NkDescriptorBinding {
@@ -798,6 +801,38 @@ namespace nkentseu {
 			NkSamplerHandle sampler;
 			// Layout attendu pour la texture
 			NkResourceState textureLayout = NkResourceState::NK_SHADER_READ;
+			// (13/11/2026, plan RTX etape 1) la structure d'acceleration (type NK_ACCELERATION_STRUCTURE)
+			NkAccelStructHandle accelStruct;
+	};
+
+	// =============================================================================
+	// (13/11/2026, plan RTX etape 1) LES STRUCTURES D'ACCELERATION du lancer de rayons materiel
+	// =============================================================================
+	// BLAS : des triangles. Le dispositif COPIE les positions et les indices depuis la memoire centrale (le traceur
+	// a deja sa geometrie au processeur) ; rien n'est garde apres la construction.
+	struct NkBlasDesc {
+			const float32 *positions = nullptr; ///< x, y, z (float32) par sommet, au pas `strideOctets`
+			uint32 vertexCount = 0;
+			uint32 strideOctets = 12;
+			const uint32 *indices = nullptr; ///< trois par triangle
+			uint32 indexCount = 0;
+			bool opaque = true; ///< sans nuanceur d'impact quelconque (any-hit) : le cas du traceur
+			const char *debugName = nullptr;
+	};
+
+	// une instance de BLAS dans une TLAS : la transformation 3 x 4 PAR LIGNES (rotation | translation), comme
+	// VkTransformMatrixKHR et D3D12_RAYTRACING_INSTANCE_DESC
+	struct NkTlasInstance {
+			float32 transform[12] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f};
+			uint32 instanceId = 0; ///< 24 bits : gl_InstanceCustomIndexEXT / rayQueryGetIntersectionInstanceCustomIndexEXT
+			uint8 mask = 0xFF;
+			NkAccelStructHandle blas;
+	};
+
+	struct NkTlasDesc {
+			const NkTlasInstance *instances = nullptr;
+			uint32 instanceCount = 0;
+			const char *debugName = nullptr;
 	};
 
 	// =============================================================================

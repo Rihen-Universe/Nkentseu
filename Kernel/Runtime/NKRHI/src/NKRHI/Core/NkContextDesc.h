@@ -76,6 +76,11 @@ namespace nkentseu {
 			int32 msaaSamples = 1;
 			uint32 preferredAdapterIndex = UINT32_MAX;
 			bool enableComputeQueue = true;
+			// (13/11/2026, plan RTX etape 1) DEMANDE les structures d'acceleration et rayQuery (VK_KHR_acceleration_structure,
+			// VK_KHR_ray_query, VK_KHR_deferred_host_operations, bufferDeviceAddress ; Vulkan 1.2 si apiVersion vaut 0).
+			// Faux par defaut : sans la demande, le dispositif est cree exactement comme avant. Si la carte ne les a pas,
+			// caps.rayQuery reste faux et CreateBottomLevelAS rend une poignee nulle.
+			bool rayTracing = false;
 			const char **extraInstanceExt = nullptr;
 			uint32 extraInstanceExtCount = 0;
 			const char **extraDeviceExt = nullptr;

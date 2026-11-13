@@ -170,7 +170,9 @@ namespace nkentseu {
 		appInfo.applicationVersion = vkdesc.appVersion;
 		appInfo.pEngineName = vkdesc.engineName ? vkdesc.engineName : "NkEngine";
 		appInfo.engineVersion = 1;
-		appInfo.apiVersion = vkdesc.apiVersion != 0 ? vkdesc.apiVersion : VK_API_VERSION_1_1;
+		// (13/11/2026, plan RTX etape 1) les structures d'acceleration demandent Vulkan 1.2 (bufferDeviceAddress,
+		// SPIR-V 1.4) : 1.2 quand NkVulkanDesc.rayTracing est demande, 1.1 sinon (comme avant)
+		appInfo.apiVersion = vkdesc.apiVersion != 0 ? vkdesc.apiVersion : (vkdesc.rayTracing ? VK_API_VERSION_1_2 : VK_API_VERSION_1_1);
 
 		uint32_t extensionCount = 0;
 		vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
@@ -485,6 +487,9 @@ namespace nkentseu {
 			{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4096}, {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
 			{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 256},		   {VK_DESCRIPTOR_TYPE_SAMPLER, 256},
 			{VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 64},
+			// (13/11/2026, plan RTX etape 1) les TLAS lues par rayQuery : cette derniere entree n'est COMPTEE que si
+			// les structures d'acceleration sont actives (le type n'existe pas sans l'extension)
+			{VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 64},
 		};
 		VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
 		// UPDATE_AFTER_BIND_BIT : permet de updater un descriptor set tant qu'il
@@ -495,7 +500,7 @@ namespace nkentseu {
 		dpci.flags =
 			VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
 		dpci.maxSets = 12288; // cap 4096 × 2 frames = 8192 sets objet + globals/mirror/matériaux
-		dpci.poolSizeCount = (uint32)std::size(poolSizes);
+		dpci.poolSizeCount = (uint32)std::size(poolSizes) - (mRtActif ? 0u : 1u);
 		dpci.pPoolSizes = poolSizes;
 		NK_VK_CHECKRET(vkCreateDescriptorPool(mDevice, &dpci, nullptr, &mDescPool), "vkCreateDescriptorPool");
 
@@ -608,6 +613,15 @@ namespace nkentseu {
 		VkPhysicalDeviceVulkan12Features feats12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
 		VkPhysicalDeviceFeatures2 feats2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
 		feats2.pNext = &feats12;
+		// (13/11/2026, plan RTX etape 1) les structures d'acceleration et rayQuery, SEULEMENT sur demande
+		// (NkVulkanDesc.rayTracing) : sans elle, la chaine des features et la liste des extensions restent celles d'avant
+		VkPhysicalDeviceAccelerationStructureFeaturesKHR featsAS{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
+		VkPhysicalDeviceRayQueryFeaturesKHR featsRQ{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
+		const bool rtDemande = vkdesc.rayTracing && CarteAExtensionsRT();
+		if (rtDemande) {
+			feats12.pNext = &featsAS;
+			featsAS.pNext = &featsRQ;
+		}
 		// Résolution DYNAMIQUE : vkGetPhysicalDeviceFeatures2 (core 1.1) n'est pas
 		// exporté par le loader Android avant l'API 26 -> un appel direct casse le
 		// LINK des .so minSdk 24. On passe par vkGetInstanceProcAddr (core + suffixe
@@ -638,6 +652,33 @@ namespace nkentseu {
 		if (feats12.descriptorBindingStorageBufferUpdateAfterBind)
 			enabled12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
 
+		// (13/11/2026, plan RTX etape 1) activees ensemble ou pas du tout
+		VkPhysicalDeviceAccelerationStructureFeaturesKHR enabledAS{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
+		VkPhysicalDeviceRayQueryFeaturesKHR enabledRQ{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
+		mRtActif = false;
+		mRtUpdateAfterBind = false;
+		if (rtDemande && feats12.bufferDeviceAddress && featsAS.accelerationStructure && featsRQ.rayQuery) {
+			mRtActif = true;
+			enabled12.bufferDeviceAddress = VK_TRUE;
+			enabledAS.accelerationStructure = VK_TRUE;
+			mRtUpdateAfterBind = featsAS.descriptorBindingAccelerationStructureUpdateAfterBind == VK_TRUE;
+			if (mRtUpdateAfterBind)
+				enabledAS.descriptorBindingAccelerationStructureUpdateAfterBind = VK_TRUE;
+			enabledRQ.rayQuery = VK_TRUE;
+			enabled12.pNext = &enabledAS;
+			enabledAS.pNext = &enabledRQ;
+			const char *rt[3] = {VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_QUERY_EXTENSION_NAME,
+								 VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME};
+			for (uint32 k = 0; k < 3; ++k)
+				if (!HasCStr(deviceExts, rt[k]))
+					deviceExts.PushBack(rt[k]);
+		}
+		if (vkdesc.rayTracing)
+			NK_VK_LOG("RTX : structures d'acceleration %s (extensions %s, bufferDeviceAddress %d, accelerationStructure %d, "
+					  "rayQuery %d)\n",
+					  mRtActif ? "ACTIVES" : "non prises en charge", rtDemande ? "presentes" : "absentes",
+					  (int)feats12.bufferDeviceAddress, (int)featsAS.accelerationStructure, (int)featsRQ.rayQuery);
+
 		VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 		dci.pNext = &enabled12; // chain Vulkan 1.2 features
 		dci.queueCreateInfoCount = (uint32)queueInfos.Size();
@@ -647,6 +688,11 @@ namespace nkentseu {
 		dci.pEnabledFeatures = &features;
 
 		NK_VK_CHECKRET(vkCreateDevice(mPhysicalDevice, &dci, nullptr, &mDevice), "vkCreateDevice");
+		// (13/11/2026, plan RTX etape 1) les fonctions des extensions (le chargeur ne les exporte pas)
+		if (mRtActif && !ChargerFonctionsRT()) {
+			NK_VK_LOG("RTX : fonctions des structures d'acceleration introuvables -> non prises en charge\n");
+			mRtActif = false;
+		}
 
 		vkGetDeviceQueue(mDevice, mGraphicsFamily, 0, &mGraphicsQueue);
 		if (mSurface != VK_NULL_HANDLE && mPresentFamily != UINT32_MAX)
@@ -701,6 +747,7 @@ namespace nkentseu {
 			vkDestroyDescriptorSetLayout(mDevice, dl.layout, nullptr);
 		for (auto &[id, f] : mFences)
 			vkDestroyFence(mDevice, f.fence, nullptr);
+		DetruireAccels(); // (13/11/2026, plan RTX etape 1) TLAS et BLAS restantes
 
 		for (uint32 i = 0; i < MAX_FRAMES; i++) {
 			vkDestroyFence(mDevice, mFrames[i].inFlightFence, nullptr);
@@ -2221,6 +2268,9 @@ namespace nkentseu {
 		NkVector<VkDescriptorBindingFlags> bindingFlags(d.bindings.Size());
 		for (uint32 i = 0; i < d.bindings.Size(); ++i) {
 			bindingFlags[i] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+			// (13/11/2026, plan RTX etape 1) une TLAS ne se met a jour apres liaison que si la carte le permet
+			if (d.bindings[i].type == NkDescriptorType::NK_ACCELERATION_STRUCTURE && !mRtUpdateAfterBind)
+				bindingFlags[i] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
 		}
 		VkDescriptorSetLayoutBindingFlagsCreateInfo bfci{
 			VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
@@ -2285,6 +2335,11 @@ namespace nkentseu {
 		bufInfos.Reserve(n);
 		NkVector<VkDescriptorImageInfo> imgInfos;
 		imgInfos.Reserve(n);
+		// (13/11/2026, plan RTX etape 1) les TLAS : la structure et son enregistrement chaine (adresses stables : reserve)
+		NkVector<VkAccelerationStructureKHR> asHandles;
+		asHandles.Reserve(n);
+		NkVector<VkWriteDescriptorSetAccelerationStructureKHR> asInfos;
+		asInfos.Reserve(n);
 
 		for (uint32 i = 0; i < n; i++) {
 			auto &w = writes[i];
@@ -2298,7 +2353,17 @@ namespace nkentseu {
 			ws.descriptorType = ToVkDescriptorType(w.type);
 			ws.descriptorCount = 1;
 
-			if (w.buffer.IsValid()) {
+			if (w.type == NkDescriptorType::NK_ACCELERATION_STRUCTURE) {
+				auto ait = mAccels.Find(w.accelStruct.id);
+				if (!mRtActif || !ait || ait->as == VK_NULL_HANDLE)
+					continue;
+				asHandles.PushBack(ait->as);
+				VkWriteDescriptorSetAccelerationStructureKHR wa{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
+				wa.accelerationStructureCount = 1;
+				wa.pAccelerationStructures = &asHandles[asHandles.Size() - 1];
+				asInfos.PushBack(wa);
+				ws.pNext = &asInfos[asInfos.Size() - 1];
+			} else if (w.buffer.IsValid()) {
 				auto bit = mBuffers.Find(w.buffer.id);
 				if (!bit)
 					continue;
@@ -2571,6 +2636,9 @@ namespace nkentseu {
 		mCaps.tessellationShaders = feats.tessellationShader;
 		mCaps.geometryShaders = feats.geometryShader;
 		mCaps.computeShaders = true;
+		// (13/11/2026, plan RTX etape 1) vrai seulement si demande ET pris en charge (CreateLogicalDevice)
+		mCaps.rayQuery = mRtActif;
+		mCaps.rayTracing = mRtActif;
 		mCaps.drawIndirect = true;
 		mCaps.multiViewport = feats.multiViewport;
 		mCaps.independentBlend = feats.independentBlend;
@@ -2983,6 +3051,8 @@ namespace nkentseu {
 				return VK_DESCRIPTOR_TYPE_SAMPLER;
 			case NkDescriptorType::NK_INPUT_ATTACHMENT:
 				return VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+			case NkDescriptorType::NK_ACCELERATION_STRUCTURE:
+				return VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
 			default:
 				return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		}

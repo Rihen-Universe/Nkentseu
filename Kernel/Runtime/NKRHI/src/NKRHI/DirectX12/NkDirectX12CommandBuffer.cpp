@@ -322,6 +322,9 @@ namespace nkentseu {
 					if (b.sampId != 0 && b.slot < kMergedSamp)
 						mMergedSamp[b.slot] = mDev->GetSamplerHeapIndex(b.sampId);
 					break;
+				case NkDescriptorType::NK_ACCELERATION_STRUCTURE:
+					// (13/11/2026) non pris en charge en DX12 avant DXR (plan RTX etape 5) : rien a lier
+					break;
 			}
 		}
 

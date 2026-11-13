@@ -232,7 +232,10 @@ namespace nkentseu {
 				void RegisterSystem(std::unique_ptr<NkSystem> sys) noexcept {
 					SystemEntry entry;
 					entry.desc = sys->Describe();
-					entry.typeId = std::type_index(typeid(*sys));
+					// (13/11/2026) la reference d'abord : typeid(*sys) evaluait un appel (operator*) dans son operande
+					// (-Wpotentially-evaluated-expression) ; meme type dynamique, aucun changement de comportement
+					const NkSystem &systeme = *sys;
+					entry.typeId = std::type_index(typeid(systeme));
 					entry.index = static_cast<uint32>(mSystems.size());
 					entry.system = std::move(sys);
 					mSystems.push_back(std::move(entry));

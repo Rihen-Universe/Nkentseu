@@ -81,6 +81,10 @@ namespace nkentseu {
 			bool indirectDispatch = false; // compute DispatchIndirect
 			bool bindlessTextures = false; // DX12/VK descriptor indexing
 			bool rayTracing = false;	   // DX12 DXR / VK KHR_ray_tracing
+			// (13/11/2026, plan RTX etape 1) les structures d'acceleration (BLAS, TLAS) se construisent et un nuanceur
+			// de calcul les traverse par rayQuery. Rempli par Vulkan quand NkVulkanDesc.rayTracing est demande et que la
+			// carte a VK_KHR_acceleration_structure + VK_KHR_ray_query ; faux partout ailleurs. rayTracing le suit.
+			bool rayQuery = false;
 			bool variableRateShading = false;
 			bool conservativeRasterization = false;
 			bool depthClipControl = false;
@@ -442,6 +446,30 @@ namespace nkentseu {
 
 			virtual float32 GetTimestampPeriodNs() {
 				return 1.f;
+			}
+
+			// =========================================================================
+			// (13/11/2026, plan RTX etape 1) LES STRUCTURES D'ACCELERATION (lancer de rayons materiel)
+			// =========================================================================
+			// Par defaut : NON PRIS EN CHARGE -- poignee nulle, taille et adresse 0 (DX11, DX12 avant DXR, OpenGL, Metal,
+			// logiciel, et Vulkan sans NkVulkanDesc.rayTracing). La construction est SYNCHRONE (le dispositif attend la
+			// fin) ; une TLAS reference ses BLAS par adresse : detruire une BLAS avant la TLAS qui l'emploie est une faute.
+			virtual NkAccelStructHandle CreateBottomLevelAS(const NkBlasDesc & /*desc*/) {
+				return NkAccelStructHandle::Null();
+			}
+			virtual NkAccelStructHandle CreateTopLevelAS(const NkTlasDesc & /*desc*/) {
+				return NkAccelStructHandle::Null();
+			}
+			virtual void DestroyAccelStruct(NkAccelStructHandle &handle) {
+				handle = NkAccelStructHandle::Null();
+			}
+			/// la taille de la structure en memoire de la carte (octets)
+			virtual uint64 GetAccelStructSize(NkAccelStructHandle /*handle*/) const {
+				return 0;
+			}
+			/// l'adresse de la structure sur la carte (ce qu'une instance de TLAS reference)
+			virtual uint64 GetAccelStructDeviceAddress(NkAccelStructHandle /*handle*/) const {
+				return 0;
 			}
 
 			// =========================================================================

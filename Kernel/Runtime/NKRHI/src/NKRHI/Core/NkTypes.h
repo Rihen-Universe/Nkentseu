@@ -60,6 +60,9 @@ namespace nkentseu {
 
 	struct NkTagBindlessHeap {};
 
+	// (13/11/2026, plan RTX etape 1) une structure d'acceleration du lancer de rayons materiel (BLAS ou TLAS)
+	struct NkTagAccelStruct {};
+
 	using NkBufferHandle = NkRhiHandle<NkTagBuffer>;
 	using NkTextureHandle = NkRhiHandle<NkTagTexture>;
 	using NkSamplerHandle = NkRhiHandle<NkTagSampler>;
@@ -71,6 +74,7 @@ namespace nkentseu {
 	using NkDescSetHandle = NkRhiHandle<NkTagDescSet>;
 	using NkSemaphoreHandle = NkRhiHandle<NkTagSemaphore>;
 	using NkBindlessHeapHandle = NkRhiHandle<NkTagBindlessHeap>;
+	using NkAccelStructHandle = NkRhiHandle<NkTagAccelStruct>;
 
 	// =============================================================================
 	// Formats pixel / vertex

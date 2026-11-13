@@ -307,7 +307,43 @@ namespace nkentseu {
 			VkCommandBuffer BeginOneShot();
 			void EndOneShot(VkCommandBuffer cmd);
 
+			// (13/11/2026, plan RTX etape 1) LES STRUCTURES D'ACCELERATION (NkVulkanAccel.cpp) : actives seulement avec
+			// NkVulkanDesc.rayTracing et une carte qui les a ; sinon le comportement « non pris en charge » de NkIDevice
+			NkAccelStructHandle CreateBottomLevelAS(const NkBlasDesc &desc) override;
+			NkAccelStructHandle CreateTopLevelAS(const NkTlasDesc &desc) override;
+			void DestroyAccelStruct(NkAccelStructHandle &handle) override;
+			uint64 GetAccelStructSize(NkAccelStructHandle handle) const override;
+			uint64 GetAccelStructDeviceAddress(NkAccelStructHandle handle) const override;
+
 		private:
+			// (13/11/2026, plan RTX etape 1) les aides des structures d'acceleration (NkVulkanAccel.cpp)
+			struct NkVkAccel {
+					VkAccelerationStructureKHR as = VK_NULL_HANDLE;
+					VkBuffer buffer = VK_NULL_HANDLE;
+					VkDeviceMemory memory = VK_NULL_HANDLE;
+					uint64 taille = 0;
+					uint64 adresse = 0;
+					bool haut = false; ///< TLAS (sinon BLAS)
+			};
+			bool CarteAExtensionsRT() const;
+			bool ChargerFonctionsRT();
+			bool CreerTamponRT(uint64 taille, VkBufferUsageFlags usage, bool visible, VkBuffer &b, VkDeviceMemory &m, void **map);
+			void DetruireTamponRT(VkBuffer &b, VkDeviceMemory &m);
+			uint64 AdresseTamponRT(VkBuffer b) const;
+			NkAccelStructHandle ConstruireAS(bool haut, const VkAccelerationStructureGeometryKHR &geo, uint32 primitives,
+											const char *nom);
+			void DetruireAccels();
+			NkUnorderedMap<uint64, NkVkAccel> mAccels;
+			bool mRtActif = false;
+			bool mRtUpdateAfterBind = false;
+			uint64 mRtAlignScratch = 256;
+			PFN_vkCreateAccelerationStructureKHR mVkCreateAS = nullptr;
+			PFN_vkDestroyAccelerationStructureKHR mVkDestroyAS = nullptr;
+			PFN_vkGetAccelerationStructureBuildSizesKHR mVkTaillesAS = nullptr;
+			PFN_vkCmdBuildAccelerationStructuresKHR mVkCmdConstruireAS = nullptr;
+			PFN_vkGetAccelerationStructureDeviceAddressKHR mVkAdresseAS = nullptr;
+			PFN_vkGetBufferDeviceAddress mVkAdresseTampon = nullptr;
+
 			// Helpers internes : assument que mMutex est DEJA pris par l'appelant.
 			// Permettent a CreateTexture/WriteTextureRegion de creer/detruire des
 			// staging buffers sans deadlocker (NkMutex n'est pas reentrant).
