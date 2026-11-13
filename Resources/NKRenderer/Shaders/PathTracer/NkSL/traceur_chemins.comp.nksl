@@ -96,13 +96,15 @@ uint TexelObjet(int k, int carte, float b1, float b2) {
     int i1 = int(S.d[k + 2].w);
     int i2 = int(S.d[k + 3].x);
     float w0 = 1.0 - b1 - b2;
-    float u = S.d[bs + 2 * i0].w * w0 + S.d[bs + 2 * i1].w * b1 + S.d[bs + 2 * i2].w * b2;
-    float v = S.d[bs + 2 * i0 + 1].x * w0 + S.d[bs + 2 * i1 + 1].x * b1 + S.d[bs + 2 * i2 + 1].x * b2;
+    vec4 de = S.d[int(S.d[X].z) + carte];
+    // (13/11) une PHOTO (de.w > 0, metres par repetition) : les UV divisees -- comme TexelCarte du processeur
+    float ie = de.w > 0.0 ? 1.0 / de.w : 1.0;
+    float u = (S.d[bs + 2 * i0].w * w0 + S.d[bs + 2 * i1].w * b1 + S.d[bs + 2 * i2].w * b2) * ie;
+    float v = (S.d[bs + 2 * i0 + 1].x * w0 + S.d[bs + 2 * i1 + 1].x * b1 + S.d[bs + 2 * i2 + 1].x * b2) * ie;
     float fu = u - float(int(u));
     float fv = v - float(int(v));
     if (fu < 0.0) fu = fu + 1.0;
     if (fv < 0.0) fv = fv + 1.0;
-    vec4 de = S.d[int(S.d[X].z) + carte];
     int w = int(de.y);
     int h = int(de.z);
     int x = clamp(int(fu * float(w)), 0, w - 1);
@@ -280,6 +282,28 @@ void Surf(int tri, float b1, float b2, vec3 o, vec3 d, float th, out vec3 p, out
             uint pxo = TexelObjet(k, int(e.x), b1, b2);
             vec3 to = vec3(Lin(pxo & 255u), Lin((pxo >> 8u) & 255u), Lin((pxo >> 16u) & 255u));
             alb = min(vec3(0.98, 0.98, 0.98), alb * to);
+            // (13/11) une PHOTO CC0 (descripteur .w > 0) : l'alpha est la rugosite (orm.g) x celle de la matiere
+            if (S.d[int(S.d[X].z) + int(e.x)].w > 0.0) rug = max(m0.w * float(pxo >> 24u) / 255.0, 0.03);
+        }
+        // (13/11) LA NORMALE D'UNE PHOTO (e.w = carte + 1) : T = derivee des UV du triangle, B = cross(N, T) comme
+        // le temps reel ; le vert de la carte cuite suit B -- le meme calcul que Surf de NkTraceurChemins.cpp
+        if (P.drap.w < 0.5 && e.w > 0.5) {
+            uint pn = TexelObjet(k, int(e.w) - 1, b1, b2);
+            vec3 tn = vec3(float(pn & 255u), float((pn >> 8u) & 255u), float((pn >> 16u) & 255u)) / 127.5 - vec3(1.0, 1.0, 1.0);
+            float du1 = a1.w - a0.w;
+            float du2 = a2.w - a0.w;
+            float dv1 = S.d[bs + 2 * i1 + 1].x - S.d[bs + 2 * i0 + 1].x;
+            float dv2 = S.d[bs + 2 * i2 + 1].x - S.d[bs + 2 * i0 + 1].x;
+            float det = du1 * dv2 - du2 * dv1;
+            if (abs(det) > 1e-12) {
+                vec3 tg = (S.d[k + 1].xyz * dv2 - S.d[k + 2].xyz * dv1) / det;
+                tg = tg - ns * dot(ns, tg);
+                if (dot(tg, tg) > 1e-12) {
+                    tg = normalize(tg);
+                    vec3 bt = cross(ns, tg);
+                    ns = normalize(tg * tn.x + bt * tn.y + ns * tn.z);
+                }
+            }
         }
     }
     if (!verre && dot(ng, d) > 0.0) {

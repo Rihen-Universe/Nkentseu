@@ -59,6 +59,19 @@ namespace nkentseu {
 				char carte[260] = {0};	   ///< vide : aucune
 				float32 masque = 0.f;	   ///< seuil d'alpha de la carte : un texel plus transparent n'existe pas (0 : opaque)
 				float32 translucide = 0.f; ///< part transmise en diffus vers l'autre face (feuille mince) : 0 aucune
+				// (13/11/2026) LES CARTES IMAGE CC0 (NkMatieresPhoto) : `texture` nomme la photo dans la description
+				// (« source/nom », materiaux_scene.json) ; NKCraft cuit les cartes et les donne au traceur : la COULEUR
+				// par `carte` (texel x couleur), la NORMALE et l'ORM ici (meme UV que la carte ; v = 0 en haut).
+				// La rugosite est alors `rugosite` x orm.g, comme le temps reel. Vides : aucune.
+				char texture[64] = {0};
+				float32 textureEchelle = 0.f;	///< « texture_echelle » : metres par repetition (0 : echelle.txt de la photo)
+				float32 textureContraste = 1.f; ///< « texture_contraste » : la variation de la photo (1 telle quelle)
+				char carteNormale[260] = {0};
+				char carteOrm[260] = {0};
+				/// metres par repetition des cartes d'une PHOTO : les UV (en metres, projection en boite du chargeur ;
+				/// en tuiles, deja divisees, pour la scene relue du temps reel : 1) divisees par elle ; alors l'alpha
+				/// de la carte de couleur est la rugosite. 0 : une carte d'objet d'avant (UV du maillage, alpha = masque)
+				float32 carteEchelle = 0.f;
 		};
 
 		struct NkScSource {

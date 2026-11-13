@@ -115,7 +115,12 @@ namespace nkentseu {
 			struct CarteObjet {
 					int32 w = 0, h = 0;
 					NkVector<uint8> rgba;
-					char chemin[260] = {0};
+					char chemin[600] = {0}; ///< la cle : le chemin (et, pour une photo, « couleur|orm »)
+					/// (13/11/2026) une PHOTO CC0 (NkMatieresPhoto) : l'alpha porte la RUGOSITE (orm.g de la carte
+					/// cuite), pas un masque -- la matiere a photo n'a pas de seuil d'alpha
+					bool rugA = false;
+					/// (13/11) metres par repetition (NkScMateriau::carteEchelle) : les UV divisees ; 0 : telles quelles
+					float32 echelle = 0.f;
 			};
 
 			struct Scene {
@@ -127,6 +132,7 @@ namespace nkentseu {
 					Carte cartes[kMatClasses];
 					NkVector<CarteObjet> cobj; ///< (11/11) les cartes d'objet chargees
 					NkVector<int32> carteDe;	///< (11/11) par matiere : sa carte d'objet dans `cobj`, -1 aucune
+					NkVector<int32> normaleDe;	///< (13/11) par matiere : sa carte NORMALE (photo) dans `cobj`, -1 aucune
 					float32 lin[256];
 					NkVector<float32> cdfSources;
 					float32 puissanceTotale = 0.f;
@@ -321,15 +327,21 @@ namespace nkentseu {
 			// barycentriques (b1, b2) : UV du maillage, repetees, v = 0 en HAUT de l'image (convention des
 			// primitives et de l'atelier ; les cartes procedurales, elles, se lisent v = 0 en bas). nullptr sans carte.
 			// Le meme calcul que TexelObjet de traceur_chemins.comp.nksl.
+			inline const uint8 *TexelCarte(const Scene &g, int32 ic, const Tri &t, float32 b1, float32 b2);
 			inline const uint8 *TexelObjet(const Scene &g, const Tri &t, float32 b1, float32 b2) {
 				const int32 ic = (t.mat >= 0 && (usize)t.mat < g.carteDe.Size()) ? g.carteDe.Data()[t.mat] : -1;
-				if (ic < 0)
+				return TexelCarte(g, ic, t, b1, b2);
+			}
+			// (13/11) la meme lecture pour toute carte de `cobj` (la normale d'une photo : g.normaleDe)
+			inline const uint8 *TexelCarte(const Scene &g, int32 ic, const Tri &t, float32 b1, float32 b2) {
+				if (ic < 0 || (usize)ic >= g.cobj.Size())
 					return nullptr;
 				const CarteObjet &c = g.cobj.Data()[ic];
 				const float32 *UV = g.s.UV.Data();
 				const float32 w0 = 1.f - b1 - b2;
-				const float32 u = UV[t.i0 * 2] * w0 + UV[t.i1 * 2] * b1 + UV[t.i2 * 2] * b2;
-				const float32 v = UV[t.i0 * 2 + 1] * w0 + UV[t.i1 * 2 + 1] * b1 + UV[t.i2 * 2 + 1] * b2;
+				const float32 ie = c.echelle > 0.f ? 1.f / c.echelle : 1.f; // (13/11) une photo : metres -> repetitions
+				const float32 u = (UV[t.i0 * 2] * w0 + UV[t.i1 * 2] * b1 + UV[t.i2 * 2] * b2) * ie;
+				const float32 v = (UV[t.i0 * 2 + 1] * w0 + UV[t.i1 * 2 + 1] * b1 + UV[t.i2 * 2 + 1] * b2) * ie;
 				float32 fu = u - (float32)(int32)u, fv = v - (float32)(int32)v;
 				if (fu < 0.f)
 					fu += 1.f;
@@ -530,9 +542,35 @@ namespace nkentseu {
 				}
 				// (11/11/2026) LA CARTE DE L'OBJET : texel x couleur, comme le temps reel (texture x teinte)
 				if (!sansCartes)
-					if (const uint8 *px = TexelObjet(g, t, h.b1, h.b2))
+					if (const uint8 *px = TexelObjet(g, t, h.b1, h.b2)) {
 						S.albedo = Mk(Min(0.98f, S.albedo.x * g.lin[px[0]]), Min(0.98f, S.albedo.y * g.lin[px[1]]),
 									  Min(0.98f, S.albedo.z * g.lin[px[2]]));
+						// (13/11) une PHOTO : l'alpha est la rugosite (orm.g), x celle de la matiere (le temps reel :
+						// rog = orm.g x roughness)
+						if (g.cobj.Data()[g.carteDe.Data()[t.mat]].rugA)
+							S.rug = Max(m.rugosite * (float32)px[3] / 255.f, 0.03f);
+					}
+				// (13/11) LA NORMALE D'UNE PHOTO : le repere T = derivee des UV du triangle, B = cross(N, T) comme le
+				// temps reel (pbr.vert ; B suit les v croissants, le bas de l'image) ; la carte cuite a son vert sur B
+				// (NkMatieresPhoto : verifie contre le deplacement). Avant le retournement des deux faces : il l'emporte.
+				if (!sansCartes && (usize)t.mat < g.normaleDe.Size() && g.normaleDe.Data()[t.mat] >= 0)
+					if (const uint8 *pn = TexelCarte(g, g.normaleDe.Data()[t.mat], t, h.b1, h.b2)) {
+						const float32 *UV = g.s.UV.Data();
+						const float32 du1 = UV[t.i1 * 2] - UV[t.i0 * 2], du2 = UV[t.i2 * 2] - UV[t.i0 * 2];
+						const float32 dv1 = UV[t.i1 * 2 + 1] - UV[t.i0 * 2 + 1], dv2 = UV[t.i2 * 2 + 1] - UV[t.i0 * 2 + 1];
+						const float32 det = du1 * dv2 - du2 * dv1;
+						if (Abs(det) > 1e-12f) {
+							V3 T = (t.e1 * dv2 - t.e2 * dv1) * (1.f / det);
+							T = T - ns * Dot(ns, T);
+							if (Dot(T, T) > 1e-12f) {
+								T = Norm(T);
+								const V3 B = Cross(ns, T);
+								const float32 nx = (float32)pn[0] / 127.5f - 1.f, ny = (float32)pn[1] / 127.5f - 1.f,
+											  nz = (float32)pn[2] / 127.5f - 1.f;
+								ns = Norm(T * nx + B * ny + ns * nz);
+							}
+						}
+					}
 				S.trans = S.verre ? 0.f : Max(0.f, Min(1.f, m.translucide));
 				// deux faces pour l'opaque : la normale regarde le rayon
 				if (!S.verre && Dot(ng, d) > 0.f) {
@@ -1308,46 +1346,54 @@ namespace nkentseu {
 				// (11/11/2026) LES CARTES D'OBJET (feuilles detourees, ecorce), une fois par chemin
 				g.cobj.Clear();
 				g.carteDe.Resize(g.s.mats.Size());
+				g.normaleDe.Resize(g.s.mats.Size());
 				{
 					int32 lues = 0, illisibles = 0;
-					for (usize m = 0; m < g.s.mats.Size(); ++m) {
-						g.carteDe[m] = -1;
-						const char *ch = g.s.mats[m].carte;
-						if (!ch[0])
-							continue;
+					// une carte par CLE (le chemin ; « couleur|orm » pour une photo), chargee une fois ; -1 : illisible.
+					// `orm` : la rugosite (son vert) passe dans l'alpha (13/11, les photos CC0)
+					auto charger = [&](const char *ch, const char *orm, float32 echelle, const char *quoi) -> int32 {
+						char cle[600];
+						NkSnprintf(cle, sizeof(cle), "%s%s%s@%.4f", ch, orm ? "|" : "", orm ? orm : "", (double)echelle);
 						for (usize k = 0; k < g.cobj.Size(); ++k) {
 							const char *a = g.cobj[k].chemin;
-							const char *b = ch;
+							const char *b = cle;
 							while (*a && *a == *b) {
 								++a;
 								++b;
 							}
-							if (*a == 0 && *b == 0) {
-								g.carteDe[m] = (int32)k;
-								break;
-							}
+							if (*a == 0 && *b == 0)
+								return (int32)k;
 						}
-						if (g.carteDe[m] >= 0)
-							continue;
-						NkImage im;
-						if (!im.Load(ch, 4) || im.Width() <= 0 || im.Height() <= 0) {
+						NkImage im, io;
+						if (!im.Load(ch, 4) || im.Width() <= 0 || im.Height() <= 0 ||
+							(orm && (!io.Load(orm, 4) || io.Width() != im.Width() || io.Height() != im.Height()))) {
 							++illisibles;
-							NkPrintfSortie("[traceur] carte d'objet ILLISIBLE (la matiere %s reste unie) : %s\n", g.s.mats[m].nom, ch);
-							continue;
+							NkPrintfSortie("[traceur] carte d'objet ILLISIBLE (la matiere %s reste unie) : %s%s%s\n", quoi, ch,
+										   orm ? " / " : "", orm ? orm : "");
+							return -1;
 						}
 						CarteObjet co;
 						co.w = im.Width();
 						co.h = im.Height();
-						NkSnprintf(co.chemin, sizeof(co.chemin), "%s", ch);
+						co.rugA = orm != nullptr;
+						co.echelle = echelle;
+						NkSnprintf(co.chemin, sizeof(co.chemin), "%s", cle);
 						co.rgba.Resize((usize)co.w * (usize)co.h * 4u);
 						for (int32 y = 0; y < co.h; ++y) {
 							const uint8 *ln = im.RowPtr(y);
+							const uint8 *lo = orm ? io.RowPtr(y) : nullptr;
 							for (int32 x = 0; x < co.w * 4; ++x)
-								co.rgba[(usize)y * (usize)co.w * 4u + (usize)x] = ln[x];
+								co.rgba[(usize)y * (usize)co.w * 4u + (usize)x] = (lo && (x & 3) == 3) ? lo[x - 2] : ln[x];
 						}
-						g.carteDe[m] = (int32)g.cobj.Size();
 						g.cobj.PushBack(co);
 						++lues;
+						return (int32)g.cobj.Size() - 1;
+					};
+					for (usize m = 0; m < g.s.mats.Size(); ++m) {
+						const NkScMateriau &M = g.s.mats[m];
+						const float32 ech = M.carteEchelle > 0.f ? M.carteEchelle : 0.f;
+						g.carteDe[m] = M.carte[0] ? charger(M.carte, (M.carteOrm[0] && ech > 0.f) ? M.carteOrm : nullptr, ech, M.nom) : -1;
+						g.normaleDe[m] = (M.carteNormale[0] && ech > 0.f) ? charger(M.carteNormale, nullptr, ech, M.nom) : -1;
 					}
 					if (lues || illisibles)
 						NkPrintfSortie("[traceur] cartes d'objet : %d lue(s), %d illisible(s)\n", (int)lues, (int)illisibles);
@@ -1704,14 +1750,16 @@ namespace nkentseu {
 			// (11/11/2026, nkcraft-arbres) LES CARTES D'OBJET, LE MASQUE ET LA FEUILLE MINCE : une table a la suite,
 			// lue par le nuanceur par P.cartes[15].w (0 dans les executables d'avant : rien de neuf) --
 			//   [offObjet]              (nombre de matieres, nombre de cartes, decalage des descripteurs, -)
-			//   [offObjet + 1 + mat]    (carte, seuil d'alpha, translucide, -) ; carte = -1 : aucune
-			//   [descripteurs + i]      (decalage des texels dans `cartes`, largeur, hauteur, -)
+			//   [offObjet + 1 + mat]    (carte, seuil d'alpha, translucide, normale + 1) ; carte = -1 : aucune ;
+			//                           normale + 1 = 0 : aucune (13/11, les photos CC0)
+			//   [descripteurs + i]      (decalage des texels dans `cartes`, largeur, hauteur, alpha = rugosite ? 1 : 0)
 			// Les texels : RGBA8 empaquete (r en poids faible, alpha en poids fort), a la suite des cartes des classes.
 			// Table posee SEULEMENT si une matiere s'en sert : les scenes d'avant gardent leur paquet au mot pres.
 			p.offObjet = 0;
 			bool objet = false;
 			for (usize i = 0; i < g.s.mats.Size(); ++i)
-				if ((i < g.carteDe.Size() && g.carteDe[i] >= 0) || g.s.mats[i].translucide > 0.f || g.s.mats[i].masque > 0.f)
+				if ((i < g.carteDe.Size() && g.carteDe[i] >= 0) || (i < g.normaleDe.Size() && g.normaleDe[i] >= 0) ||
+					g.s.mats[i].translucide > 0.f || g.s.mats[i].masque > 0.f)
 					objet = true;
 			if (objet) {
 				aligner();
@@ -1722,8 +1770,10 @@ namespace nkentseu {
 				for (int32 i = 0; i < nm; ++i) {
 					const NkScMateriau &m = g.s.mats[(usize)i];
 					const int32 ic = (usize)i < g.carteDe.Size() ? g.carteDe[(usize)i] : -1;
+					const int32 inr = (usize)i < g.normaleDe.Size() ? g.normaleDe[(usize)i] : -1;
 					const bool v = m.transmission <= 0.5f;
-					pousse((float32)ic, ic >= 0 ? m.masque : 0.f, v ? Max(0.f, Min(1.f, m.translucide)) : 0.f, 0.f);
+					// (13/11) .w : la carte NORMALE d'une photo + 1 (0 : aucune -- le zero des paquets d'avant)
+					pousse((float32)ic, ic >= 0 ? m.masque : 0.f, v ? Max(0.f, Min(1.f, m.translucide)) : 0.f, (float32)(inr + 1));
 				}
 				if (p.cartes.Size() == 1 && p.cartes[0] == 0u) {
 					bool aucuneClasse = true;
@@ -1738,7 +1788,9 @@ namespace nkentseu {
 					while (p.cartes.Size() % 4u != 0u)
 						p.cartes.PushBack(0u); // le debut des texels, exact en flottant au-dela de 2^24 (multiple de 4)
 					const CarteObjet &co = g.cobj[(usize)k];
-					pousse((float32)p.cartes.Size(), (float32)co.w, (float32)co.h, 0.f);
+					// (13/11) .w > 0 : une PHOTO -- les UV divisees par .w (metres par repetition) et l'alpha de la
+					// couleur est la RUGOSITE, pas un masque ; 0 : la carte d'objet d'avant
+					pousse((float32)p.cartes.Size(), (float32)co.w, (float32)co.h, co.echelle);
 					const usize n = (usize)co.w * (usize)co.h;
 					for (usize i = 0; i < n; ++i)
 						p.cartes.PushBack((uint32)co.rgba[i * 4] | ((uint32)co.rgba[i * 4 + 1] << 8) |

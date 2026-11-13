@@ -584,6 +584,11 @@ namespace nkentseu {
 				m.vernis = m.vernis < 0.f ? 0.f : (m.vernis > 1.f ? 1.f : m.vernis);
 				m.paillettes = m.paillettes < 0.f ? 0.f : (m.paillettes > 1.f ? 1.f : m.paillettes);
 				m.paillettesDensite = m.paillettesDensite < 0.f ? 0.f : (m.paillettesDensite > 1.f ? 1.f : m.paillettesDensite);
+				// (13/11) la PHOTO CC0 de la matiere (« source/nom » sous la racine des textures : NkMatieresPhoto)
+				if (jm.Get(v, "texture") >= 0)
+					Copier(m.texture, 64, jm.Txt(jm.Get(v, "texture")));
+				m.textureEchelle = (float32)jm.Num(jm.Get(v, "texture_echelle"), 0.0);
+				m.textureContraste = (float32)jm.Num(jm.Get(v, "texture_contraste"), 1.0);
 				mats.PushBack(m);
 			}
 			nBib = (int32)mats.Size();
