@@ -169,6 +169,10 @@ namespace nkentseu {
 		/// traceur et le temps reel (NKCraft, mode realiste). NK_ROTATION_MUTATION=1 : la rotation inverse
 		/// (contre-epreuve de son banc).
 		void NkScRotationEuler(const float32 deg[3], float32 R[9]);
+		/// (13/11/2026) LE DEGRADE DU CIEL de la description (horizon -> zenith en racine de la hauteur ; l'horizon sous
+		/// l'horizon), SANS l'intensite : une seule ecriture, lue par le ciel du traceur (Ciel) et par la cuisson du ciel
+		/// a nuages (cielTable) ; `d` unitaire.
+		void NkScCielDegrade(const NkScArchviz &s, float32 dx, float32 dy, float32 dz, float32 rgb[3]);
 
 		/// Recherche d'une expression reguliere (sous-ensemble ^ $ | ( ) . [..] \d) dans un texte
 		/// (semantique de re.search). Expose pour son banc.

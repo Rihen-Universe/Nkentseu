@@ -156,6 +156,11 @@ namespace nkentseu {
 		/// theta = pi (j + 0,5) / H depuis le zenith, phi = 2 pi (i + 0,5) / W ;
 		/// direction = (sin theta cos phi, cos theta, sin theta sin phi).
 		void NkHosekCielTable(const NkSkyParams &P, float32 facteur, int32 W, int32 H, NkVector<float32> &rgb);
+		/// (13/11/2026, Rodolf : « pour le ciel, ajouter les nuages et tout, c'est déjà possible sur NKCraft ») LA
+		/// COUCHE DE NUAGES du ciel procedural, exposee telle quelle : c'est la fonction du point d'entree unique
+		/// (SampleSkyModel, le ciel du temps reel), pas une copie. Le traceur la recoit en table (NkSceneArchviz).
+		/// Rend `ciel` inchange si P.clouds est faux, sous l'horizon ou a couverture nulle.
+		NkVec3f NkSkyNuages(NkVec3f ciel, float32 dx, float32 dy, float32 dz, const NkSkyParams &P);
 
 		// Parametres complets du ciel procedural. La COUCHE DE NUAGES est
 		// independante du modele de base : on peut couvrir aussi bien un degrade

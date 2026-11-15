@@ -7,6 +7,7 @@
 
 #include "NKRenderer/Tools/PathTracer/NkSceneArchviz.h"
 #include "NKRenderer/Tools/PathTracer/NkMatieresProcedurales.h"
+#include "NKRenderer/Tools/Environment/NkEnvironmentSystem.h" // (13/11) NkSkyNuages : la couche de nuages du temps reel
 #include "NKRenderer/Materials/NkPeintureCarrosserie.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKPlatform/NkEnv.h"
@@ -670,6 +671,20 @@ namespace nkentseu {
 			return Repli(kd);
 		}
 
+		void NkScCielDegrade(const NkScArchviz &s, float32 dx, float32 dy, float32 dz, float32 rgb[3]) {
+			(void)dx;
+			(void)dz;
+			// sous l'horizon : la teinte d'horizon (le terrain cache ces directions dans la maison)
+			if (dy < 0.f) {
+				for (int32 q = 0; q < 3; ++q)
+					rgb[q] = s.cielHorizon[q];
+				return;
+			}
+			const float32 k = math::NkSqrt(dy > 0.f ? dy : 0.f);
+			for (int32 q = 0; q < 3; ++q)
+				rgb[q] = s.cielHorizon[q] * (1.f - k) + s.cielZenith[q] * k;
+		}
+
 		void NkScRotationEuler(const float32 deg[3], float32 R[9]) {
 			const float32 k = 0.017453292519943295f;
 			const float32 cx = math::NkCos(deg[0] * k), sx = math::NkSin(deg[0] * k);
@@ -1234,6 +1249,54 @@ namespace nkentseu {
 				jl.Vec3(jl.Get(ci, "horizon"), s.cielHorizon);
 				s.cielIntensite = (float32)jl.Num(jl.Get(ci, "intensite"), 1.0);
 				s.expositionEV = (float32)jl.Num(jl.Get(amb, "exposition_EV"), 10.0);
+				// (13/11/2026, Rodolf : « pour le ciel, ajouter les nuages et tout, c'est déjà possible sur NKCraft ») LES
+				// NUAGES : « ciel.nuages » {couverture, densite, echelle, couleur} (les curseurs du ciel de NKCraft). A
+				// couverture > 0, le ciel devient une TABLE lat-long (le degrade, puis la couche de nuages du temps reel,
+				// NkSkyNuages : la meme fonction), que le traceur lit deja (processeur et carte graphique, fond et
+				// eclairage). 4096 x 2048 : 11 pixels par degre, des bords de nuages nets en fond (a 512 x 256, 1,4 pixel
+				// par degre : flous). NK_CIEL_NUAGES_LARGEUR force la largeur (contre-epreuve du banc de nettete).
+				// Couverture nulle ou absente : aucune table, le degrade d'avant, a l'identique.
+				const int32 nu = jl.Get(ci, "nuages");
+				const float32 cov = nu >= 0 ? (float32)jl.Num(jl.Get(nu, "couverture"), 0.0) : 0.f;
+				if (cov > 0.f) {
+					NkSkyParams P;
+					P.clouds = true;
+					P.cloudCoverage = cov;
+					P.cloudDensity = (float32)jl.Num(jl.Get(nu, "densite"), 1.0);
+					P.cloudScale = (float32)jl.Num(jl.Get(nu, "echelle"), 2.0);
+					float32 col[3] = {1.f, 1.f, 1.f};
+					jl.Vec3(jl.Get(nu, "couleur"), col);
+					P.cloudColor = {col[0], col[1], col[2]};
+					int32 W = 4096;
+					if (const char *e = env::GetEnvVar("NK_CIEL_NUAGES_LARGEUR")) {
+						int32 v = 0;
+						for (int32 q = 0; e[q] >= '0' && e[q] <= '9' && q < 6; ++q)
+							v = v * 10 + (e[q] - '0');
+						if (v >= 64)
+							W = v;
+					}
+					const int32 H = W / 2;
+					s.cielTable.Resize((usize)W * (usize)H * 3u);
+					for (int32 j = 0; j < H; ++j) {
+						const float32 th = kPi * ((float32)j + 0.5f) / (float32)H;
+						const float32 st = math::NkSin(th), ct = math::NkCos(th);
+						for (int32 i = 0; i < W; ++i) {
+							const float32 ph = 2.f * kPi * ((float32)i + 0.5f) / (float32)W;
+							const float32 dx = st * math::NkCos(ph), dz = st * math::NkSin(ph);
+							float32 c[3];
+							NkScCielDegrade(s, dx, ct, dz, c);
+							const NkVec3f r = NkSkyNuages({c[0], c[1], c[2]}, dx, ct, dz, P);
+							const usize o = ((usize)j * (usize)W + (usize)i) * 3u;
+							s.cielTable[o] = r.x;
+							s.cielTable[o + 1] = r.y;
+							s.cielTable[o + 2] = r.z;
+						}
+					}
+					s.cielW = W;
+					s.cielH = H;
+					NkPrintfSortie("[scene] ciel a nuages : couverture %.2f, densite %.2f, echelle %.2f, table %d x %d\n", (double)cov,
+								   (double)P.cloudDensity, (double)P.cloudScale, (int)W, (int)H);
+				}
 			}
 			// (10/11) les matieres de l'attribution partagee, et son compte rendu
 			s.mats = at.mats;

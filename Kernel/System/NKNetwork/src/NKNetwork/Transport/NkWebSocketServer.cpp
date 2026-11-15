@@ -4,11 +4,28 @@
 #include "NKNetwork/Transport/NkWebSocketServer.h"
 #include "NKContainers/String/NkStringHash.h"			  // NkHashSHA1
 #include "NKContainers/String/Encoding/NkBase64.h"		  // NkBase64::NkEncode
+#include "NKPlatform/NkEnv.h"							  // (15/11) la contre-epreuve du client mort
 
 namespace nkentseu {
 	namespace net {
 
 		namespace {
+			/// (15/11) NK_NKCODE_MUTATION=ide-client-mort-garde : la regle d'avant (une erreur de socket ne lache pas
+			/// le client). Lue une fois. Contre-epreuve de tools/banc_claude_ide_reel.sh --tuer.
+			bool MutationClientMortGarde() {
+				static int sLu = -1;
+				if (sLu < 0) {
+					const char *m = env::GetEnvVar("NK_NKCODE_MUTATION");
+					const char *v = "ide-client-mort-garde";
+					bool egal = m != nullptr;
+					usize i = 0;
+					for (; egal && v[i]; ++i)
+						egal = m[i] == v[i];
+					sLu = (egal && m[i] == '\0') ? 1 : 0;
+				}
+				return sLu == 1;
+			}
+
 			// GUID impose par la RFC 6455 §4.2.2 : concatene a la cle du client avant
 			// le SHA-1. C'est ce qui prouve au client qu'on parle bien WebSocket et
 			// non un serveur HTTP quelconque qui repondrait 101 par hasard.
@@ -317,7 +334,14 @@ namespace nkentseu {
 				// premiere deconnexion le rendait sourd.
 				// NK_NET_NOT_CONNECTED = fermeture ordonnee du pair (distinct de
 				// « rien a lire », qui rend OK avec 0 octet).
-				if (r == NkNetResult::NK_NET_NOT_CONNECTED) {
+				// (15/11) ET UNE ERREUR DE SOCKET AUSSI. Un client TUE (terminal ferme, processus arrete) ne ferme
+				// pas : Windows envoie une REINITIALISATION, et recv rend WSAECONNRESET -> NK_NET_SOCKET_ERROR
+				// (« rien a lire » rend OK avec 0 octet, voir NkSocket::Recv). Ce cas tombait dans le `break`
+				// ci-dessous : le client mort restait « present », AcceptPending refusait tout autre client, et le
+				// claude suivant ne trouvait plus NKCode (banc : tools/banc_claude_ide_reel.sh --tuer, (r1c)(r1b)).
+				// Contre-epreuve : NK_NKCODE_MUTATION=ide-client-mort-garde (la regle d'avant).
+				const bool erreur = r != NkNetResult::NK_NET_OK && r != NkNetResult::NK_NET_NOT_CONNECTED;
+				if (r == NkNetResult::NK_NET_NOT_CONNECTED || (erreur && !MutationClientMortGarde())) {
 					mClient.Close();
 					mHasClient = false;
 					mHandshakeDone = false;

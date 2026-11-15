@@ -651,6 +651,10 @@ namespace nkentseu {
 				}
 			}
 		}
+		// (13/11/2026) la couche de nuages, exposee pour le traceur : la MEME fonction que SampleSkyModel
+		NkVec3f NkSkyNuages(NkVec3f ciel, float32 dx, float32 dy, float32 dz, const NkSkyParams &P) {
+			return ApplyClouds(ciel, dx, dy, dz, P);
+		}
 
 		// ── MODELE DE PRAGUE : code officiel VERBATIM + liaison ─────────────────
 		// « A Fitted Radiance and Attenuation Model for Realistic Atmospheres »

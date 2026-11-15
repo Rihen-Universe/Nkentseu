@@ -853,15 +853,16 @@ namespace nkentseu {
 					const V3 b = texel(x0, y0 + 1) * (1.f - tx) + texel(x0 + 1, y0 + 1) * tx;
 					return (a * (1.f - ty) + b * ty) * s.cielIntensite;
 				}
-				const V3 hz = Mk(s.cielHorizon[0], s.cielHorizon[1], s.cielHorizon[2]);
-				const V3 ze = Mk(s.cielZenith[0], s.cielZenith[1], s.cielZenith[2]);
 				// sous l'horizon : la teinte d'horizon (le terrain cache ces directions dans la
 				// maison). Une premiere version y mettait la MOITIE : le four blanc l'a vu (0,589
 				// au lieu de 0,8 ; le verre 0,73 au lieu de 1).
-				if (d.y < 0.f)
-					return hz * s.cielIntensite;
-				const float32 k = Racine(d.y);
-				return (hz * (1.f - k) + ze * k) * s.cielIntensite;
+				// (13/11/2026) le degrade a une seule ecriture, partagee avec la cuisson du ciel a nuages
+				// (NkScCielDegrade) ; le calcul d'avant :
+				//   hz, ze ; if (d.y < 0.f) return hz * s.cielIntensite ;
+				//   const float32 k = Racine(d.y) ; return (hz * (1.f - k) + ze * k) * s.cielIntensite ;
+				float32 c[3];
+				NkScCielDegrade(s, d.x, d.y, d.z, c);
+				return Mk(c[0], c[1], c[2]) * s.cielIntensite;
 			}
 
 			struct Ctx {
