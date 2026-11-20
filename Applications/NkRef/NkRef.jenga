@@ -37,7 +37,9 @@ with project("NkRef"):
     )
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
-    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    # (20/11/2026) NKREF_SORTIE=<dossier> : construire vers Build/Bin/<cfg>-<systeme>/<dossier> au lieu de .../NkRef
+    # (un exe en cours ne se remplace pas : Rodolf garde le sien ouvert). Sans la variable : « NkRef », comme avant.
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/" + (os.environ.get("NKREF_SORTIE", "") or "NkRef"))
 
     # La police runtime (texte des notes, HUD — étapes suivantes).
     dependfiles(["../../Resources/Fonts"])

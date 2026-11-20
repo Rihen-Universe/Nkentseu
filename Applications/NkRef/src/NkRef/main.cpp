@@ -60,6 +60,8 @@
 
 #include "NKWindow/Core/NkDialogs.h" // Ouvrir/Enregistrer natifs
 #include "NKCore/NkTraits.h"		 // NkMove (transferts d'octets sans copie)
+#include "NKPlatform/NkEnv.h"		 // (20/11/2026) env::GetEnvVar : NK_AGENT_DEPOT, NK_FENETRE_CACHEE, NK_NKREF_MUTATION
+#include "NKCore/Text/NkSortie.h"	 // (20/11/2026) NkPrintfSortie : la ligne du depot simule, sans libc
 
 #include "NkRef/NkRefView.h"
 #include "NkRef/NkRefBoard.h"
@@ -202,8 +204,47 @@ namespace {
 			char savePath[260] = {};
 			int32 openFrame = -1; ///< NK_AGENT_OPEN="n:chemin" : ouvre (même chemin que Ctrl+O)
 			char openPath[260] = {};
+			/// (20/11/2026) NK_AGENT_DEPOT="n:px:py:chemin" : un VRAI evenement de depot (NkDropFileEvent) pose a la frame n
+			/// dans la file d'evenements de la fenetre, comme Windows la remplit : il passe par le MEME traitement que le
+			/// glisser-deposer de la souris (NK_AGENT_DROP, lui, appelle addImageFromFile sans passer par l'evenement).
+			int32 depotFrame = -1;
+			int32 depotPx = 0, depotPy = 0;
+			char depotPath[520] = {};
+
+			/// Lit « n:px:py:chemin » sans libc ; le chemin garde ses « : » (D:\...).
+			void LireDepot(const char *v) {
+				int32 nombres[3] = {0, 0, 0};
+				const char *p = v;
+				for (int32 k = 0; k < 3; ++k) {
+					bool neg = false;
+					if (*p == '-') {
+						neg = true;
+						++p;
+					}
+					if (*p < '0' || *p > '9')
+						return;
+					int32 n = 0;
+					for (; *p >= '0' && *p <= '9'; ++p)
+						n = n * 10 + (*p - '0');
+					nombres[k] = neg ? -n : n;
+					if (*p != ':')
+						return;
+					++p;
+				}
+				usize n = 0;
+				for (; p[n] && n + 1 < sizeof(depotPath); ++n)
+					depotPath[n] = p[n];
+				depotPath[n] = '\0';
+				if (n == 0)
+					return;
+				depotFrame = nombres[0];
+				depotPx = nombres[1];
+				depotPy = nombres[2];
+			}
 
 			void Read() {
+				if (const char *v = env::GetEnvVar("NK_AGENT_DEPOT"))
+					LireDepot(v);
 				if (const char *v = std::getenv("NK_AGENT_SHOT")) {
 					const char *p = v;
 					while (*p && shotCount < kMax) {
@@ -449,6 +490,11 @@ int nkmain(const NkEntryState &state) {
 	// les styles snap/min/max sous le capot (WM_NCCALCSIZE) ; notre en-tête
 	// escamotable et les bords de redimensionnement font le reste.
 	cfg.frame = false;
+	// (20/11/2026) NK_FENETRE_CACHEE=1 (les bancs, comme NKCode et NKCraft) : la fenetre existe, la boucle tourne, mais
+	// rien ne surgit a l'ecran. Sans la variable, rien ne change.
+	if (const char *fc = env::GetEnvVar("NK_FENETRE_CACHEE"))
+		if (fc[0] && fc[0] != '0')
+			cfg.visible = false;
 	NkWindow window(cfg);
 	if (!window.IsOpen()) {
 		logger.Error("[NkRef] creation fenetre echouee");
@@ -1021,6 +1067,35 @@ int nkmain(const NkEntryState &state) {
 		return true;
 	};
 
+	// (20/11/2026) Un fichier depose est-il une PLANCHE (.nkref, casse quelconque) ? Elle s'ouvre alors par
+	// openBoardFrom, la porte de Ctrl+O. Contre-epreuve : NK_NKREF_MUTATION=depot-planche-comme-image (l'etat
+	// d'avant : tout fichier depose va au decodeur d'images).
+	auto estPlanche = [](const NkString &p) -> bool {
+		static const bool commeImage = []() {
+			const char *m = env::GetEnvVar("NK_NKREF_MUTATION");
+			const char *attendu = "depot-planche-comme-image";
+			if (!m)
+				return false;
+			for (; *m && *m == *attendu; ++m, ++attendu) {
+			}
+			return *m == '\0' && *attendu == '\0';
+		}();
+		if (commeImage)
+			return false;
+		const char *ext = ".nkref";
+		const usize n = p.Length();
+		if (n < 6)
+			return false;
+		for (usize i = 0; i < 6; ++i) {
+			char c = p[n - 6 + i];
+			if (c >= 'A' && c <= 'Z')
+				c = (char)(c - 'A' + 'a');
+			if (c != ext[i])
+				return false;
+		}
+		return true;
+	};
+
 	auto doOpen = [&]() {
 		NkDialogResult res = NkDialogs::OpenFileDialog("*.nkref", "Ouvrir une planche");
 		if (res.confirmed && !res.path.Empty())
@@ -1319,12 +1394,31 @@ int nkmain(const NkEntryState &state) {
 			}
 
 			if (auto *df = ev->As<NkDropFileEvent>()) {
-				// Chaque fichier au point de dépôt, en cascade de 24 px pour
-				// que plusieurs fichiers ne s'empilent pas exactement.
+				// (20/11/2026) UNE PLANCHE DEPOSEE S'OUVRE. Rodolf : « quand je glisse un .nkref, rien ne se charge ;
+				// avec Ctrl+O, ca marche ». Cause : CHAQUE fichier depose allait a addImageFromFile, qui decode une
+				// IMAGE ; un .nkref n'en est pas une (refuse, « image illisible »), et la planche ne s'ouvrait jamais.
+				// Un .nkref passe desormais par la MEME porte que Ctrl+O (openBoardFrom) ; le premier s'ouvre, les
+				// images deposees avec lui se posent ensuite sur la planche ouverte. Banc : tools/banc_depot.sh (un
+				// vrai NkDropFileEvent, NK_AGENT_DEPOT) ; contre-epreuve NK_NKREF_MUTATION=depot-planche-comme-image.
+				bool plancheOuverte = false;
+				for (uint32 i = 0; i < df->data.Count(); ++i) {
+					if (!estPlanche(df->data.paths[i]))
+						continue;
+					if (!plancheOuverte)
+						plancheOuverte = openBoardFrom(df->data.paths[i]);
+					else
+						logger.Warn("[NkRef] une seule planche s'ouvre a la fois : %s ignoree", df->data.paths[i].CStr());
+				}
+				// Chaque image au point de dépôt, en cascade de 24 px pour
+				// que plusieurs fichiers ne s'empilent pas exactement (la vue est
+				// lue APRES l'ouverture : une planche ouverte apporte la sienne).
 				const math::NkVec2f base = view.PixelToWorld(
 					{(float32)df->data.x, (float32)df->data.y}, vp);
+				int32 k = 0;
 				for (uint32 i = 0; i < df->data.Count(); ++i) {
-					const float32 off = (float32)i * 24.0f / view.zoom;
+					if (estPlanche(df->data.paths[i]))
+						continue;
+					const float32 off = (float32)k++ * 24.0f / view.zoom;
 					addImageFromFile(df->data.paths[i].CStr(), {base.x + off, base.y + off});
 				}
 			}
@@ -1379,6 +1473,18 @@ int nkmain(const NkEntryState &state) {
 			saveBoardTo(NkString(agent.savePath)); // même chemin que Ctrl+S
 		if (agent.openFrame > 0 && agentFrame == agent.openFrame)
 			openBoardFrom(NkString(agent.openPath)); // même chemin que Ctrl+O
+		if (agent.depotFrame > 0 && agentFrame == agent.depotFrame) {
+			// (20/11/2026) LE DEPOT : la file d'evenements de la fenetre, comme Windows la remplit (NkWin32DropTarget) ;
+			// l'evenement est lu a la prochaine PollEvent par le traitement de NkDropFileEvent ci-dessus.
+			NkDropFileData dd;
+			dd.x = agent.depotPx;
+			dd.y = agent.depotPy;
+			dd.AddPath(NkString(agent.depotPath));
+			NkDropFileEvent e(dd, window.GetId());
+			events.Enqueue_Public(e, window.GetId());
+			NkPrintfSortie("[NkRef] depot simule : %s au pixel (%d, %d)\n", agent.depotPath, (int)agent.depotPx, (int)agent.depotPy);
+			NkFflush(NkFlux::Sortie);
+		}
 		if (agent.themeFrame > 0 && agentFrame == agent.themeFrame) {
 			darkTheme = agent.themeDark; // même chemin que la case du panneau
 			th = darkTheme ? MakeDarkColors() : MakeLightColors();
