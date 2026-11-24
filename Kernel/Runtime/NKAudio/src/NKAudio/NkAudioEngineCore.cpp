@@ -18,12 +18,18 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKMemory/NkAllocator.h"
 #include "NKLogger/NkLog.h"
+#include "NKThreading/NKThreading.h" // threading::Yield (AttendreFinDuBloc)
 
 #include <cmath>
 #include <cstring>
 
 namespace {
 	constexpr nkentseu::float32 TWO_PI = 6.28318530717958647692f;
+
+	// (24/11/2026) Profondeur des blocs audio sur CE fil : > 0 pendant AudioCallback. Un retrait d'effet demande
+	// depuis le bloc lui-meme (rappel procedural, Process d'un effet) ne doit pas attendre la fin du bloc : ce
+	// serait s'attendre soi-meme. Voir Impl::AttendreFinDuBloc.
+	thread_local nkentseu::int32 tProfondeurBlocAudio = 0;
 
 	inline nkentseu::float32 Clampf(nkentseu::float32 v, nkentseu::float32 lo, nkentseu::float32 hi) {
 		return v < lo ? lo : (v > hi ? hi : v);
@@ -350,6 +356,37 @@ namespace nkentseu {
 				// ── Atomics pour communication inter-thread ───────────────────
 				NkAtomic<bool> shutdownRequested;
 
+				// (24/11/2026) LA DUREE DE VIE DES EFFETS. AddEffect et AddMasterEffect gardent un pointeur NU :
+				// l'effet appartient a l'appelant, le moteur ne le detruit jamais (seul autoMasterLimiter est a
+				// lui). L'appelant peut donc le detruire des que RemoveEffect, RemoveMasterEffect ou Clear* rend
+				// la main. Or le fil audio a pu lire le pointeur juste avant le retrait et etre encore dans son
+				// Process : utilisation apres liberation (banc son_course.cpp, mode « detruire » : le seul
+				// volatile de la boucle plante). Le remede est une liberation DIFFEREE : AudioCallback incremente
+				// generationBloc au debut (impaire : un bloc est en cours) et a la fin (paire) ; apres un retrait,
+				// AttendreFinDuBloc attend que le bloc qui a pu lire l'ancienne liste soit fini. Un seul fil mixe a
+				// la fois (le dorsal, ou RenderToBuffer, pas les deux ensemble).
+				NkAtomic<int64> generationBloc{0};
+
+				void AttendreFinDuBloc() noexcept {
+					if (tProfondeurBlocAudio > 0) {
+						return; // appele depuis le bloc : le pointeur retire ne sera plus lu apres ce bloc
+					}
+					// FetchAdd(0) plutot que Load : une operation lecture-ecriture prend place dans l'ordre total
+					// des modifications de generationBloc, APRES l'ecriture qui a retire le pointeur. Si elle rend
+					// une valeur paire, aucun bloc n'est en cours et le prochain lira la liste a jour ; impaire,
+					// le bloc en cours a pu lire l'ancienne : on attend que la generation change.
+					const int64 g = generationBloc.FetchAdd(0);
+					if ((g & 1) == 0) {
+						return;
+					}
+					int32 tours = 0;
+					while (generationBloc.Load() == g) {
+						if (++tours > 64) {
+							threading::Yield(); // le bloc dure de quelques microsecondes a une periode
+						}
+					}
+				}
+
 				// ──────────────────────────────────────────────────────────────
 				// Cherche une voix libre (priorise les voix de plus faible priorité)
 				Voice *AcquireVoice(int32 priority) {
@@ -411,6 +448,17 @@ namespace nkentseu {
 				// sortie par SOUS-BLOCS <= capacite. L'etat des voix (readPos, filtres) avance
 				// naturellement d'un sous-bloc au suivant -> audio continu, correct sur TOUS les OS.
 				void AudioCallback(float32 *outputBuffer, int32 frameCount, int32 channels) {
+					// (24/11/2026) La generation des blocs encadre TOUT le mixage (voir AttendreFinDuBloc).
+					if (tProfondeurBlocAudio++ == 0) {
+						generationBloc.FetchAdd(1); // impaire : un bloc est en cours
+					}
+					AudioCallbackSousBlocs(outputBuffer, frameCount, channels);
+					if (--tProfondeurBlocAudio == 0) {
+						generationBloc.FetchAdd(1); // paire : le bloc est fini, plus aucun effet retire n'est lu
+					}
+				}
+
+				void AudioCallbackSousBlocs(float32 *outputBuffer, int32 frameCount, int32 channels) {
 					const int32 maxBlock = (mixBuffer && channels > 0) ? (mixBufferSize / channels) : 0;
 					if (maxBlock <= 0) {
 						memset(outputBuffer, 0, (usize)frameCount * (usize)channels * sizeof(float32));
@@ -578,9 +626,19 @@ namespace nkentseu {
 						}
 
 						// Appliquer les effets de la voix
+						// (24/11/2026) Meme defaut et meme remede que les effets master plus bas : chaque case lue
+						// UNE fois (AddEffect, RemoveEffect, ClearEffects l'ecrivent depuis le fil principal), et le
+						// retrait attend la fin du bloc (AttendreFinDuBloc). L'ancienne boucle, gardee pour memoire :
+						//   for (int32 e = 0; e < voice.effectCount; ++e) {
+						//       if (voice.effects[e] && voice.effects[e]->IsEnabled()) {
+						//           voice.effects[e]->Process(mixBuffer, frameCount, channels);
+						//       }
+						//   }
+						IAudioEffect *const volatile *casesVoix = voice.effects;
 						for (int32 e = 0; e < voice.effectCount; ++e) {
-							if (voice.effects[e] && voice.effects[e]->IsEnabled()) {
-								voice.effects[e]->Process(mixBuffer, frameCount, channels);
+							IAudioEffect *const effet = casesVoix[e];
+							if (effet && effet->IsEnabled()) {
+								effet->Process(mixBuffer, frameCount, channels);
 							}
 						}
 
@@ -681,9 +739,28 @@ namespace nkentseu {
 					} // for each voice
 
 					// Effets master
+					// (24/11/2026) Chaque case est lue UNE seule fois. Le fil principal modifie ce tableau sans
+					// verrou (AddMasterEffect, RemoveMasterEffect, ClearMasterEffects) pendant que le fil audio le
+					// parcourt ici. L'ancienne boucle relisait masterEffects[e] trois fois (le test, IsEnabled, puis
+					// Process) : RemoveMasterEffect mettait la case a nullptr entre deux lectures et Process partait
+					// d'un pointeur nul. Mesure : violation d'acces sur le fil audio, a cette ligne, dans l'essai Son
+					// du kit NKCanvasReseau 1.0.0 (2 lancements sur 200 le 24/11, vidage WER de 20 h 37) ; banc
+					// Tests/agents_14-10/nkaudio_plantage (son_course.cpp). La lecture passe par un pointeur
+					// volatile : le compilateur ne peut pas la refaire plus loin depuis la memoire.
+					// Cela ne suffit pas a la DUREE DE VIE : le pointeur lu ici peut etre retire puis detruit par
+					// l'appelant pendant ce bloc. RemoveMasterEffect et ClearMasterEffects attendent donc la fin du
+					// bloc (AttendreFinDuBloc) avant de rendre la main.
+					// L'ancienne boucle, gardee pour memoire :
+					//   for (int32 e = 0; e < masterEffectCount; ++e) {
+					//       if (masterEffects[e] && masterEffects[e]->IsEnabled()) {
+					//           masterEffects[e]->Process(outputBuffer, frameCount, channels);
+					//       }
+					//   }
+					IAudioEffect *const volatile *casesMaitres = masterEffects;
 					for (int32 e = 0; e < masterEffectCount; ++e) {
-						if (masterEffects[e] && masterEffects[e]->IsEnabled()) {
-							masterEffects[e]->Process(outputBuffer, frameCount, channels);
+						IAudioEffect *const effet = casesMaitres[e];
+						if (effet && effet->IsEnabled()) {
+							effet->Process(outputBuffer, frameCount, channels);
 						}
 					}
 
@@ -1229,6 +1306,8 @@ namespace nkentseu {
 					for (int32 j = i; j < v->effectCount - 1; ++j)
 						v->effects[j] = v->effects[j + 1];
 					v->effects[--v->effectCount] = nullptr;
+					// (24/11/2026) l'appelant peut detruire l'effet des le retour : finir le bloc d'abord
+					mImpl->AttendreFinDuBloc();
 					break;
 				}
 			}
@@ -1241,6 +1320,7 @@ namespace nkentseu {
 			for (int32 i = 0; i < v->effectCount; ++i)
 				v->effects[i] = nullptr;
 			v->effectCount = 0;
+			mImpl->AttendreFinDuBloc(); // (24/11/2026) voir RemoveEffect
 		}
 
 		bool AudioEngine::AddMasterEffect(IAudioEffect *effect) {
@@ -1256,6 +1336,8 @@ namespace nkentseu {
 					for (int32 j = i; j < mImpl->masterEffectCount - 1; ++j)
 						mImpl->masterEffects[j] = mImpl->masterEffects[j + 1];
 					mImpl->masterEffects[--mImpl->masterEffectCount] = nullptr;
+					// (24/11/2026) l'appelant peut detruire l'effet des le retour : finir le bloc d'abord
+					mImpl->AttendreFinDuBloc();
 					break;
 				}
 			}
@@ -1265,6 +1347,7 @@ namespace nkentseu {
 			for (int32 i = 0; i < mImpl->masterEffectCount; ++i)
 				mImpl->masterEffects[i] = nullptr;
 			mImpl->masterEffectCount = 0;
+			mImpl->AttendreFinDuBloc(); // (24/11/2026) voir RemoveMasterEffect
 		}
 
 		// ────── Global ─────────────────────────────────────────────────────────
