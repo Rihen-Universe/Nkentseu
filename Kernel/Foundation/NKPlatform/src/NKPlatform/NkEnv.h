@@ -668,8 +668,190 @@ namespace nkentseu {
 		 * if (steps) { ... }
 		 * @endcode
 		 */
+#if defined(_WIN32)
+		namespace env_detail {
+			/// (23/11/2026) Contre-epreuve des bancs : NK_NKCODE_MUTATION=env-ansi rend la lecture d'avant (page ANSI).
+			NKENTSEU_FORCE_INLINE bool LectureAnsi() noexcept {
+				static const bool s = [] {
+					const char *m = std::getenv("NK_NKCODE_MUTATION");
+					const char *k = "env-ansi";
+					if (!m)
+						return false;
+					for (; *m && *k && *m == *k; ++m, ++k) {
+					}
+					return *m == 0 && *k == 0;
+				}();
+				return s;
+			}
+			/// La valeur LARGE de `name` encodee en UTF-8 dans une case du fil appelant (une par nom, huit noms au
+			/// plus, la plus ancienne reprise). Le pointeur rendu vaut comme celui de getenv : jusqu'a la prochaine
+			/// lecture d'une valeur NON ASCII de ce meme nom, dans ce fil.
+			NKENTSEU_FORCE_INLINE const char *Utf8(const char *name, const wchar_t *w) noexcept {
+				// (23/11 soir) la case GRANDIT a la taille de la valeur : un PATH depasse vite 2 Ko (32 767 caracteres au plus
+				// sous Windows) ; une case fixe le tronquait.
+				struct Case {
+						char nom[64];
+						char *valeur;
+						int capacite;
+				};
+				static thread_local Case cases[8] = {};
+				static thread_local int prochaine = 0;
+				int i = 0;
+				for (; i < 8; ++i) {
+					int k = 0;
+					while (k < 63 && name[k] && cases[i].nom[k] == name[k])
+						++k;
+					if (name[k] == 0 && cases[i].nom[k] == 0 && k > 0)
+						break;
+				}
+				if (i == 8) {
+					i = prochaine;
+					prochaine = (prochaine + 1) % 8;
+					int k = 0;
+					for (; k < 63 && name[k]; ++k)
+						cases[i].nom[k] = name[k];
+					cases[i].nom[k] = 0;
+				}
+				int lw = 0;
+				while (w[lw])
+					++lw;
+				const int besoin = lw * 3 + 4; // au plus 3 octets UTF-8 par unite UTF-16 (4 pour une paire), + le zero
+				if (cases[i].capacite < besoin) {
+					char *nouveau = static_cast<char *>(::malloc(static_cast<size_t>(besoin))); // le noyau : pas d'exception ici
+					if (!nouveau)
+						return nullptr;
+					::free(cases[i].valeur);
+					cases[i].valeur = nouveau;
+					cases[i].capacite = besoin;
+				}
+				char *o = cases[i].valeur;
+				int n = 0;
+				for (const wchar_t *p = w; *p && n < besoin - 5; ++p) {
+					unsigned int c = (unsigned int)*p;
+					if (c >= 0xD800 && c <= 0xDBFF && p[1] >= 0xDC00 && p[1] <= 0xDFFF) { // paire de substitution
+						c = 0x10000 + ((c - 0xD800) << 10) + ((unsigned int)p[1] - 0xDC00);
+						++p;
+					}
+					if (c < 0x80)
+						o[n++] = (char)c;
+					else if (c < 0x800) {
+						o[n++] = (char)(0xC0 | (c >> 6));
+						o[n++] = (char)(0x80 | (c & 0x3F));
+					} else if (c < 0x10000) {
+						o[n++] = (char)(0xE0 | (c >> 12));
+						o[n++] = (char)(0x80 | ((c >> 6) & 0x3F));
+						o[n++] = (char)(0x80 | (c & 0x3F));
+					} else {
+						o[n++] = (char)(0xF0 | (c >> 18));
+						o[n++] = (char)(0x80 | ((c >> 12) & 0x3F));
+						o[n++] = (char)(0x80 | ((c >> 6) & 0x3F));
+						o[n++] = (char)(0x80 | (c & 0x3F));
+					}
+				}
+				o[n] = 0;
+				return o;
+			}
+			/// (23/11/2026 soir) Contre-epreuve : NK_NKCODE_MUTATION=env-ecriture-ansi rend l'ECRITURE d'avant
+			/// (_putenv_s, page ANSI) et garde la lecture UTF-8 : le desaccord que SetEnvVar corrige.
+			NKENTSEU_FORCE_INLINE bool EcritureAnsi() noexcept {
+				static const bool s = [] {
+					const char *m = std::getenv("NK_NKCODE_MUTATION");
+					const char *k = "env-ecriture-ansi";
+					if (!m)
+						return false;
+					for (; *m && *k && *m == *k; ++m, ++k) {
+					}
+					return *m == 0 && *k == 0;
+				}();
+				return s;
+			}
+			/// `s` (UTF-8) en UTF-16, dans un tampon alloue que l'appelant libere (free). nullptr si `s` n'est pas de
+			/// l'UTF-8 valide : un appelant qui passe encore la page ANSI garde l'ecriture d'avant.
+			NKENTSEU_FORCE_INLINE wchar_t *Utf16(const char *s) noexcept {
+				int n = 0;
+				while (s[n])
+					++n;
+				// au plus une unite UTF-16 par octet (une sequence de 4 octets donne une paire de 2 unites)
+				wchar_t *w = static_cast<wchar_t *>(::malloc(static_cast<size_t>(n + 1) * sizeof(wchar_t)));
+				if (!w)
+					return nullptr;
+				int o = 0;
+				const unsigned char *p = reinterpret_cast<const unsigned char *>(s);
+				while (*p) {
+					unsigned int c = *p++;
+					int suite = 0;
+					if (c >= 0x80) {
+						if ((c & 0xE0) == 0xC0) {
+							c &= 0x1F;
+							suite = 1;
+						} else if ((c & 0xF0) == 0xE0) {
+							c &= 0x0F;
+							suite = 2;
+						} else if ((c & 0xF8) == 0xF0) {
+							c &= 0x07;
+							suite = 3;
+						} else {
+							::free(w);
+							return nullptr;
+						}
+					}
+					for (int k = 0; k < suite; ++k, ++p) {
+						if ((*p & 0xC0) != 0x80) { // le zero final aussi : une sequence coupee
+							::free(w);
+							return nullptr;
+						}
+						c = (c << 6) | (*p & 0x3Fu);
+					}
+					const bool tropLong = (suite == 1 && c < 0x80) || (suite == 2 && c < 0x800) || (suite == 3 && c < 0x10000);
+					if (tropLong || c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF)) {
+						::free(w);
+						return nullptr;
+					}
+					if (c >= 0x10000) {
+						c -= 0x10000;
+						w[o++] = static_cast<wchar_t>(0xD800 + (c >> 10));
+						w[o++] = static_cast<wchar_t>(0xDC00 + (c & 0x3FF));
+					} else
+						w[o++] = static_cast<wchar_t>(c);
+				}
+				w[o] = 0;
+				return w;
+			}
+		} // namespace env_detail
+#endif
+
+		// (23/11/2026, NKCode « machine vierge ») EN UTF-8 SOUS WINDOWS. std::getenv rend la page ANSI (1252) ; les
+		// chaines Nkentseu (NkString, NkPath, NkFile) sont de l'UTF-8. Un profil « C:\Users\Jean Éric » rendait donc
+		// « Jean \xC9ric » : un octet que l'UTF-8 refuse, et ~/.nkcode, ~/Projects, le dossier des exemples d'un
+		// utilisateur au nom accentue devenaient introuvables (un nom cyrillique ou chinois devenait « ???? »). Une
+		// valeur ASCII est rendue telle quelle, comme avant (le pointeur du CRT) ; une valeur NON ASCII est relue en
+		// UTF-16 (_wgetenv) et rendue en UTF-8. Banc : Applications/NKCode/tools/banc_machine_vierge.ps1.
+		// Contre-epreuve : NK_NKCODE_MUTATION=env-ansi.
 		NKENTSEU_FORCE_INLINE const char *GetEnvVar(const char *name) noexcept {
-			return name ? std::getenv(name) : nullptr;
+			if (!name)
+				return nullptr;
+			const char *a = std::getenv(name);
+#if defined(_WIN32)
+			if (!a || env_detail::LectureAnsi())
+				return a;
+			wchar_t wn[64];
+			int k = 0;
+			for (; k < 63 && name[k]; ++k)
+				wn[k] = (wchar_t)(unsigned char)name[k];
+			wn[k] = 0;
+			const wchar_t *w = _wgetenv(wn);
+			if (!w)
+				return a;
+			bool ascii = true;
+			for (const wchar_t *p = w; *p; ++p)
+				if ((unsigned int)*p >= 0x80) {
+					ascii = false;
+					break;
+				}
+			return ascii ? a : env_detail::Utf8(name, w);
+#else
+			return a;
+#endif
 		}
 
 		/**
@@ -685,6 +867,28 @@ namespace nkentseu {
 				return false;
 			}
 #if defined(_WIN32)
+			// (23/11/2026 soir, NKCode « machine vierge ») EN UTF-8, COMME GetEnvVar. GetEnvVar rend l'UTF-8 ; ecrire
+			// ces octets par _putenv_s (page ANSI) posait « Jean Ã‰ric » : NKCode relisait le PATH, y ajoutait son
+			// dossier tools\ et le reposait, et chaque sous-processus (le repli de compile-flags, de la
+			// construction) disait « 'jenga' is not recognized ». Une valeur non ASCII et UTF-8 valide passe par
+			// _wputenv_s (UTF-16) ; une valeur ASCII, ou encore en page ANSI (UTF-8 invalide), garde _putenv_s.
+			// Banc : Applications/NKCode/tools/banc_machine_vierge.ps1 (c2). Contre-epreuve :
+			// NK_NKCODE_MUTATION=env-ecriture-ansi.
+			bool ascii = true;
+			for (const char *p = name; *p && ascii; ++p)
+				ascii = static_cast<unsigned char>(*p) < 0x80;
+			for (const char *p = value; *p && ascii; ++p)
+				ascii = static_cast<unsigned char>(*p) < 0x80;
+			if (!ascii && !env_detail::LectureAnsi() && !env_detail::EcritureAnsi()) {
+				wchar_t *wn = env_detail::Utf16(name);
+				wchar_t *wv = wn ? env_detail::Utf16(value) : nullptr;
+				const bool ok = wn && wv && _wputenv_s(wn, wv) == 0;
+				const bool tente = wn && wv;
+				::free(wn);
+				::free(wv);
+				if (tente)
+					return ok;
+			}
 			return _putenv_s(name, value) == 0;
 #else
 			return setenv(name, value, 1) == 0;

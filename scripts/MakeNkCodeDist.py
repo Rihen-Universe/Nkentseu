@@ -230,6 +230,56 @@ JENGA_EXCLUDE_DIRS = {"Docs", "Exemples", "unused", "__pycache__",
                       ".git", ".github", "Captures", "Tools"}
 JENGA_EXCLUDE_TOP = {"Tools"}  # Tools/Installer & co : packaging Jenga, pas le build
 
+
+def StageExemples(jenga_repo: Path, dest: Path) -> bool:
+    """(23/11/2026, machine vierge) LES EXEMPLES DE JENGA SUIVENT LE PAQUET.
+
+    Rodolf (23/11) : « Un utilisateur de NKCode a telecharge NKCode depuis le site [...] a lance la creation d'un
+    exemple : ca a refuse ». « Exemples » est exclu de la copie des sources (JENGA_EXCLUDE_DIRS : 3,9 Mo, un .apk) ;
+    `jenga examples copy` (Commands/Examples.py, _ResolveExampleDir) les cherche alors dans
+    tools/jenga-src/Jenga/Exemples, puis dans ~/.jenga/examples-cache, puis les TELECHARGE depuis la release GitHub
+    de SA version. Hors ligne, derriere un pare-feu, ou quand cette version n'est pas publiee (Jenga 2.11.0 dans la
+    1.7.0 : 404), le clonage echouait (« Echec du clonage de <id> »).
+    Ici : l'archive allegee que publie Jenga, au meme filtre (Jenga/scripts/build_examples_archive.py, source unique
+    des exclusions : ni Build/, ni binaires, ni images), copiee dans tools/jenga-src/Jenga/Exemples, le premier
+    endroit que Jenga regarde. Banc : Applications/NKCode/tools/banc_machine_vierge.sh (hors ligne). Contre-epreuve :
+    NKCODE_DIST_SANS_EXEMPLES=1 (le paquet d'avant)."""
+    if os.environ.get("NKCODE_DIST_SANS_EXEMPLES") == "1":
+        Log("exemples Jenga NON embarques (NKCODE_DIST_SANS_EXEMPLES=1 : contre-epreuve)")
+        return True
+    src = jenga_repo / "Jenga" / "Exemples"
+    script = jenga_repo / "scripts" / "build_examples_archive.py"
+    if not src.is_dir() or not script.is_file():
+        Log(f"ERREUR : exemples Jenga introuvables ({src}, {script})")
+        return False
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("nk_build_examples_archive", script)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    etage = dest.parent / "_etage_exemples"
+    if etage.exists():
+        shutil.rmtree(etage)
+    n = mod._stage_examples(src, etage)  # -> etage/jenga-examples/<id>/...
+    # L'ETAT LOCAL D'UN EDITEUR ou de Jenga, laisse dans le depot de travail par un essai (non suivi par git : l'archive
+    # de la CI, faite depuis git, ne l'a pas), ne part JAMAIS chez l'utilisateur. Mesure du 23/11 :
+    # Exemples/01_hello_console/.nkcode (compile_commands.json aux chemins de CETTE machine, session.nk,
+    # ai_chats_1.cfg) et .jenga partaient dans le paquet, puis dans chaque exemple clone.
+    for racine, dossiers, fichiers in os.walk(etage, topdown=True):
+        for d in [d for d in dossiers if d in (".nkcode", ".jenga", ".vscode", ".idea")]:
+            shutil.rmtree(Path(racine) / d, ignore_errors=True)
+            dossiers.remove(d)
+            n -= 1  # compte indicatif
+        for f in fichiers:
+            if f in ("pyrightconfig.json",):
+                (Path(racine) / f).unlink()
+                n -= 1
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.move(str(etage / "jenga-examples"), str(dest))
+    shutil.rmtree(etage, ignore_errors=True)
+    Log(f"exemples Jenga embarques : {n} fichier(s) dans {dest}")
+    return n > 0
+
 # Polices REELLEMENT chargees par NkAppFonts/NkFontPrefs (verifie par grep du
 # code) — les 9 autres graisses NotoSansSC (11 Mo chacune !) + la variable
 # (17 Mo) ne sont referencees nulle part : ~95 Mo economises.
@@ -558,9 +608,12 @@ def Main() -> int:
                          "raccourcis, desinstalleur, entree Programmes et "
                          "fonctionnalites. Compile avec ISCC s'il est trouve, "
                          "sinon ecrit seulement le script .iss.")
+    # (23/11) un AUTRE executable (une sortie a part, NKCODE_SORTIE=...) : banc_machine_vierge.sh assemble le paquet
+    # autour de la candidate sans toucher au dossier NKCode des autres constructions
+    ap.add_argument("--exe", default="", help="NKCode.exe a empaqueter (defaut : Build/Bin/<config>-Windows/NKCode)")
     args = ap.parse_args()
 
-    exe = REPO / f"Build/Bin/{args.config}-Windows/NKCode/NKCode.exe"
+    exe = Path(args.exe) if args.exe else REPO / f"Build/Bin/{args.config}-Windows/NKCode/NKCode.exe"
     if not exe.exists():
         Log(f"ERREUR : {exe} introuvable — builder d'abord :")
         Log(f"  jenga build --target NKCode --config {args.config}")
@@ -658,6 +711,8 @@ def Main() -> int:
     ver = jenga_repo / "Jenga" / "_version.py"
     if ver.exists():
         shutil.copy2(ver, tools / "jenga-src" / "Jenga" / "_version.py")
+    if not StageExemples(jenga_repo, tools / "jenga-src" / "Jenga" / "Exemples"):
+        return 1
 
     # ── Shim `jenga` en LIGNE DE COMMANDE ────────────────────────────────────
     # NKCode route la plupart des commandes vers l'interpreteur embarque, mais
@@ -690,6 +745,20 @@ def Main() -> int:
         'rem (le chemin des sources vient du fichier python*._pth, pas de PYTHONPATH)\r\n'
         "setlocal\r\n"
         'if exist "%~dp0compilers\\llvm-mingw\\bin\\clang.exe" set "PATH=%~dp0compilers\\llvm-mingw\\bin;%PATH%"\r\n'
+        # (23/11, machine vierge) LE PATH NE SUFFIT PAS : Jenga (GlobalToolchains._first_executable) essaie les
+        # CHEMINS avant le PATH -- CLANG_MINGW_CC/CXX, puis C:\msys64\ucrt64\bin\clang.exe en dur. Mesure du 23/11
+        # (banc_machine_vierge.ps1, c1) : `jenga build --verbose` par ce shim compilait avec
+        # C:\msys64\ucrt64\bin\clang++.exe du poste, et l'executable ne demarrait pas sans les DLL de msys64. Le shim
+        # designe donc le compilateur EMBARQUE, comme NkEmbeddedJenga le fait pour NKCode -- sauf si l'appelant
+        # (le terminal de NKCode, qui suit le choix de l'utilisateur) l'a deja designe.
+        # Contre-epreuve : NKCODE_DIST_SHIM_ANCIEN=1 (le shim d'avant, PATH seul).
+        + ("" if os.environ.get("NKCODE_DIST_SHIM_ANCIEN") == "1" else
+           'if exist "%~dp0compilers\\llvm-mingw\\bin\\x86_64-w64-mingw32-clang.exe" if not defined CLANG_MINGW_CC '
+           'set "CLANG_MINGW_CC=%~dp0compilers\\llvm-mingw\\bin\\x86_64-w64-mingw32-clang.exe"\r\n'
+           'if exist "%~dp0compilers\\llvm-mingw\\bin\\x86_64-w64-mingw32-clang++.exe" if not defined CLANG_MINGW_CXX '
+           'set "CLANG_MINGW_CXX=%~dp0compilers\\llvm-mingw\\bin\\x86_64-w64-mingw32-clang++.exe"\r\n'
+           'if exist "%~dp0compilers\\llvm-mingw\\bin" if not defined LLVM_MINGW_BIN '
+           'set "LLVM_MINGW_BIN=%~dp0compilers\\llvm-mingw\\bin"\r\n') +
         # (07/10) NKCode, Reglages > Jenga : l'utilisateur peut garder le Jenga
         # embarque et le faire tourner avec SON Python. NKCode pose alors
         # NKCODE_PYTHON ; le terminal integre en herite, et ce shim lui obeit.
