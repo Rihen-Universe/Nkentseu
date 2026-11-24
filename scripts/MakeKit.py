@@ -54,6 +54,11 @@ from pathlib import Path
 # suivent toutes seules, c'est `jenga kit` qui les resout).
 KITS_CONNUS = {
     "Canvas": ["NKCanvas", "NKAudio"],
+    # (24/11/2026) Le kit Canvas AVEC le reseau, pour les projets de decembre (deux joueurs en reseau local,
+    # piste jeu d'AN2) et ouvert a tous les apprenants. NKGui est nomme bien que NKCanvas le tire deja : le kit
+    # le promet, il ne doit pas dependre d'un choix interne de NKCanvas. Publie sous l'etiquette
+    # nkcanvasreseau-v<version> (un kit, une version : regle du 22/10/2026).
+    "NKCanvasReseau": ["NKCanvas", "NKGui", "NKAudio", "NKNetwork"],
     "RHI": ["NKRHI"],
     "Renderer": ["NKRenderer"],
 }
