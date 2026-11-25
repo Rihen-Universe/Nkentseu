@@ -55,6 +55,9 @@ The processor answers at run time:
 {{si-version:0.1}}
 > [!attention] Known issue in 0.1.0-beta.11: NkSet, NkGet, NkExists and NkUnset do not link
 > These four functions are declared `inline` in `NkEnv.h`, but their body is in `NkEnv.cpp`. A program outside the module that calls them gets the warning "inline function is not defined", then linking fails (seen while building the example on this page). In this version, read the environment with [[GetEnvVar]]. Fixed after this version (see the work-in-progress documentation).
+
+> [!attention] Known issue in 0.1.0-beta.11: CPUFeatures::ToString does not link
+> Both forms are defined `inline` in `NkCPUFeatures.cpp` and do not make it into the library: a program outside the module that calls them does not link. Read the structure's fields, or the `NkHas...` and `NkGet...` functions. Fixed after this version.
 {{fin-si}}
 
 {{si-version:dev}}
@@ -65,6 +68,10 @@ The processor answers at run time:
 > [[NkGet]] returns an empty string in both cases. If the difference matters, ask [[NkExists]] first.
 
 {{exemple:Foundation/NKPlatform/environnement_ecrire}}
+
+The readable summary of the processor, for a log:
+
+{{exemple:Foundation/NKPlatform/processeur_resume}}
 {{fin-si}}
 
 > [!attention] X11 macros

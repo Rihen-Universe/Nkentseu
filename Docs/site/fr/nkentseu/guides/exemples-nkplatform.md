@@ -33,3 +33,9 @@ Chaque exemple est un fichier de `Docs/exemples/Foundation/NKPlatform/`. Jenga l
 
 {{exemple:Foundation/NKPlatform/environnement_ecrire}}
 {{fin-si}}
+
+{{si-version:dev}}
+## Le résumé lisible du processeur (version de travail)
+
+{{exemple:Foundation/NKPlatform/processeur_resume}}
+{{fin-si}}

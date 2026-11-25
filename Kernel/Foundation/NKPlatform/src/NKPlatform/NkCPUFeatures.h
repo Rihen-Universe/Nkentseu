@@ -103,7 +103,7 @@ namespace nkentseu {
 				/**
 				 * @brief Constructeur par défaut avec valeurs conservatrices
 				 */
-				NKENTSEU_INLINE CacheInfo();
+				CacheInfo();
 		};
 
 		// -----------------------------------------------------------------
@@ -142,7 +142,7 @@ namespace nkentseu {
 				/**
 				 * @brief Constructeur par défaut avec valeurs minimales
 				 */
-				NKENTSEU_INLINE CPUTopology();
+				CPUTopology();
 		};
 
 		// -----------------------------------------------------------------
@@ -236,7 +236,7 @@ namespace nkentseu {
 				/**
 				 * @brief Constructeur par défaut avec toutes les fonctionnalités désactivées
 				 */
-				NKENTSEU_INLINE SIMDFeatures();
+				SIMDFeatures();
 		};
 
 		// -----------------------------------------------------------------
@@ -316,7 +316,7 @@ namespace nkentseu {
 				/**
 				 * @brief Constructeur par défaut avec toutes les fonctionnalités désactivées
 				 */
-				NKENTSEU_INLINE ExtendedFeatures();
+				ExtendedFeatures();
 		};
 
 		// =================================================================
@@ -449,7 +449,7 @@ namespace nkentseu {
 				 * @note La sortie est tronquée si elle dépasse outBufferSize.
 				 * Le buffer est toujours null-terminé.
 				 */
-				NKENTSEU_INLINE void ToString(char *outBuffer, size_t outBufferSize) const;
+				void ToString(char *outBuffer, size_t outBufferSize) const;
 
 				/**
 				 * @brief Obtenir une représentation chaîne pratique (buffer statique interne)
@@ -465,7 +465,7 @@ namespace nkentseu {
 				 * NK_FOUNDATION_LOG_INFO("CPU: %s", CPUFeatures::Get().ToString());
 				 * @endcode
 				 */
-				NKENTSEU_INLINE const char *ToString() const;
+				const char *ToString() const;
 
 			private:
 				// -----------------------------------------------------------------

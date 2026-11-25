@@ -141,7 +141,7 @@ namespace nkentseu {
 		// -------------------------------------------------------------------------
 		// Constructeur CacheInfo
 		// -------------------------------------------------------------------------
-		NKENTSEU_API_INLINE CacheInfo::CacheInfo()
+		CacheInfo::CacheInfo()
 			: lineSize(64), l1DataSize(32), l1InstructionSize(32), l2Size(256), l3Size(8192) {
 			// Valeurs par défaut typiques pour un CPU moderne
 			// Seront écrasées par DetectCache() si la détection réussit
@@ -150,7 +150,7 @@ namespace nkentseu {
 		// -------------------------------------------------------------------------
 		// Constructeur CPUTopology
 		// -------------------------------------------------------------------------
-		NKENTSEU_API_INLINE CPUTopology::CPUTopology()
+		CPUTopology::CPUTopology()
 			: numPhysicalCores(1), numLogicalCores(1), numSockets(1), hasHyperThreading(false) {
 			// Minimum : 1 cœur physique, 1 logique, 1 socket
 			// Seront mis à jour par DetectTopology()
@@ -159,7 +159,7 @@ namespace nkentseu {
 		// -------------------------------------------------------------------------
 		// Constructeur SIMDFeatures
 		// -------------------------------------------------------------------------
-		NKENTSEU_API_INLINE SIMDFeatures::SIMDFeatures()
+		SIMDFeatures::SIMDFeatures()
 			: hasMMX(false), hasSSE(false), hasSSE2(false), hasSSE3(false), hasSSSE3(false), hasSSE41(false),
 			  hasSSE42(false), hasAVX(false), hasAVX2(false), hasAVX512F(false), hasAVX512DQ(false), hasAVX512BW(false),
 			  hasAVX512VL(false), hasFMA(false), hasFMA4(false), hasNEON(false), hasSVE(false), hasSVE2(false) {
@@ -170,7 +170,7 @@ namespace nkentseu {
 		// -------------------------------------------------------------------------
 		// Constructeur ExtendedFeatures
 		// -------------------------------------------------------------------------
-		NKENTSEU_API_INLINE ExtendedFeatures::ExtendedFeatures()
+		ExtendedFeatures::ExtendedFeatures()
 			: hasAES(false), hasSHA(false), hasRDRAND(false), hasRDSEED(false), hasCLFLUSH(false), hasCLFLUSHOPT(false),
 			  hasPREFETCHWT1(false), hasMOVBE(false), hasPOPCNT(false), hasLZCNT(false), hasBMI1(false), hasBMI2(false),
 			  hasADX(false), hasVMX(false), hasSVM(false) {
@@ -224,7 +224,7 @@ namespace nkentseu {
 		 * Abstraction des différences entre MSVC (__cpuidex) et GCC/Clang (inline asm).
 		 * Les registres de sortie sont copiés dans les pointeurs fournis.
 		 */
-		NKENTSEU_API_INLINE void CPUFeatures::CPUID(int32_t function, int32_t subfunction, int32_t *eax, int32_t *ebx,
+		void CPUFeatures::CPUID(int32_t function, int32_t subfunction, int32_t *eax, int32_t *ebx,
 													int32_t *ecx, int32_t *edx) {
 			int32_t regs[4] = {0};
 
@@ -748,7 +748,7 @@ namespace nkentseu {
 		// SECTION 11 : MÉTHODES TOSTRING (SÉRIALISATION)
 		// ====================================================================
 
-		NKENTSEU_API_INLINE void CPUFeatures::ToString(char *outBuffer, size_t outBufferSize) const {
+		void CPUFeatures::ToString(char *outBuffer, size_t outBufferSize) const {
 			if (!outBuffer || outBufferSize == 0u) {
 				return;
 			}
@@ -824,7 +824,7 @@ namespace nkentseu {
 			::snprintf(outBuffer, static_cast<size_t>(outBufferSize), "%s", buffer);
 		}
 
-		NKENTSEU_API_INLINE const char *CPUFeatures::ToString() const {
+		const char *CPUFeatures::ToString() const {
 			// Buffer statique interne : NON THREAD-SAFE
 			// Ne pas conserver le pointeur retourné entre les appels
 			static char sBuffer[2048];

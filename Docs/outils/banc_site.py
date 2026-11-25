@@ -176,6 +176,9 @@ def controler(textes, tailles, entetes=None, traductions=None, apis=None, limite
             m = re.search(motif, t)
             if m:
                 f.append(f"[privé] {k} : « {m.group(0)} »")
+    # 6 bis. licences : une police servie par le site part avec sa licence (Poppins : SIL OFL 1.1, fonts/OFL.txt)
+    if any(k.startswith("assets/fonts/") and k.endswith(".woff2") for k in tailles) and "assets/fonts/OFL.txt" not in tailles:
+        f.append("[licence] assets/fonts/ sert des polices sans leur licence (OFL.txt)")
     # 7. taille
     total = sum(tailles.values())
     if total > limite:
@@ -289,6 +292,7 @@ def main():
         "exemple en échec": (dict(textes, **{"construction.json": json.dumps(cons_mut)}), tailles, {}),
         "marqueur privé": (muter(page_fr, "</main>", "<p>voir docs/FEUILLE_DE_ROUTE.md</p></main>"), tailles, {}),
         "taille": (textes, dict(tailles, **{"gros.bin": 950 * 1000 * 1000}), {}),
+        "licence absente": (textes, {k: v for k, v in tailles.items() if k != "assets/fonts/OFL.txt"}, {}),
         "bandeau absent": (muter("fr/nkentseu/dev/index.html", 'class="note attention bandeau-dev"', 'class="note"'), tailles, {}),
         "bandeau en stable": (muter(page_fr, "</main>", '<div class="note attention bandeau-dev">x</div></main>'), tailles, {}),
     }

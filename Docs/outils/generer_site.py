@@ -155,7 +155,9 @@ def texte_inline(s: Optional[str]) -> str:
 
 
 def ancre(s: str) -> str:
-    s = s.lower()
+    # « Résumé » donne « resume », pas « r-sum » : les accents sont retirés avant de remplacer le reste
+    import unicodedata
+    s = "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn").lower()
     s = re.sub(r"[^a-z0-9]+", "-", s.replace("~", "dtor-").replace("operator", "op-"))
     return s.strip("-") or "x"
 
