@@ -70,11 +70,11 @@ namespace nkentseu {
 		// Constructeurs
 		// -------------------------------------------------------------------------
 
-		NKENTSEU_API_INLINE NkEnvString::NkEnvString() noexcept : mData(nullptr), mLength(0) {
+NkEnvString::NkEnvString() noexcept : mData(nullptr), mLength(0) {
 			// Chaîne vide : pas d'allocation nécessaire
 		}
 
-		NKENTSEU_API_INLINE NkEnvString::NkEnvString(const char *str) : mData(nullptr), mLength(0) {
+NkEnvString::NkEnvString(const char *str) : mData(nullptr), mLength(0) {
 			if (str) {
 				mLength = static_cast<NkSize>(std::strlen(str));
 				mData = static_cast<char *>(std::malloc(static_cast<size_t>(mLength) + 1));
@@ -87,7 +87,7 @@ namespace nkentseu {
 			}
 		}
 
-		NKENTSEU_API_INLINE NkEnvString::NkEnvString(char ch) : mData(nullptr), mLength(0) {
+NkEnvString::NkEnvString(char ch) : mData(nullptr), mLength(0) {
 			mLength = 0;
 			mData = static_cast<char *>(std::malloc(2));
 			if (mData) {
@@ -98,7 +98,7 @@ namespace nkentseu {
 			// Si malloc échoue, mData reste nullptr et mLength = 0
 		}
 
-		NKENTSEU_API_INLINE NkEnvString::NkEnvString(const NkEnvString &other)
+NkEnvString::NkEnvString(const NkEnvString &other)
 			: mData(nullptr), mLength(other.mLength) {
 			if (other.mData) {
 				mData = static_cast<char *>(std::malloc(static_cast<size_t>(mLength) + 1));
@@ -111,7 +111,7 @@ namespace nkentseu {
 			}
 		}
 
-		NKENTSEU_API_INLINE NkEnvString::NkEnvString(NkEnvString &&other) noexcept
+NkEnvString::NkEnvString(NkEnvString &&other) noexcept
 			: mData(other.mData), mLength(other.mLength) {
 			// Transfert de propriété : vider la source
 			other.mData = nullptr;
@@ -122,7 +122,7 @@ namespace nkentseu {
 		// Destructeur
 		// -------------------------------------------------------------------------
 
-		NKENTSEU_API_INLINE NkEnvString::~NkEnvString() {
+NkEnvString::~NkEnvString() {
 			if (mData) {
 				std::free(mData);
 				mData = nullptr;
@@ -133,7 +133,7 @@ namespace nkentseu {
 		// Opérateurs d'affectation
 		// -------------------------------------------------------------------------
 
-		NKENTSEU_API_INLINE NkEnvString &NkEnvString::operator=(const NkEnvString &other) {
+NkEnvString &NkEnvString::operator=(const NkEnvString &other) {
 			if (this != &other) {
 				// Idiom copy-and-swap pour exception safety
 				NkEnvString temp(other);
@@ -142,7 +142,7 @@ namespace nkentseu {
 			return *this;
 		}
 
-		NKENTSEU_API_INLINE NkEnvString &NkEnvString::operator=(NkEnvString &&other) noexcept {
+NkEnvString &NkEnvString::operator=(NkEnvString &&other) noexcept {
 			if (this != &other) {
 				// Libérer l'ancienne mémoire avant de prendre possession
 				if (mData) {
@@ -161,20 +161,20 @@ namespace nkentseu {
 		// Accesseurs
 		// -------------------------------------------------------------------------
 
-		NKENTSEU_API_INLINE const char *NkEnvString::CStr() const noexcept {
+const char *NkEnvString::CStr() const noexcept {
 			// Retourner une chaîne vide safe si mData est nullptr
 			return mData ? mData : "";
 		}
 
-		NKENTSEU_API_INLINE NkSize NkEnvString::Size() const noexcept {
+NkSize NkEnvString::Size() const noexcept {
 			return mLength;
 		}
 
-		NKENTSEU_API_INLINE bool NkEnvString::Empty() const noexcept {
+bool NkEnvString::Empty() const noexcept {
 			return mLength == 0;
 		}
 
-		NKENTSEU_API_INLINE void NkEnvString::Clear() noexcept {
+void NkEnvString::Clear() noexcept {
 			if (mData) {
 				std::free(mData);
 				mData = nullptr;
@@ -186,7 +186,7 @@ namespace nkentseu {
 		// Opérateurs de comparaison
 		// -------------------------------------------------------------------------
 
-		NKENTSEU_API_INLINE bool NkEnvString::operator==(const NkEnvString &other) const noexcept {
+bool NkEnvString::operator==(const NkEnvString &other) const noexcept {
 			if (mLength != other.mLength) {
 				return false;
 			}
@@ -199,11 +199,11 @@ namespace nkentseu {
 			return std::strcmp(mData, other.mData) == 0;
 		}
 
-		NKENTSEU_API_INLINE bool NkEnvString::operator!=(const NkEnvString &other) const noexcept {
+bool NkEnvString::operator!=(const NkEnvString &other) const noexcept {
 			return !(*this == other);
 		}
 
-		NKENTSEU_API_INLINE bool NkEnvString::operator<(const NkEnvString &other) const noexcept {
+bool NkEnvString::operator<(const NkEnvString &other) const noexcept {
 			if (!mData && !other.mData) {
 				return false; // Égaux, donc pas <
 			}
@@ -220,7 +220,7 @@ namespace nkentseu {
 		// Opérateur de concaténation (fonction libre)
 		// -------------------------------------------------------------------------
 
-		NKENTSEU_API_INLINE NkEnvString operator+(const NkEnvString &lhs, const NkEnvString &rhs) {
+NkEnvString operator+(const NkEnvString &lhs, const NkEnvString &rhs) {
 			if (lhs.Empty()) {
 				return rhs;
 			}
@@ -255,7 +255,7 @@ namespace nkentseu {
 		// NkGet : Lire une variable d'environnement
 		// -------------------------------------------------------------------------
 
-		NKENTSEU_API_INLINE NkEnvString NkGet(const NkEnvString &name, NkEnvString &result) noexcept {
+NkEnvString NkGet(const NkEnvString &name, NkEnvString &result) noexcept {
 			const char *cname = name.CStr();
 
 			// Validation des paramètres
@@ -294,7 +294,7 @@ namespace nkentseu {
 		// NkSet : Définir une variable d'environnement
 		// -------------------------------------------------------------------------
 
-		NKENTSEU_API_INLINE bool NkSet(const NkEnvString &name, const NkEnvString &value, bool overwrite) noexcept {
+bool NkSet(const NkEnvString &name, const NkEnvString &value, bool overwrite) noexcept {
 			const char *cname = name.CStr();
 			const char *cval = value.CStr();
 
@@ -321,7 +321,7 @@ namespace nkentseu {
 		// NkUnset : Supprimer une variable d'environnement
 		// -------------------------------------------------------------------------
 
-		NKENTSEU_API_INLINE bool NkUnset(const NkEnvString &name) noexcept {
+bool NkUnset(const NkEnvString &name) noexcept {
 			const char *cname = name.CStr();
 
 			if (!cname || cname[0] == '\0') {
@@ -341,7 +341,7 @@ namespace nkentseu {
 		// NkExists : Vérifier l'existence d'une variable
 		// -------------------------------------------------------------------------
 
-		NKENTSEU_API_INLINE bool NkExists(const NkEnvString &name) noexcept {
+bool NkExists(const NkEnvString &name) noexcept {
 			const char *cname = name.CStr();
 
 			if (!cname || cname[0] == '\0') {
@@ -409,7 +409,7 @@ namespace nkentseu {
 		// NkGetAll : Obtenir toutes les variables d'environnement
 		// -------------------------------------------------------------------------
 
-		NKENTSEU_API_INLINE NkEnvUMap<NkEnvString, NkEnvString> NkGetAll() noexcept {
+NkEnvUMap<NkEnvString, NkEnvString> NkGetAll() noexcept {
 			NkEnvUMap<NkEnvString, NkEnvString> result;
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
@@ -463,7 +463,7 @@ namespace nkentseu {
 		// NkGetPathSeparator : Obtenir le séparateur de chemin système
 		// -------------------------------------------------------------------------
 
-		NKENTSEU_API_INLINE char NkGetPathSeparator() noexcept {
+char NkGetPathSeparator() noexcept {
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 			return ';'; // Windows utilise ';' pour séparer les entrées PATH
 #else
@@ -512,7 +512,7 @@ namespace nkentseu {
 		// NkPrependToPath : Ajouter un répertoire au début du PATH
 		// -------------------------------------------------------------------------
 
-		NKENTSEU_API_INLINE bool NkPrependToPath(const NkEnvString &directory, const NkEnvString &varName) {
+bool NkPrependToPath(const NkEnvString &directory, const NkEnvString &varName) {
 			return ModifyPath(directory, varName, true);
 		}
 
@@ -520,7 +520,7 @@ namespace nkentseu {
 		// NkAppendToPath : Ajouter un répertoire à la fin du PATH
 		// -------------------------------------------------------------------------
 
-		NKENTSEU_API_INLINE bool NkAppendToPath(const NkEnvString &directory, const NkEnvString &varName) {
+bool NkAppendToPath(const NkEnvString &directory, const NkEnvString &varName) {
 			return ModifyPath(directory, varName, false);
 		}
 

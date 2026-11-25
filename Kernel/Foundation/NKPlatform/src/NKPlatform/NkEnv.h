@@ -243,7 +243,7 @@ namespace nkentseu {
 		 * @return Nouvelle chaîne contenant lhs + rhs
 		 * @ingroup EnvOperators
 		 */
-		NKENTSEU_API_INLINE NkEnvString operator+(const NkEnvString &lhs, const NkEnvString &rhs);
+		NKENTSEU_PLATFORM_API NkEnvString operator+(const NkEnvString &lhs, const NkEnvString &rhs);
 
 		// =================================================================
 		// SECTION 5 : STRUCTURE NKENVPAIR (PAIRE CLÉ/VALEUR GÉNÉRIQUE)
@@ -649,7 +649,7 @@ namespace nkentseu {
 		 * }
 		 * @endcode
 		 */
-		NKENTSEU_API_INLINE NkEnvString NkGet(const NkEnvString &name, NkEnvString &result) noexcept;
+		NKENTSEU_PLATFORM_API NkEnvString NkGet(const NkEnvString &name, NkEnvString &result) noexcept;
 
 		/**
 		 * @brief Alias simple et LIABLE (header-only) pour lire une variable d'environnement
@@ -827,6 +827,7 @@ namespace nkentseu {
 		// valeur ASCII est rendue telle quelle, comme avant (le pointeur du CRT) ; une valeur NON ASCII est relue en
 		// UTF-16 (_wgetenv) et rendue en UTF-8. Banc : Applications/NKCode/tools/banc_machine_vierge.ps1.
 		// Contre-epreuve : NK_NKCODE_MUTATION=env-ansi.
+		/** @brief Lit une variable d'environnement : un pointeur vers sa valeur (en UTF-8), ou nullptr si elle n'existe pas. */
 		NKENTSEU_FORCE_INLINE const char *GetEnvVar(const char *name) noexcept {
 			if (!name)
 				return nullptr;
@@ -855,11 +856,10 @@ namespace nkentseu {
 		}
 
 		/**
-		 * @brief (19/10/2026) Ecrire une variable d'environnement, la ou GetEnvVar la lit (l'environnement du
-		 *        runtime C), pour le processus courant. Defini inline DANS le header comme GetEnvVar (NkSet est
-		 *        dans NkEnv.cpp, non liable depuis une autre unite) : les applications n'ont plus a appeler
-		 *        _putenv ou setenv elles-memes (regle de Rodolf : jamais les fonctions C nues hors du noyau).
-		 * @return true si la variable est posee.
+		 * @brief Écrit une variable d'environnement du processus courant, là où GetEnvVar la lit (l'environnement
+		 *        du runtime C).
+		 * @note Appelle-la au lieu de _putenv ou setenv : jamais les fonctions C nues hors du noyau.
+		 * @return true si la variable est posée.
 		 * @ingroup EnvAPI
 		 */
 		NKENTSEU_FORCE_INLINE bool SetEnvVar(const char *name, const char *value) noexcept {
@@ -896,8 +896,7 @@ namespace nkentseu {
 		}
 
 		/**
-		 * @brief (19/10/2026) Retirer une variable d'environnement du processus courant (GetEnvVar rend ensuite
-		 *        nullptr).
+		 * @brief Retire une variable d'environnement du processus courant ; GetEnvVar rend ensuite nullptr.
 		 * @ingroup EnvAPI
 		 */
 		NKENTSEU_FORCE_INLINE bool UnsetEnvVar(const char *name) noexcept {
@@ -922,7 +921,7 @@ namespace nkentseu {
 		 * @note Sur Windows, les modifications ne persistent pas après la fin du processus.
 		 * Pour une persistance, utiliser les APIs système appropriées (Registry, etc.).
 		 */
-		NKENTSEU_API_INLINE bool NkSet(const NkEnvString &name, const NkEnvString &value,
+		NKENTSEU_PLATFORM_API bool NkSet(const NkEnvString &name, const NkEnvString &value,
 									   bool overwrite = true) noexcept;
 
 		/**
@@ -931,7 +930,7 @@ namespace nkentseu {
 		 * @return true si l'opération a réussi, false si la variable n'existait pas
 		 * @ingroup EnvAPI
 		 */
-		NKENTSEU_API_INLINE bool NkUnset(const NkEnvString &name) noexcept;
+		NKENTSEU_PLATFORM_API bool NkUnset(const NkEnvString &name) noexcept;
 
 		/**
 		 * @brief Vérifier l'existence d'une variable d'environnement
@@ -939,7 +938,7 @@ namespace nkentseu {
 		 * @return true si la variable existe, false sinon
 		 * @ingroup EnvAPI
 		 */
-		NKENTSEU_API_INLINE bool NkExists(const NkEnvString &name) noexcept;
+		NKENTSEU_PLATFORM_API bool NkExists(const NkEnvString &name) noexcept;
 
 		/**
 		 * @brief Obtenir une copie de toutes les variables d'environnement
@@ -950,7 +949,7 @@ namespace nkentseu {
 		 * Les modifications ultérieures de l'environnement ne sont pas reflétées
 		 * dans la map retournée.
 		 */
-		NKENTSEU_API_INLINE NkEnvUMap<NkEnvString, NkEnvString> NkGetAll() noexcept;
+		NKENTSEU_PLATFORM_API NkEnvUMap<NkEnvString, NkEnvString> NkGetAll() noexcept;
 
 		/**
 		 * @brief Obtenir le séparateur de chemin spécifique à la plateforme
@@ -965,7 +964,7 @@ namespace nkentseu {
 		 * // Windows: sep == ';', Linux/macOS: sep == ':'
 		 * @endcode
 		 */
-		NKENTSEU_API_INLINE char NkGetPathSeparator() noexcept;
+		NKENTSEU_PLATFORM_API char NkGetPathSeparator() noexcept;
 
 		/**
 		 * @brief Ajouter un répertoire au début d'une variable de chemin
@@ -983,7 +982,7 @@ namespace nkentseu {
 		 * // PATH devient "/opt/myapp/bin:<ancienne valeur>"
 		 * @endcode
 		 */
-		NKENTSEU_API_INLINE bool NkPrependToPath(const NkEnvString &directory,
+		NKENTSEU_PLATFORM_API bool NkPrependToPath(const NkEnvString &directory,
 												 const NkEnvString &varName = NkEnvString("PATH"));
 
 		/**
@@ -996,7 +995,7 @@ namespace nkentseu {
 		 * Le répertoire est suffixé avec le séparateur approprié.
 		 * Si la variable n'existe pas, elle est créée avec le répertoire seul.
 		 */
-		NKENTSEU_API_INLINE bool NkAppendToPath(const NkEnvString &directory,
+		NKENTSEU_PLATFORM_API bool NkAppendToPath(const NkEnvString &directory,
 												const NkEnvString &varName = NkEnvString("PATH"));
 
 	} // namespace env
@@ -1245,187 +1244,8 @@ namespace nkentseu {
 #endif // NKENTSEU_PLATFORM_NKENV_H
 
 // =============================================================================
-// EXEMPLES D'UTILISATION DE NKENV.H
-// =============================================================================
-// Ce fichier fournit une API portable pour manipuler les variables d'environnement
-// sans dépendance à la STL, adaptée aux environnements embarqués et systèmes critiques.
-//
-// -----------------------------------------------------------------------------
-// Exemple 1 : Lecture et écriture basique d'une variable d'environnement
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkEnv.h"
-	#include <cstdio>
-
-	int main() {
-		using namespace nkentseu::env;
-
-		// Définir une variable temporaire
-		NkEnvString varName("MY_APP_VAR");
-		NkEnvString varValue("Hello from NkEnv");
-		NkSet(varName, varValue);
-
-		// Lire la variable
-		NkEnvString result;
-		NkGet(varName, result);
-		std::printf("MY_APP_VAR = %s\n", result.CStr());
-
-		// Vérifier l'existence
-		if (NkExists(varName)) {
-			std::printf("Variable exists!\n");
-		}
-
-		// Supprimer la variable
-		NkUnset(varName);
-		return 0;
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 2 : Modification du PATH pour ajouter des répertoires d'exécution
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkEnv.h"
-
-	void SetupApplicationPath() {
-		using namespace nkentseu::env;
-
-		// Ajouter un répertoire personnalisé au début du PATH (priorité haute)
-		NkPrependToPath(NkEnvString("/opt/myapp/bin"));
-
-		// Ajouter un autre répertoire à la fin (priorité basse)
-		NkAppendToPath(NkEnvString("/usr/local/myapp/tools"));
-
-		// Vérifier le résultat
-		NkEnvString pathValue;
-		NkGet(NkEnvString("PATH"), pathValue);
-		// pathValue contient maintenant le PATH mis à jour
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 3 : Lister toutes les variables d'environnement (debug)
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkEnv.h"
-	#include <cstdio>
-
-	void DumpEnvironment() {
-		using namespace nkentseu::env;
-
-		NkEnvUMap<NkEnvString, NkEnvString> allVars = NkGetAll();
-
-		std::printf("=== Environment Variables (%u total) ===\n", allVars.Size());
-		for (NkSize i = 0; i < allVars.Size(); ++i) {
-			const auto& pair = allVars.Data()[i];
-			std::printf("%s = %s\n", pair.key.CStr(), pair.value.CStr());
-		}
-		std::printf("=======================================\n");
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 4 : Gestion conditionnelle basée sur une variable d'environnement
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkEnv.h"
-
-	bool InitializeWithConfig() {
-		using namespace nkentseu::env;
-
-		NkEnvString configPath;
-		NkGet(NkEnvString("MYAPP_CONFIG"), configPath);
-
-		if (configPath.Empty()) {
-			// Fallback vers un chemin par défaut
-			configPath = NkEnvString("/etc/myapp/config.ini");
-		}
-
-		// Charger la configuration depuis configPath.CStr()
-		return LoadConfigFile(configPath.CStr());
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 5 : Utilisation des conteneurs génériques sans STL
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkEnv.h"
-
-	void ProcessEnvVariables() {
-		using namespace nkentseu::env;
-
-		// Créer un vecteur de chaînes
-		NkEnvVector<NkEnvString> searchPaths;
-		searchPaths.PushBack(NkEnvString("/usr/bin"));
-		searchPaths.PushBack(NkEnvString("/usr/local/bin"));
-		searchPaths.PushBack(NkEnvString("~/bin"));
-
-		// Itérer avec les itérateurs style C
-		for (const NkEnvString* it = searchPaths.Begin(); it != searchPaths.End(); ++it) {
-			std::printf("Searching in: %s\n", it->CStr());
-		}
-
-		// Créer une map pour un cache de valeurs
-		NkEnvUMap<NkEnvString, NkEnvString> cache;
-		cache.Set(NkEnvString("last_result"), NkEnvString("success"));
-
-		const NkEnvString* cached = cache.Find(NkEnvString("last_result"));
-		if (cached) {
-			std::printf("Cached: %s\n", cached->CStr());
-		}
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 6 : Concaténation et manipulation de chaînes NkEnvString
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkEnv.h"
-
-	NkEnvString BuildFullPath(const char* base, const char* subpath) {
-		using namespace nkentseu::env;
-
-		NkEnvString result(base);
-		if (result.CStr()[result.Size() - 1] != '/' &&
-			result.CStr()[result.Size() - 1] != '\\') {
-			result = result + NkEnvString('/');
-		}
-		result = result + NkEnvString(subpath);
-		return result;
-	}
-
-	// Utilisation :
-	// NkEnvString fullPath = BuildFullPath("/home/user", "documents/file.txt");
-	// => "/home/user/documents/file.txt"
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 7 : Combinaison avec d'autres modules NKPlatform
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkPlatformDetect.h"   // NKENTSEU_PLATFORM_*
-	#include "NKPlatform/NkEnv.h"              // Gestion d'environnement
-
-	void PlatformAwareInit() {
-		using namespace nkentseu::env;
-
-		#if defined(NKENTSEU_PLATFORM_WINDOWS)
-			// Sur Windows, utiliser des chemins avec backslashes
-			NkPrependToPath(NkEnvString("C:\\MyApp\\bin"));
-		#elif defined(NKENTSEU_PLATFORM_LINUX) || defined(NKENTSEU_PLATFORM_MACOS)
-			// Sur Unix-like, utiliser des chemins POSIX
-			NkPrependToPath(NkEnvString("/opt/myapp/bin"));
-		#endif
-
-		// Vérifier une variable de debug multiplateforme
-		NkEnvString debugFlag;
-		NkGet(NkEnvString("MYAPP_DEBUG"), debugFlag);
-		if (debugFlag == NkEnvString("1") || debugFlag == NkEnvString("true")) {
-			EnableDebugMode();
-		}
-	}
-*/
+// Exemples : les exemples COMPILÉS et exécutés sont dans Docs/exemples/Foundation/NKPlatform/. Ceux qui étaient
+// ici en commentaire sont gardés tels quels dans Docs/archives/NKPlatform/exemples_des_entetes.md (à convertir).
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

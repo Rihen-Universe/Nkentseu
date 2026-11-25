@@ -192,7 +192,9 @@
  */
 #ifdef __cplusplus
 #define NKENTSEU_EXTERN_C extern "C"
+/** @brief Ouvre un bloc extern "C" en C++ ; ne fait rien en C. */
 #define NKENTSEU_EXTERN_C_BEGIN extern "C" {
+/** @brief Ferme le bloc ouvert par NKENTSEU_EXTERN_C_BEGIN. */
 #define NKENTSEU_EXTERN_C_END }
 #else
 #define NKENTSEU_EXTERN_C
@@ -230,25 +232,8 @@
 #endif // NKENTSEU_PLATFORM_NKPLATFORMEXPORT_H
 
 // =============================================================================
-// EXEMPLES D'UTILISATION
-// =============================================================================
-/*
-	// Exemple 1 : Compilation de NKPlatform en DLL (CMake)
-	// target_compile_definitions(nkplatform PRIVATE NKENTSEU_PLATFORM_BUILD_SHARED_LIB)
-
-	// Exemple 2 : Utilisation statique de NKPlatform
-	// target_compile_definitions(monapp PRIVATE NKENTSEU_PLATFORM_STATIC_LIB)
-
-	// Exemple 3 : Utilisation par défaut (DLL import)
-	// Aucun define nécessaire, NKENTSEU_PLATFORM_API devient dllimport
-
-	// Exemple 4 : Déclaration dans un header public
-	#include "NKPlatform/NkPlatformExport.h"
-	NKENTSEU_CLASS_EXPORT class PlatformManager {
-	public:
-		NKENTSEU_PLATFORM_API void Initialize();
-	};
-*/
+// Exemples : les exemples COMPILÉS et exécutés sont dans Docs/exemples/Foundation/NKPlatform/. Ceux qui étaient
+// ici en commentaire sont gardés tels quels dans Docs/archives/NKPlatform/exemples_des_entetes.md (à convertir).
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

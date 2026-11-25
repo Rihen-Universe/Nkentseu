@@ -385,6 +385,7 @@
 
 #if __cplusplus >= 202302L
 #define NKENTSEU_CPP23
+/** @brief La version du standard C++ compilé, en nombre (23, 20, 17...). */
 #define NKENTSEU_CPP_VERSION 23
 
 #elif __cplusplus >= 202002L
@@ -1235,8 +1236,11 @@ typedef unsigned __int128 NKENTSEU_uint128;
 #define NKENTSEU_DISABLE_WARNING_PUSH NKENTSEU_PRAGMA(warning(push))
 #define NKENTSEU_DISABLE_WARNING_POP NKENTSEU_PRAGMA(warning(pop))
 #define NKENTSEU_DISABLE_WARNING(warningNumber) NKENTSEU_PRAGMA(warning(disable : warningNumber))
+/** @brief Désactive un avertissement de MSVC ; ne fait rien avec un autre compilateur. */
 #define NKENTSEU_DISABLE_WARNING_MSVC(x) NKENTSEU_DISABLE_WARNING(x)
+/** @brief Désactive un avertissement de Clang ; ne fait rien avec un autre compilateur. */
 #define NKENTSEU_DISABLE_WARNING_CLANG(x)
+/** @brief Désactive un avertissement de GCC ; ne fait rien avec un autre compilateur. */
 #define NKENTSEU_DISABLE_WARNING_GCC(x)
 #elif defined(NKENTSEU_COMPILER_GCC) || defined(NKENTSEU_COMPILER_CLANG)
 #define NKENTSEU_DISABLE_WARNING_PUSH NKENTSEU_PRAGMA(GCC diagnostic push)
@@ -1341,242 +1345,8 @@ typedef unsigned __int128 NKENTSEU_uint128;
 #endif // NKENTSEU_PLATFORM_NKCOMPILERDETECT_H
 
 // =============================================================================
-// EXEMPLES D'UTILISATION DE NKCOMPILERDETECT.H
-// =============================================================================
-// Ce fichier fournit des macros pour détecter le compilateur et les fonctionnalités
-// C++ disponibles, permettant d'écrire du code portable et optimisé.
-//
-// -----------------------------------------------------------------------------
-// Exemple 1 : Code conditionnel par compilateur
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkCompilerDetect.h"
-
-	void PlatformSpecificCode() {
-		#ifdef NKENTSEU_COMPILER_MSVC
-			// Code spécifique à MSVC
-			__assume(ptr != nullptr);  // Hint d'optimisation MSVC
-
-		#elif defined(NKENTSEU_COMPILER_GCC)
-			// Code spécifique à GCC
-			if (__builtin_expect(ptr != nullptr, 1)) {
-				ProcessData(ptr);
-			}
-
-		#elif defined(NKENTSEU_COMPILER_CLANG)
-			// Code spécifique à Clang
-			#if NKENTSEU_COMPILER_VERSION >= 140000  // Clang 14+
-				UseNewClangAPI();
-			#endif
-		#endif
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 2 : Utilisation des macros de convenance C++
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkCompilerDetect.h"
-
-	class ResourceManager {
-	public:
-		// Constructeur avec noexcept portable
-		ResourceManager() NKENTSEU_NOEXCEPT {
-			// Initialisation sans risque d'exception
-		}
-
-		// Méthode virtuelle avec override portable
-		virtual void Load() NKENTSEU_OVERRIDE {
-			// Implémentation
-		}
-
-		// Méthode finale empêchant la redéfinition
-		virtual void Finalize() NKENTSEU_FINAL {
-			// Dernière étape, non redéfinissable
-		}
-
-		// Fonction dont le retour ne doit pas être ignoré
-		NKENTSEU_NODISCARD_MSG("Vérifier le code de retour pour les erreurs")
-		int Initialize() {
-			return 0;  // 0 = succès, autre = code d'erreur
-		}
-
-		// Paramètre potentiellement inutilisé sans warning
-		void Callback(int NKENTSEU_MAYBE_UNUSED userData) {
-			// userData peut être ignoré dans certains cas
-		}
-	};
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 3 : Gestion portable des warnings
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkCompilerDetect.h"
-
-	// Fonction avec paramètre unused intentionnel
-	NKENTSEU_DISABLE_WARNING_PUSH
-
-	#ifdef NKENTSEU_COMPILER_MSVC
-		NKENTSEU_DISABLE_WARNING(4100)  // unreferenced formal parameter
-	#elif defined(NKENTSEU_COMPILER_GCC) || defined(NKENTSEU_COMPILER_CLANG)
-		NKENTSEU_DISABLE_WARNING("-Wunused-parameter")
-	#endif
-
-	void CallbackHandler(int eventId, void* NKENTSEU_RESTRICT context) {
-		// Seul eventId est utilisé, context est requis par l'API mais ignoré
-		ProcessEvent(eventId);
-	}
-
-	NKENTSEU_DISABLE_WARNING_POP
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 4 : Structures binaires avec packing portable
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkCompilerDetect.h"
-	#include <cstdint>
-
-	NKENTSEU_PACK_BEGIN
-	struct NKENTSEU_PACKED NetworkPacket {
-		uint16_t magic;      // 2 octets
-		uint16_t type;       // 2 octets
-		uint32_t length;     // 4 octets
-		uint8_t  flags;      // 1 octet
-		// Total : 9 octets, pas de padding
-	};
-	NKENTSEU_PACK_END
-
-	// Vérification à la compilation
-	static_assert(sizeof(NetworkPacket) == 9, "NetworkPacket must be tightly packed");
-
-	void SendPacket(const NetworkPacket* packet) {
-		// Envoi binaire direct sans sérialisation
-		WriteToSocket(packet, sizeof(NetworkPacket));
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 5 : Détection de fonctionnalités à la compilation
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkCompilerDetect.h"
-
-	template<typename T>
-	class OptimizedContainer {
-	public:
-		#if defined(NKENTSEU_HAS_CONCEPTS)
-			// Version C++20 avec concepts pour une meilleure erreur de compilation
-			template<typename U>
-			requires std::copyable<U> && std::destructible<U>
-			void Add(U&& item) {
-				// Implémentation optimisée avec concepts
-			}
-		#else
-			// Fallback pour C++11/14/17 sans concepts
-			template<typename U>
-			void Add(U&& item) {
-				// Implémentation générique avec SFINAE si nécessaire
-			}
-		#endif
-
-		// Méthode constexpr si supporté
-		NKENTSEU_CONSTEXPR size_t Capacity() const {
-			return m_capacity;
-		}
-
-	private:
-		size_t m_capacity = 0;
-	};
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 6 : Combinaison avec NkPlatformDetect.h et NkArchDetect.h
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkPlatformDetect.h"   // Détection OS
-	#include "NKPlatform/NkArchDetect.h"       // Détection architecture
-	#include "NKPlatform/NkCompilerDetect.h"   // Détection compilateur
-
-	void CrossPlatformOptimization() {
-		// Combinaison OS + Architecture + Compilateur pour un ciblage précis
-
-		NKENTSEU_PLATFORM_WINDOWS({
-			NKENTSEU_ARCH_X86_64({
-				NKENTSEU_COMPILER_MSVC({
-					// Windows x64 avec MSVC : utiliser les intrinsics MSVC
-					UseMSVCIntrinsics();
-				});
-
-				NKENTSEU_COMPILER_CLANG({
-					// Windows x64 avec Clang : utiliser les intrinsics compatibles
-					UseClangIntrinsics();
-				});
-			});
-		});
-
-		NKENTSEU_PLATFORM_LINUX({
-			NKENTSEU_ARCH_ARM64({
-				NKENTSEU_COMPILER_GCC({
-					// Linux ARM64 avec GCC : optimisations NEON + GCC
-					EnableNEONGCCOptimizations();
-				});
-			});
-		});
-
-		// Code utilisant les fonctionnalités C++ modernes si disponibles
-		#if defined(NKENTSEU_HAS_IF_CONSTEXPR)
-			if constexpr (std::is_pointer_v<T>) {
-				HandlePointerCase();
-			} else {
-				HandleValueCase();
-			}
-		#else
-			// Fallback sans if constexpr
-			if (std::is_pointer<T>::value) {
-				HandlePointerCase();
-			} else {
-				HandleValueCase();
-			}
-		#endif
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 7 : Macro utilitaire pour le logging portable
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkCompilerDetect.h"
-	#include <cstdio>
-
-	// Macro de logging avec informations de compilation
-	#define NK_LOG(level, msg, ...) \
-		do { \
-			fprintf(stderr, "[%s:%d] [%s] " msg "\n", \
-				NKENTSEU_FILE_NAME, \
-				NKENTSEU_LINE_NUMBER, \
-				level, \
-				##__VA_ARGS__); \
-		} while(0)
-
-	// Utilisation :
-	void Initialize() {
-		NK_LOG("INFO", "Initialisation en cours...");
-
-		#ifdef NKENTSEU_COMPILER_DEBUG
-			NK_LOG("DEBUG", "Compilateur: %d", NKENTSEU_COMPILER_VERSION);
-			NK_LOG("DEBUG", "C++ Standard: %d", NKENTSEU_CPP_VERSION);
-		#endif
-
-		if (!CheckPrerequisites()) {
-			NK_LOG("ERROR", "Prérequis non satisfaits");
-			return;
-		}
-
-		NK_LOG("INFO", "Initialisation terminée");
-	}
-*/
+// Exemples : les exemples COMPILÉS et exécutés sont dans Docs/exemples/Foundation/NKPlatform/. Ceux qui étaient
+// ici en commentaire sont gardés tels quels dans Docs/archives/NKPlatform/exemples_des_entetes.md (à convertir).
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

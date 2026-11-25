@@ -120,6 +120,7 @@
 // Macros de détection : __ppc64__, __PPC64__, _ARCH_PPC64
 
 #elif defined(__ppc64__) || defined(__PPC64__) || defined(_ARCH_PPC64)
+/** @brief Définie, sans valeur, quand l'architecture cible est PowerPC 64 bits. */
 #define NKENTSEU_ARCH_PPC64
 #define NKENTSEU_ARCH_64BIT
 #define NKENTSEU_ARCH_NAME "PowerPC64"
@@ -132,6 +133,7 @@
 // Macros de détection : __mips64, __mips64__
 
 #elif defined(__mips64) || defined(__mips64__)
+/** @brief Définie, sans valeur, quand l'architecture cible est MIPS 64 bits. */
 #define NKENTSEU_ARCH_MIPS64
 #define NKENTSEU_ARCH_64BIT
 #define NKENTSEU_ARCH_NAME "MIPS64"
@@ -144,6 +146,7 @@
 // Macros de détection : __riscv avec __riscv_xlen == 64
 
 #elif defined(__riscv) && (__riscv_xlen == 64)
+/** @brief Définie, sans valeur, quand l'architecture cible est RISC-V 64 bits. */
 #define NKENTSEU_ARCH_RISCV64
 #define NKENTSEU_ARCH_64BIT
 #define NKENTSEU_ARCH_NAME "RISC-V 64"
@@ -156,6 +159,7 @@
 // Macros de détection : __sparc_v9__, __sparcv9
 
 #elif defined(__sparc_v9__) || defined(__sparcv9)
+/** @brief Définie, sans valeur, quand l'architecture cible est SPARC 64 bits (v9). */
 #define NKENTSEU_ARCH_SPARC64
 #define NKENTSEU_ARCH_64BIT
 #define NKENTSEU_ARCH_NAME "SPARC64"
@@ -173,7 +177,9 @@
 // Macros de détection : __i386__, _M_IX86, __i386
 
 #elif defined(__i386__) || defined(_M_IX86) || defined(__i386)
+/** @brief Définie, sans valeur, quand l'architecture cible est x86 32 bits. */
 #define NKENTSEU_ARCH_X86
+/** @brief Définie, sans valeur, quand l'architecture cible est une architecture 32 bits. */
 #define NKENTSEU_ARCH_32BIT
 #define NKENTSEU_ARCH_NAME "x86"
 #define NKENTSEU_ARCH_VERSION "Intel x86 32-bit"
@@ -185,6 +191,7 @@
 // Détection fine de la version ARMv5/6/7 via les macros __ARM_ARCH_*
 
 #elif defined(__arm__) || defined(_M_ARM) || defined(__ARM__) || defined(__arm)
+/** @brief Définie, sans valeur, quand l'architecture cible est ARM 32 bits. */
 #define NKENTSEU_ARCH_ARM
 // Alias ADDITIF, pas un renommage : NKENTSEU_ARCH_ARM reste defini au-dessus.
 // Les deux ecritures sont permises (arbitrage Rodolf, 2026-08-17) et doivent
@@ -193,6 +200,7 @@
 // NkPlatform.cpp le teste. Consequence mesuree sur armeabi-v7a le 2026-08-17 :
 // PlatformInfo.architecture valait NK_UNKNOWN au lieu de NK_ARM32.
 // Temoin : Kernel/Foundation/NKPlatform/tests/run_temoin_noms_additifs.sh
+/** @brief Définie, sans valeur, quand l'architecture cible est ARM 32 bits. */
 #define NKENTSEU_ARCH_ARM32
 #define NKENTSEU_ARCH_32BIT
 #define NKENTSEU_ARCH_NAME "ARM"
@@ -214,6 +222,7 @@
 // Sous-section : PowerPC 32-bit
 // -------------------------------------------------------------------------
 #elif defined(__ppc__) || defined(__PPC__) || defined(_ARCH_PPC)
+/** @brief Définie, sans valeur, quand l'architecture cible est PowerPC. */
 #define NKENTSEU_ARCH_PPC
 #define NKENTSEU_ARCH_32BIT
 #define NKENTSEU_ARCH_NAME "PowerPC"
@@ -223,6 +232,7 @@
 // Sous-section : MIPS 32-bit
 // -------------------------------------------------------------------------
 #elif defined(__mips__) || defined(__mips) || defined(_MIPS_ISA)
+/** @brief Définie, sans valeur, quand l'architecture cible est MIPS. */
 #define NKENTSEU_ARCH_MIPS
 #define NKENTSEU_ARCH_32BIT
 #define NKENTSEU_ARCH_NAME "MIPS"
@@ -232,6 +242,7 @@
 // Sous-section : SPARC 32-bit
 // -------------------------------------------------------------------------
 #elif defined(__sparc__) || defined(__sparc)
+/** @brief Définie, sans valeur, quand l'architecture cible est SPARC. */
 #define NKENTSEU_ARCH_SPARC
 #define NKENTSEU_ARCH_32BIT
 #define NKENTSEU_ARCH_NAME "SPARC"
@@ -243,55 +254,65 @@
 
 // Elbrus (VLIW, Russie)
 #elif defined(__e2k__) || defined(__E2K__)
+/** @brief Définie, sans valeur, quand l'architecture cible est Elbrus (e2k). */
 #define NKENTSEU_ARCH_ELBRUS
+/** @brief Définie, sans valeur, quand l'architecture cible est Elbrus (e2k), un processeur VLIW. */
 #define NKENTSEU_ARCH_ELBRUS_VLIW
 #define NKENTSEU_ARCH_NAME "Elbrus"
 #define NKENTSEU_ARCH_VERSION "Elbrus VLIW"
 
 // SuperH (Hitachi, embarqué historique)
 #elif defined(__sh__) || defined(__sh)
+/** @brief Définie, sans valeur, quand l'architecture cible est SuperH. */
 #define NKENTSEU_ARCH_SUPERH
 #define NKENTSEU_ARCH_NAME "SuperH"
 #define NKENTSEU_ARCH_VERSION "Hitachi SuperH"
 
 // Alpha (DEC, historique)
 #elif defined(__alpha__) || defined(__alpha)
+/** @brief Définie, sans valeur, quand l'architecture cible est DEC Alpha. */
 #define NKENTSEU_ARCH_ALPHA
 #define NKENTSEU_ARCH_NAME "Alpha"
 #define NKENTSEU_ARCH_VERSION "DEC Alpha"
 
 // PA-RISC (HP, historique)
 #elif defined(__hppa__) || defined(__hppa)
+/** @brief Définie, sans valeur, quand l'architecture cible est PA-RISC. */
 #define NKENTSEU_ARCH_PARISC
 #define NKENTSEU_ARCH_NAME "PA-RISC"
 #define NKENTSEU_ARCH_VERSION "HP PA-RISC"
 
 // IA-64 / Itanium (Intel, historique)
 #elif defined(__ia64__) || defined(_M_IA64)
+/** @brief Définie, sans valeur, quand l'architecture cible est Itanium (IA-64). */
 #define NKENTSEU_ARCH_IA64
 #define NKENTSEU_ARCH_NAME "IA-64 (Itanium)"
 #define NKENTSEU_ARCH_VERSION "Intel Itanium 64-bit"
 
 // Motorola 68000 (rétro-computing, embarqué ancien)
 #elif defined(__m68k__) || defined(__m68k)
+/** @brief Définie, sans valeur, quand l'architecture cible est Motorola 68000. */
 #define NKENTSEU_ARCH_M68K
 #define NKENTSEU_ARCH_NAME "Motorola 68000"
 #define NKENTSEU_ARCH_VERSION "Motorola 68K"
 
 // IBM System/390 (mainframe historique)
 #elif defined(__s390__) || defined(__s390)
+/** @brief Définie, sans valeur, quand l'architecture cible est IBM S/390. */
 #define NKENTSEU_ARCH_S390
 #define NKENTSEU_ARCH_NAME "IBM System/390"
 #define NKENTSEU_ARCH_VERSION "IBM S/390"
 
 // Tilera TILE (architectures many-core)
 #elif defined(__tile__) || defined(__tile)
+/** @brief Définie, sans valeur, quand l'architecture cible est Tilera TILE. */
 #define NKENTSEU_ARCH_TILE
 #define NKENTSEU_ARCH_NAME "TILE"
 #define NKENTSEU_ARCH_VERSION "Tilera TILE"
 
 // Xtensa (Tensilica, embarqué configurable)
 #elif defined(__xtensa__) || defined(__xtensa)
+/** @brief Définie, sans valeur, quand l'architecture cible est Xtensa. */
 #define NKENTSEU_ARCH_XTENSA
 #define NKENTSEU_ARCH_NAME "Xtensa"
 #define NKENTSEU_ARCH_VERSION "Tensilica Xtensa"
@@ -305,6 +326,7 @@
 // -------------------------------------------------------------------------
 // Architecture MIPS personnalisée avec extensions vectorielles VU0/VU1
 #elif defined(_EE) || defined(__R5900__)
+/** @brief Définie, sans valeur, quand l'architecture cible est le MIPS R5900 (PlayStation 2). */
 #define NKENTSEU_ARCH_R5900
 #define NKENTSEU_ARCH_MIPS
 #define NKENTSEU_ARCH_64BIT
@@ -316,6 +338,7 @@
 // -------------------------------------------------------------------------
 // Architecture PowerPC personnalisée avec coprocesseurs SPU
 #elif defined(__PPU__)
+/** @brief Définie, sans valeur, quand l'architecture cible est le PPU du Cell (PlayStation 3). */
 #define NKENTSEU_ARCH_CELL_PPU
 #define NKENTSEU_ARCH_PPC
 #define NKENTSEU_ARCH_64BIT
@@ -333,15 +356,18 @@
 #if defined(__SIZEOF_POINTER__)
 #if __SIZEOF_POINTER__ == 8
 #define NKENTSEU_ARCH_64BIT
+/** @brief Définie, sans valeur, quand l'architecture cible est inconnue, avec des pointeurs de 64 bits. */
 #define NKENTSEU_ARCH_UNKNOWN_64
 #define NKENTSEU_ARCH_NAME "Unknown 64-bit"
 #define NKENTSEU_ARCH_VERSION "Unknown 64-bit Architecture"
 #elif __SIZEOF_POINTER__ == 4
 #define NKENTSEU_ARCH_32BIT
+/** @brief Définie, sans valeur, quand l'architecture cible est inconnue, avec des pointeurs de 32 bits. */
 #define NKENTSEU_ARCH_UNKNOWN_32
 #define NKENTSEU_ARCH_NAME "Unknown 32-bit"
 #define NKENTSEU_ARCH_VERSION "Unknown 32-bit Architecture"
 #else
+/** @brief Définie, sans valeur, quand l'architecture cible est inconnue, et la largeur des pointeurs aussi. */
 #define NKENTSEU_ARCH_UNKNOWN
 #define NKENTSEU_ARCH_NAME "Unknown"
 #define NKENTSEU_ARCH_VERSION "Unknown Architecture"
@@ -957,7 +983,9 @@
 // -------------------------------------------------------------------------
 
 #ifdef NKENTSEU_ARCH_X86_64
+/** @brief Garde son argument quand l'architecture cible est x86-64, le retire sinon. */
 #define NKENTSEU_X86_64_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est x86-64, le garde sinon. */
 #define NKENTSEU_NOT_X86_64(...)
 #else
 #define NKENTSEU_X86_64_ONLY(...)
@@ -965,7 +993,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_ARM64
+/** @brief Garde son argument quand l'architecture cible est ARM 64 bits, le retire sinon. */
 #define NKENTSEU_ARM64_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est ARM 64 bits, le garde sinon. */
 #define NKENTSEU_NOT_ARM64(...)
 #else
 #define NKENTSEU_ARM64_ONLY(...)
@@ -973,7 +1003,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_PPC64
+/** @brief Garde son argument quand l'architecture cible est PowerPC 64 bits, le retire sinon. */
 #define NKENTSEU_PPC64_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est PowerPC 64 bits, le garde sinon. */
 #define NKENTSEU_NOT_PPC64(...)
 #else
 #define NKENTSEU_PPC64_ONLY(...)
@@ -981,7 +1013,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_MIPS64
+/** @brief Garde son argument quand l'architecture cible est MIPS 64 bits, le retire sinon. */
 #define NKENTSEU_MIPS64_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est MIPS 64 bits, le garde sinon. */
 #define NKENTSEU_NOT_MIPS64(...)
 #else
 #define NKENTSEU_MIPS64_ONLY(...)
@@ -989,7 +1023,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_RISCV64
+/** @brief Garde son argument quand l'architecture cible est RISC-V 64 bits, le retire sinon. */
 #define NKENTSEU_RISCV64_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est RISC-V 64 bits, le garde sinon. */
 #define NKENTSEU_NOT_RISCV64(...)
 #else
 #define NKENTSEU_RISCV64_ONLY(...)
@@ -997,7 +1033,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_SPARC64
+/** @brief Garde son argument quand l'architecture cible est SPARC 64 bits (v9), le retire sinon. */
 #define NKENTSEU_SPARC64_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est SPARC 64 bits (v9), le garde sinon. */
 #define NKENTSEU_NOT_SPARC64(...)
 #else
 #define NKENTSEU_SPARC64_ONLY(...)
@@ -1005,7 +1043,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_IA64
+/** @brief Garde son argument quand l'architecture cible est Itanium (IA-64), le retire sinon. */
 #define NKENTSEU_IA64_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est Itanium (IA-64), le garde sinon. */
 #define NKENTSEU_NOT_IA64(...)
 #else
 #define NKENTSEU_IA64_ONLY(...)
@@ -1017,7 +1057,9 @@
 // -------------------------------------------------------------------------
 
 #ifdef NKENTSEU_ARCH_X86
+/** @brief Garde son argument quand l'architecture cible est x86 32 bits, le retire sinon. */
 #define NKENTSEU_X86_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est x86 32 bits, le garde sinon. */
 #define NKENTSEU_NOT_X86(...)
 #else
 #define NKENTSEU_X86_ONLY(...)
@@ -1025,7 +1067,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_ARM
+/** @brief Garde son argument quand l'architecture cible est ARM 32 bits, le retire sinon. */
 #define NKENTSEU_ARM_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est ARM 32 bits, le garde sinon. */
 #define NKENTSEU_NOT_ARM(...)
 #else
 #define NKENTSEU_ARM_ONLY(...)
@@ -1033,7 +1077,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_PPC
+/** @brief Garde son argument quand l'architecture cible est PowerPC, le retire sinon. */
 #define NKENTSEU_PPC_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est PowerPC, le garde sinon. */
 #define NKENTSEU_NOT_PPC(...)
 #else
 #define NKENTSEU_PPC_ONLY(...)
@@ -1041,7 +1087,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_MIPS
+/** @brief Garde son argument quand l'architecture cible est MIPS, le retire sinon. */
 #define NKENTSEU_MIPS_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est MIPS, le garde sinon. */
 #define NKENTSEU_NOT_MIPS(...)
 #else
 #define NKENTSEU_MIPS_ONLY(...)
@@ -1049,7 +1097,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_SPARC
+/** @brief Garde son argument quand l'architecture cible est SPARC, le retire sinon. */
 #define NKENTSEU_SPARC_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est SPARC, le garde sinon. */
 #define NKENTSEU_NOT_SPARC(...)
 #else
 #define NKENTSEU_SPARC_ONLY(...)
@@ -1061,7 +1111,9 @@
 // -------------------------------------------------------------------------
 
 #ifdef NKENTSEU_ARCH_R5900
+/** @brief Garde son argument quand l'architecture cible est le MIPS R5900 (PlayStation 2), le retire sinon. */
 #define NKENTSEU_R5900_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est le MIPS R5900 (PlayStation 2), le garde sinon. */
 #define NKENTSEU_NOT_R5900(...)
 #else
 #define NKENTSEU_R5900_ONLY(...)
@@ -1069,7 +1121,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_CELL_PPU
+/** @brief Garde son argument quand l'architecture cible est le PPU du Cell (PlayStation 3), le retire sinon. */
 #define NKENTSEU_CELL_PPU_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est le PPU du Cell (PlayStation 3), le garde sinon. */
 #define NKENTSEU_NOT_CELL_PPU(...)
 #else
 #define NKENTSEU_CELL_PPU_ONLY(...)
@@ -1077,7 +1131,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_ELBRUS
+/** @brief Garde son argument quand l'architecture cible est Elbrus (e2k), le retire sinon. */
 #define NKENTSEU_ELBRUS_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est Elbrus (e2k), le garde sinon. */
 #define NKENTSEU_NOT_ELBRUS(...)
 #else
 #define NKENTSEU_ELBRUS_ONLY(...)
@@ -1085,7 +1141,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_SUPERH
+/** @brief Garde son argument quand l'architecture cible est SuperH, le retire sinon. */
 #define NKENTSEU_SUPERH_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est SuperH, le garde sinon. */
 #define NKENTSEU_NOT_SUPERH(...)
 #else
 #define NKENTSEU_SUPERH_ONLY(...)
@@ -1093,7 +1151,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_ALPHA
+/** @brief Garde son argument quand l'architecture cible est DEC Alpha, le retire sinon. */
 #define NKENTSEU_ALPHA_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est DEC Alpha, le garde sinon. */
 #define NKENTSEU_NOT_ALPHA(...)
 #else
 #define NKENTSEU_ALPHA_ONLY(...)
@@ -1101,7 +1161,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_M68K
+/** @brief Garde son argument quand l'architecture cible est Motorola 68000, le retire sinon. */
 #define NKENTSEU_M68K_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est Motorola 68000, le garde sinon. */
 #define NKENTSEU_NOT_M68K(...)
 #else
 #define NKENTSEU_M68K_ONLY(...)
@@ -1109,7 +1171,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_XTENSA
+/** @brief Garde son argument quand l'architecture cible est Xtensa, le retire sinon. */
 #define NKENTSEU_XTENSA_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est Xtensa, le garde sinon. */
 #define NKENTSEU_NOT_XTENSA(...)
 #else
 #define NKENTSEU_XTENSA_ONLY(...)
@@ -1121,7 +1185,9 @@
 // -------------------------------------------------------------------------
 
 #ifdef NKENTSEU_ARCH_INTEL
+/** @brief Garde son argument quand l'architecture cible est x86 ou x86-64, le retire sinon. */
 #define NKENTSEU_INTEL_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est x86 ou x86-64, le garde sinon. */
 #define NKENTSEU_NOT_INTEL(...)
 #else
 #define NKENTSEU_INTEL_ONLY(...)
@@ -1129,7 +1195,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_ARM_FAMILY
+/** @brief Garde son argument quand l'architecture cible est ARM, 32 ou 64 bits, le retire sinon. */
 #define NKENTSEU_ARM_FAMILY_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est ARM, 32 ou 64 bits, le garde sinon. */
 #define NKENTSEU_NOT_ARM_FAMILY(...)
 #else
 #define NKENTSEU_ARM_FAMILY_ONLY(...)
@@ -1141,7 +1209,9 @@
 // -------------------------------------------------------------------------
 
 #ifdef NKENTSEU_ARCH_64BIT
+/** @brief Garde son argument quand l'architecture cible est une architecture 64 bits, le retire sinon. */
 #define NKENTSEU_64BIT_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est une architecture 64 bits, le garde sinon. */
 #define NKENTSEU_NOT_64BIT(...)
 #else
 #define NKENTSEU_64BIT_ONLY(...)
@@ -1149,7 +1219,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_32BIT
+/** @brief Garde son argument quand l'architecture cible est une architecture 32 bits, le retire sinon. */
 #define NKENTSEU_32BIT_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est une architecture 32 bits, le garde sinon. */
 #define NKENTSEU_NOT_32BIT(...)
 #else
 #define NKENTSEU_32BIT_ONLY(...)
@@ -1161,7 +1233,9 @@
 // -------------------------------------------------------------------------
 
 #ifdef NKENTSEU_ARCH_LITTLE_ENDIAN
+/** @brief Garde son argument quand l'architecture cible est petit-boutiste, le retire sinon. */
 #define NKENTSEU_LITTLE_ENDIAN_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est petit-boutiste, le garde sinon. */
 #define NKENTSEU_NOT_LITTLE_ENDIAN(...)
 #else
 #define NKENTSEU_LITTLE_ENDIAN_ONLY(...)
@@ -1169,7 +1243,9 @@
 #endif
 
 #ifdef NKENTSEU_ARCH_BIG_ENDIAN
+/** @brief Garde son argument quand l'architecture cible est gros-boutiste, le retire sinon. */
 #define NKENTSEU_BIG_ENDIAN_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand l'architecture cible est gros-boutiste, le garde sinon. */
 #define NKENTSEU_NOT_BIG_ENDIAN(...)
 #else
 #define NKENTSEU_BIG_ENDIAN_ONLY(...)
@@ -1181,7 +1257,9 @@
 // -------------------------------------------------------------------------
 
 #ifdef NKENTSEU_CPU_HAS_SSE
+/** @brief Garde son argument quand la compilation autorise SSE (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_SSE_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise SSE (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_SSE(...)
 #else
 #define NKENTSEU_SSE_ONLY(...)
@@ -1189,7 +1267,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_SSE2
+/** @brief Garde son argument quand la compilation autorise SSE2 (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_SSE2_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise SSE2 (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_SSE2(...)
 #else
 #define NKENTSEU_SSE2_ONLY(...)
@@ -1197,7 +1277,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_SSE3
+/** @brief Garde son argument quand la compilation autorise SSE3 (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_SSE3_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise SSE3 (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_SSE3(...)
 #else
 #define NKENTSEU_SSE3_ONLY(...)
@@ -1205,7 +1287,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_SSSE3
+/** @brief Garde son argument quand la compilation autorise SSSE3 (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_SSSE3_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise SSSE3 (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_SSSE3(...)
 #else
 #define NKENTSEU_SSSE3_ONLY(...)
@@ -1213,7 +1297,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_SSE4_1
+/** @brief Garde son argument quand la compilation autorise SSE4.1 (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_SSE4_1_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise SSE4.1 (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_SSE4_1(...)
 #else
 #define NKENTSEU_SSE4_1_ONLY(...)
@@ -1221,7 +1307,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_SSE4_2
+/** @brief Garde son argument quand la compilation autorise SSE4.2 (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_SSE4_2_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise SSE4.2 (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_SSE4_2(...)
 #else
 #define NKENTSEU_SSE4_2_ONLY(...)
@@ -1229,7 +1317,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_AVX
+/** @brief Garde son argument quand la compilation autorise AVX (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_AVX_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise AVX (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_AVX(...)
 #else
 #define NKENTSEU_AVX_ONLY(...)
@@ -1237,7 +1327,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_AVX2
+/** @brief Garde son argument quand la compilation autorise AVX2 (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_AVX2_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise AVX2 (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_AVX2(...)
 #else
 #define NKENTSEU_AVX2_ONLY(...)
@@ -1245,7 +1337,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_AVX512
+/** @brief Garde son argument quand la compilation autorise AVX-512 (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_AVX512_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise AVX-512 (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_AVX512(...)
 #else
 #define NKENTSEU_AVX512_ONLY(...)
@@ -1253,7 +1347,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_AES
+/** @brief Garde son argument quand la compilation autorise AES-NI (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_AES_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise AES-NI (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_AES(...)
 #else
 #define NKENTSEU_AES_ONLY(...)
@@ -1261,7 +1357,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_BMI
+/** @brief Garde son argument quand la compilation autorise BMI (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_BMI_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise BMI (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_BMI(...)
 #else
 #define NKENTSEU_BMI_ONLY(...)
@@ -1269,7 +1367,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_FMA
+/** @brief Garde son argument quand la compilation autorise FMA (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_FMA_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise FMA (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_FMA(...)
 #else
 #define NKENTSEU_FMA_ONLY(...)
@@ -1277,7 +1377,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_NEON
+/** @brief Garde son argument quand la compilation autorise NEON (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_NEON_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise NEON (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_NEON(...)
 #else
 #define NKENTSEU_NEON_ONLY(...)
@@ -1285,7 +1387,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_ARM_CRYPTO
+/** @brief Garde son argument quand la compilation autorise les extensions cryptographiques ARM (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_ARM_CRYPTO_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise les extensions cryptographiques ARM (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_ARM_CRYPTO(...)
 #else
 #define NKENTSEU_ARM_CRYPTO_ONLY(...)
@@ -1293,7 +1397,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_ARM_CRC32
+/** @brief Garde son argument quand la compilation autorise les instructions CRC32 d'ARM (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_ARM_CRC32_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise les instructions CRC32 d'ARM (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_ARM_CRC32(...)
 #else
 #define NKENTSEU_ARM_CRC32_ONLY(...)
@@ -1301,7 +1407,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_ALTIVEC
+/** @brief Garde son argument quand la compilation autorise AltiVec (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_ALTIVEC_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise AltiVec (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_ALTIVEC(...)
 #else
 #define NKENTSEU_ALTIVEC_ONLY(...)
@@ -1309,7 +1417,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_VSX
+/** @brief Garde son argument quand la compilation autorise VSX (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_VSX_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise VSX (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_VSX(...)
 #else
 #define NKENTSEU_VSX_ONLY(...)
@@ -1317,7 +1427,9 @@
 #endif
 
 #ifdef NKENTSEU_CPU_HAS_MSA
+/** @brief Garde son argument quand la compilation autorise MSA (SIMD de MIPS) (option du compilateur, pas un test à l'exécution), le retire sinon. */
 #define NKENTSEU_MSA_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand la compilation autorise MSA (SIMD de MIPS) (option du compilateur, pas un test à l'exécution), le garde sinon. */
 #define NKENTSEU_NOT_MSA(...)
 #else
 #define NKENTSEU_MSA_ONLY(...)
@@ -1380,233 +1492,8 @@
 #endif // NKENTSEU_PLATFORM_NKARCHDETECT_H
 
 // =============================================================================
-// EXEMPLES D'UTILISATION DE NKARCHDETECT.H
-// =============================================================================
-// Ce fichier fournit des macros pour détecter l'architecture CPU à la compilation
-// et exécuter du code conditionnel optimisé pour chaque plateforme.
-//
-// -----------------------------------------------------------------------------
-// Exemple 1 : Affichage d'informations d'architecture au runtime
-// -----------------------------------------------------------------------------
-/*
-	#include "NkArchDetect.h"
-	#include <iostream>
-
-	void PrintArchInfo() {
-		std::cout << "Architecture : " << NKENTSEU_ARCH_NAME << "\n";
-		std::cout << "Version      : " << NKENTSEU_ARCH_VERSION << "\n";
-		std::cout << "Bitness      : " << NKENTSEU_WORD_BITS << " bits\n";
-		std::cout << "Endianness   : "
-			#ifdef NKENTSEU_ARCH_LITTLE_ENDIAN
-				  << "Little-endian\n";
-			#elif defined(NKENTSEU_ARCH_BIG_ENDIAN)
-				  << "Big-endian\n";
-			#else
-				  << "Unknown\n";
-			#endif
-
-		// Extensions SIMD disponibles
-		#if defined(NKENTSEU_CPU_HAS_AVX2)
-			std::cout << "SIMD         : AVX2 disponible\n";
-		#elif defined(NKENTSEU_CPU_HAS_AVX)
-			std::cout << "SIMD         : AVX disponible\n";
-		#elif defined(NKENTSEU_CPU_HAS_SSE2)
-			std::cout << "SIMD         : SSE2 disponible\n";
-		#elif defined(NKENTSEU_CPU_HAS_NEON)
-			std::cout << "SIMD         : NEON disponible\n";
-		#else
-			std::cout << "SIMD         : Aucun support SIMD détecté\n";
-		#endif
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 2 : Sélection de chemin de code optimisé par architecture
-// -----------------------------------------------------------------------------
-/*
-	#include "NkArchDetect.h"
-
-	// Fonction de multiplication de vecteurs avec fallback portable
-	void VectorMultiply(float* result, const float* a, const float* b, size_t count) {
-		NKENTSEU_AVX2_ONLY({
-			// Chemin optimisé AVX2 : traitement par blocs de 8 floats
-			for (size_t i = 0; i < count; i += 8) {
-				__m256 va = _mm256_loadu_ps(&a[i]);
-				__m256 vb = _mm256_loadu_ps(&b[i]);
-				__m256 vr = _mm256_mul_ps(va, vb);
-				_mm256_storeu_ps(&result[i], vr);
-			}
-			return;
-		});
-
-		NKENTSEU_NEON_ONLY({
-			// Chemin optimisé NEON : traitement par blocs de 4 floats
-			for (size_t i = 0; i < count; i += 4) {
-				float32x4_t va = vld1q_f32(&a[i]);
-				float32x4_t vb = vld1q_f32(&b[i]);
-				float32x4_t vr = vmulq_f32(va, vb);
-				vst1q_f32(&result[i], vr);
-			}
-			return;
-		});
-
-		// Fallback portable pour architectures sans SIMD
-		for (size_t i = 0; i < count; ++i) {
-			result[i] = a[i] * b[i];
-		}
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 3 : Allocation mémoire alignée selon l'architecture
-// -----------------------------------------------------------------------------
-/*
-	#include "NkArchDetect.h"
-	#include <cstdlib>
-
-	// Alloue un buffer aligné sur la ligne de cache pour éviter le false sharing
-	void* AllocateCacheAligned(size_t size) {
-		#if defined(_MSC_VER)
-			return _aligned_malloc(size, NKENTSEU_CACHE_LINE_SIZE);
-		#elif defined(__GNUC__) || defined(__clang__)
-			void* ptr = nullptr;
-			posix_memalign(&ptr, NKENTSEU_CACHE_LINE_SIZE, size);
-			return ptr;
-		#else
-			// Fallback non-aligné (moins performant mais portable)
-			return malloc(size);
-		#endif
-	}
-
-	void FreeCacheAligned(void* ptr) {
-		#if defined(_MSC_VER)
-			_aligned_free(ptr);
-		#else
-			free(ptr);
-		#endif
-	}
-
-	// Utilisation :
-	// float* data = static_cast<float*>(AllocateCacheAligned(1024 * sizeof(float)));
-	// ... utilisation ...
-	// FreeCacheAligned(data);
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 4 : Code conditionnel par famille d'architecture
-// -----------------------------------------------------------------------------
-/*
-	#include "NkArchDetect.h"
-
-	void InitializePlatformOptimizations() {
-		NKENTSEU_INTEL_ONLY({
-			// Optimisations spécifiques x86/x86_64
-			EnableFastStringOps();
-			ConfigurePrefetchHints();
-		});
-
-		NKENTSEU_ARM_FAMILY_ONLY({
-			// Optimisations spécifiques ARM
-			ConfigureNEONRegisters();
-			EnableHardwareCrypto();
-		});
-
-		NKENTSEU_64BIT_ONLY({
-			// Code utilisant des pointeurs 64-bit ou registres larges
-			UseWideRegisters();
-		});
-
-		NKENTSEU_LITTLE_ENDIAN_ONLY({
-			// Optimisations dépendant de l'ordre des octets
-			UseNativeByteOrder();
-		});
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 5 : Structure alignée pour performance cache/SIMD
-// -----------------------------------------------------------------------------
-/*
-	#include "NkArchDetect.h"
-
-	// Structure de particule alignée sur 32 octets pour AVX/NEON
-	struct NKENTSEU_ALIGN_32 Particle {
-		float position[3];    // 12 octets
-		float velocity[3];    // 12 octets
-		float mass;           // 4 octets
-		uint32_t flags;       // 4 octets
-		// Total : 32 octets exactement = alignement parfait
-	};
-
-	// Tableau de particules aligné sur ligne de cache
-	NKENTSEU_ALIGN_CACHE static Particle g_ParticleBuffer[4096];
-
-	// Fonction de mise à jour utilisant l'alignement pour SIMD
-	NKENTSEU_FORCE_INLINE void UpdateParticles(Particle* particles, size_t count) {
-		NKENTSEU_AVX_ONLY({
-			// Traitement AVX : 8 particules par itération grâce à l'alignement
-			for (size_t i = 0; i < count; i += 8) {
-				// ... code SIMD optimisé ...
-			}
-		});
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 6 : Détection de fonctionnalités CPU à la compilation
-// -----------------------------------------------------------------------------
-/*
-	#include "NkArchDetect.h"
-
-	// Sélection de l'implémentation de chiffrement selon les extensions disponibles
-	void EncryptBlock(uint8_t* output, const uint8_t* input, const uint8_t* key) {
-		NKENTSEU_AES_ONLY({
-			// Utiliser les instructions AES-NI matérielles (très rapide)
-			EncryptWithAESNI(output, input, key);
-		});
-
-		NKENTSEU_NOT_AES({
-			// Fallback logiciel (plus lent mais portable)
-			EncryptWithSoftwareAES(output, input, key);
-		});
-	}
-
-	// Note : Pour une détection à l'exécution (CPUID, etc.), utiliser
-	// une bibliothèque comme cpu_features ou implémenter votre propre détecteur.
-	// Les macros de ce fichier ne détectent que ce qui est disponible À LA COMPILATION.
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 7 : Combinaison avec NkPlatformDetect.h pour code multi-plateforme
-// -----------------------------------------------------------------------------
-/*
-	#include "NkPlatformDetect.h"  // Détection OS
-	#include "NkArchDetect.h"      // Détection architecture
-
-	void CrossPlatformInit() {
-		// Combinaison OS + Architecture pour un ciblage précis
-		NKENTSEU_WINDOWS_ONLY({
-			NKENTSEU_X86_64_ONLY({
-				// Windows sur x86_64 : utiliser les APIs spécifiques
-				InitializeWindowsX64();
-			});
-		});
-
-		NKENTSEU_PLATFORM_LINUX({
-			NKENTSEU_ARM64_ONLY({
-				// Linux sur ARM64 : optimisations serveur mobile
-				InitializeLinuxARM64();
-			});
-		});
-
-		NKENTSEU_PLATFORM_CONSOLE({
-			NKENTSEU_CPU_HAS_NEON({
-				// Console avec support NEON : activer les optimisations SIMD
-				EnableConsoleNEONOptimizations();
-			});
-		});
-	}
-*/
+// Exemples : les exemples COMPILÉS et exécutés sont dans Docs/exemples/Foundation/NKPlatform/. Ceux qui étaient
+// ici en commentaire sont gardés tels quels dans Docs/archives/NKPlatform/exemples_des_entetes.md (à convertir).
 
 // ============================================================
 // Copyright © 2024-2026 Rihen. All rights reserved.

@@ -1,0 +1,5 @@
+Au moins un cœur physique : oui
+Autant ou plus de cœurs logiques que physiques : oui
+SSE2 ou NEON disponible : oui
+Ligne de cache en puissance de deux : oui
+Le même résultat à chaque appel : oui

@@ -113,15 +113,18 @@ NKENTSEU_MACOS_ONLY(
 
 /** @brief OpenGL disponible sur macOS (deprecated depuis 10.14) */
 #define NKENTSEU_GRAPHICS_OPENGL_AVAILABLE
+/** @brief Définie, sans valeur, sur macOS : Apple y déclare OpenGL obsolète. */
 #define NKENTSEU_GRAPHICS_OPENGL_DEPRECATED
 
 /** @brief Vulkan disponible via MoltenVK sur macOS */
 #define NKENTSEU_GRAPHICS_VULKAN_AVAILABLE
+/** @brief Définie, sans valeur, sur les systèmes d'Apple : Vulkan y passe par MoltenVK. */
 #define NKENTSEU_GRAPHICS_VULKAN_VIA_MOLTENVK
 )
 
 NKENTSEU_IOS_ONLY(
 #define NKENTSEU_GRAPHICS_METAL_AVAILABLE
+/** @brief Définie, sans valeur, quand OpenGL ES 3 est disponible sur la cible. */
 #define NKENTSEU_GRAPHICS_GLES3_AVAILABLE
 #define NKENTSEU_GRAPHICS_VULKAN_AVAILABLE
 #define NKENTSEU_GRAPHICS_VULKAN_VIA_MOLTENVK
@@ -469,7 +472,9 @@ namespace nkentseu {
 /** @{ */
 
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
+/** @brief L'API graphique choisie par défaut pour la cible (une valeur de NkGraphicsApi). */
 #define NKENTSEU_GRAPHICS_DEFAULT nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_DX11
+/** @brief L'API graphique moderne préférée sur la cible (une valeur de NkGraphicsApi). */
 #define NKENTSEU_GRAPHICS_MODERN nkentseu::platform::graphics::NkGraphicsApi::NK_GFX_API_DX12
 
 #elif defined(NKENTSEU_PLATFORM_LINUX) || defined(NKENTSEU_PLATFORM_FREEBSD) || defined(NKENTSEU_PLATFORM_OPENBSD) ||  \
@@ -583,7 +588,9 @@ namespace nkentseu {
 /** @{ */
 
 #ifdef NKENTSEU_GRAPHICS_D3D11_AVAILABLE
+/** @brief Garde son argument quand Direct3D 11 est disponible sur la cible, le retire sinon. */
 #define NKENTSEU_D3D11_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand Direct3D 11 est disponible sur la cible, le garde sinon. */
 #define NKENTSEU_NOT_D3D11(...)
 #else
 #define NKENTSEU_D3D11_ONLY(...)
@@ -591,7 +598,9 @@ namespace nkentseu {
 #endif
 
 #ifdef NKENTSEU_GRAPHICS_D3D12_AVAILABLE
+/** @brief Garde son argument quand Direct3D 12 est disponible sur la cible, le retire sinon. */
 #define NKENTSEU_D3D12_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand Direct3D 12 est disponible sur la cible, le garde sinon. */
 #define NKENTSEU_NOT_D3D12(...)
 #else
 #define NKENTSEU_D3D12_ONLY(...)
@@ -599,7 +608,9 @@ namespace nkentseu {
 #endif
 
 #ifdef NKENTSEU_GRAPHICS_VULKAN_AVAILABLE
+/** @brief Garde son argument quand Vulkan est disponible sur la cible, le retire sinon. */
 #define NKENTSEU_VULKAN_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand Vulkan est disponible sur la cible, le garde sinon. */
 #define NKENTSEU_NOT_VULKAN(...)
 #else
 #define NKENTSEU_VULKAN_ONLY(...)
@@ -607,7 +618,9 @@ namespace nkentseu {
 #endif
 
 #ifdef NKENTSEU_GRAPHICS_METAL_AVAILABLE
+/** @brief Garde son argument quand Metal est disponible sur la cible, le retire sinon. */
 #define NKENTSEU_METAL_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand Metal est disponible sur la cible, le garde sinon. */
 #define NKENTSEU_NOT_METAL(...)
 #else
 #define NKENTSEU_METAL_ONLY(...)
@@ -615,7 +628,9 @@ namespace nkentseu {
 #endif
 
 #ifdef NKENTSEU_GRAPHICS_OPENGL_AVAILABLE
+/** @brief Garde son argument quand OpenGL est disponible sur la cible, le retire sinon. */
 #define NKENTSEU_OPENGL_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand OpenGL est disponible sur la cible, le garde sinon. */
 #define NKENTSEU_NOT_OPENGL(...)
 #else
 #define NKENTSEU_OPENGL_ONLY(...)
@@ -623,7 +638,9 @@ namespace nkentseu {
 #endif
 
 #ifdef NKENTSEU_GRAPHICS_GLES3_AVAILABLE
+/** @brief Garde son argument quand OpenGL ES 3 est disponible sur la cible, le retire sinon. */
 #define NKENTSEU_GLES_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand OpenGL ES 3 est disponible sur la cible, le garde sinon. */
 #define NKENTSEU_NOT_GLES(...)
 #else
 #define NKENTSEU_GLES_ONLY(...)
@@ -631,7 +648,9 @@ namespace nkentseu {
 #endif
 
 #ifdef NKENTSEU_GRAPHICS_WEBGL2_AVAILABLE
+/** @brief Garde son argument quand WebGL 2 est disponible sur la cible, le retire sinon. */
 #define NKENTSEU_WEBGL_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand WebGL 2 est disponible sur la cible, le garde sinon. */
 #define NKENTSEU_NOT_WEBGL(...)
 #else
 #define NKENTSEU_WEBGL_ONLY(...)
@@ -639,7 +658,9 @@ namespace nkentseu {
 #endif
 
 #ifdef NKENTSEU_GRAPHICS_WEBGPU_AVAILABLE
+/** @brief Garde son argument quand WebGPU est disponible sur la cible, le retire sinon. */
 #define NKENTSEU_WEBGPU_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand WebGPU est disponible sur la cible, le garde sinon. */
 #define NKENTSEU_NOT_WEBGPU(...)
 #else
 #define NKENTSEU_WEBGPU_ONLY(...)
@@ -647,7 +668,9 @@ namespace nkentseu {
 #endif
 
 #ifdef NKENTSEU_GRAPHICS_GNM_AVAILABLE
+/** @brief Garde son argument quand GNM (PlayStation) est disponible sur la cible, le retire sinon. */
 #define NKENTSEU_GNM_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand GNM (PlayStation) est disponible sur la cible, le garde sinon. */
 #define NKENTSEU_NOT_GNM(...)
 #else
 #define NKENTSEU_GNM_ONLY(...)
@@ -655,7 +678,9 @@ namespace nkentseu {
 #endif
 
 #ifdef NKENTSEU_GRAPHICS_NVN_AVAILABLE
+/** @brief Garde son argument quand NVN (Nintendo Switch) est disponible sur la cible, le retire sinon. */
 #define NKENTSEU_NVN_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand NVN (Nintendo Switch) est disponible sur la cible, le garde sinon. */
 #define NKENTSEU_NOT_NVN(...)
 #else
 #define NKENTSEU_NVN_ONLY(...)
@@ -703,6 +728,7 @@ namespace nkentseu {
 #if defined(__CUDACC__)
 /** @brief CUDA Compiler detected - NVIDIA CUDA available */
 #define NKENTSEU_COMPUTE_CUDA_AVAILABLE
+/** @brief Définie, sans valeur, quand le code est compilé pour CUDA, OpenCL ou SYCL. */
 #define NKENTSEU_COMPUTE_AVAILABLE
 #endif
 
@@ -720,7 +746,9 @@ namespace nkentseu {
 
 // Macros conditionnelles pour code compute-specific
 #ifdef NKENTSEU_COMPUTE_CUDA_AVAILABLE
+/** @brief Garde son argument quand le code est compilé pour CUDA, le retire sinon. */
 #define NKENTSEU_CUDA_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand le code est compilé pour CUDA, le garde sinon. */
 #define NKENTSEU_NOT_CUDA(...)
 #else
 #define NKENTSEU_CUDA_ONLY(...)
@@ -728,7 +756,9 @@ namespace nkentseu {
 #endif
 
 #ifdef NKENTSEU_COMPUTE_OPENCL_AVAILABLE
+/** @brief Garde son argument quand le code est compilé pour OpenCL, le retire sinon. */
 #define NKENTSEU_OPENCL_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand le code est compilé pour OpenCL, le garde sinon. */
 #define NKENTSEU_NOT_OPENCL(...)
 #else
 #define NKENTSEU_OPENCL_ONLY(...)
@@ -736,7 +766,9 @@ namespace nkentseu {
 #endif
 
 #ifdef NKENTSEU_COMPUTE_SYCL_AVAILABLE
+/** @brief Garde son argument quand le code est compilé pour SYCL, le retire sinon. */
 #define NKENTSEU_SYCL_ONLY(...) __VA_ARGS__
+/** @brief Retire son argument quand le code est compilé pour SYCL, le garde sinon. */
 #define NKENTSEU_NOT_SYCL(...)
 #else
 #define NKENTSEU_SYCL_ONLY(...)
@@ -896,7 +928,9 @@ NKENTSEU_LINUX_ONLY(
 // Détection automatique de l'API active
 #if defined(NKENTSEU_GFX_FORCE)
 // Forçage manuel par l'utilisateur via définition préalable
+/** @brief L'API graphique active (une valeur NKENTSEU_GFX_*), forcée par NKENTSEU_GFX_FORCE ou détectée. */
 #define NKENTSEU_GFX_ACTIVE NKENTSEU_GFX_FORCE
+/** @brief La version de l'API graphique active, calculée par NKENTSEU_GFX_VERSION_CALC. */
 #define NKENTSEU_GFX_VERSION NKENTSEU_GFX_VERSION_CALC(1, 0) // Version par défaut
 
 #else
@@ -1039,306 +1073,8 @@ NKENTSEU_LINUX_ONLY(
 #endif // NKENTSEU_PLATFORM_NKCGXDETECT_H_INCLUDED
 
 // =============================================================================
-// EXEMPLES D'UTILISATION DE NKCGXDETECT.H
-// =============================================================================
-// Ce fichier fournit la détection compile-time des capacités graphiques et compute.
-//
-// -----------------------------------------------------------------------------
-// Exemple 1 : Sélection conditionnelle du backend graphique
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkCGXDetect.h"
-	#include "NKCore/NkFoundationLog.h"
-
-	class GraphicsManager {
-	public:
-		static GraphicsManager& Instance() {
-			static GraphicsManager instance;
-			return instance;
-		}
-
-		bool Initialize() {
-			// Logging de la configuration détectée
-			NK_FOUNDATION_LOG_INFO(
-				"Graphics config: API=%d, Version=%d.%d",
-				NKENTSEU_GFX_ACTIVE,
-				(NKENTSEU_GFX_VERSION >> 16) & 0xFFFF,
-				NKENTSEU_GFX_VERSION & 0xFFFF
-			);
-
-			// Dispatch vers l'initialisation spécifique
-			#if NKENTSEU_GFX_ACTIVE == NKENTSEU_GFX_VULKAN
-				return InitVulkan();
-			#elif NKENTSEU_GFX_ACTIVE == NKENTSEU_GFX_METAL
-				return InitMetal();
-			#elif NKENTSEU_GFX_ACTIVE == NKENTSEU_GFX_DIRECTX
-				return InitDirectX();
-			#elif NKENTSEU_GFX_ACTIVE == NKENTSEU_GFX_OPENGL
-				return InitOpenGL();
-			#else
-				NK_FOUNDATION_LOG_WARNING("Falling back to software renderer");
-				return InitSoftware();
-			#endif
-		}
-
-	private:
-		// Déclarations conditionnelles selon disponibilité
-		NKENTSEU_VULKAN_ONLY(
-			bool InitVulkan();
-		)
-		NKENTSEU_METAL_ONLY(
-			bool InitMetal();
-		)
-		NKENTSEU_D3D12_ONLY(
-			bool InitDirectX();
-		)
-		NKENTSEU_OPENGL_ONLY(
-			bool InitOpenGL();
-		)
-		bool InitSoftware();  // Toujours disponible
-	};
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 2 : Utilisation des énumérations typées
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkCGXDetect.h"
-	#include <string>
-
-	// Conversion runtime d'une enum vers string (complément aux templates constexpr)
-	std::string GraphicsApiToString(nkentseu::platform::graphics::NkGraphicsApi api) {
-		using namespace nkentseu::platform::graphics;
-
-		switch (api) {
-			case NkGraphicsApi::NK_GFX_API_VULKAN:  return "Vulkan";
-			case NkGraphicsApi::NK_GFX_API_METAL:   return "Metal";
-			case NkGraphicsApi::NK_GFX_API_DX12:   return "Direct3D 12";
-			case NkGraphicsApi::NK_GFX_API_DX11:   return "Direct3D 11";
-			case NkGraphicsApi::NK_GFX_API_OPENGL:  return "OpenGL";
-			case NkGraphicsApi::NK_GFX_API_OPENGLES:return "OpenGL ES";
-			case NkGraphicsApi::NK_GFX_API_WEBGL2:  return "WebGL 2";
-			case NkGraphicsApi::NK_GFX_API_SOFTWARE:return "Software";
-			default: return "Unknown";
-		}
-	}
-
-	// Vérification de compatibilité GPU
-	bool IsGPUSupported(
-		nkentseu::platform::graphics::NkGPUVendor vendor,
-		nkentseu::platform::graphics::NkGPUType type
-	) {
-		using namespace nkentseu::platform::graphics;
-
-		// Refuser les GPU software pour les applications exigeantes
-		if (type == NkGPUType::NK_SOFTWARE) {
-			return false;
-		}
-
-		// Workaround pour anciens drivers Intel sur Windows
-		#if defined(NKENTSEU_PLATFORM_WINDOWS)
-			if (vendor == NkGPUVendor::NK_INTEL && type == NkGPUType::NK_INTEGRATED) {
-				return CheckIntelDriverVersion();  // Fonction personnalisée
-			}
-		#endif
-
-		return true;  // Par défaut, accepter
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 3 : Configuration compute pour accélération parallèle
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkCGXDetect.h"
-
-	// Wrapper unifié pour kernels de calcul
-	class ComputeKernel {
-	public:
-		virtual ~ComputeKernel() = default;
-		virtual void Execute(void* inputData, void* outputData, size_t elementCount) = 0;
-	};
-
-	// Factory conditionnelle selon disponibilité
-	ComputeKernel* CreateImageFilterKernel() {
-		#if defined(NKENTSEU_COMPUTE_CUDA_AVAILABLE)
-			return new CudaImageFilterKernel();  // Implémentation CUDA
-		#elif defined(NKENTSEU_COMPUTE_OPENCL_AVAILABLE)
-			return new OpenCLImageFilterKernel();  // Implémentation OpenCL
-		#elif defined(NKENTSEU_COMPUTE_SYCL_AVAILABLE)
-			return new SYCLImageFilterKernel();  // Implémentation SYCL
-		#else
-			// Fallback CPU multithreaded via NKCore threading
-			return new CPUImageFilterKernel();
-		#endif
-	}
-
-	// Exécution avec fallback automatique
-	void ProcessImage(void* pixels, size_t width, size_t height) {
-		auto kernel = CreateImageFilterKernel();
-		if (kernel) {
-			kernel->Execute(pixels, pixels, width * height);
-			delete kernel;
-		}
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 4 : Détection des capacités à l'exécution
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkCGXDetect.h"
-	#include "NKPlatform/NkPlatformQuery.h"  // Pour QueryGPUInfo()
-
-	struct GraphicsCapabilities {
-		nkentseu::platform::graphics::NkGraphicsApi api;
-		nkentseu::platform::graphics::NkGPUVendor vendor;
-		nkentseu::platform::graphics::NkGPUType type;
-		uint32_t apiVersion;
-		size_t videoMemoryMB;
-		bool supportsRayTracing;
-		bool supportsVariableRateShading;
-	};
-
-	GraphicsCapabilities DetectGraphicsCaps() {
-		using namespace nkentseu::platform::graphics;
-
-		GraphicsCapabilities caps{};
-
-		// API compile-time (détection header)
-		#if NKENTSEU_GFX_ACTIVE == NKENTSEU_GFX_VULKAN
-			caps.api = NkGraphicsApi::NK_GFX_API_VULKAN;
-			caps.apiVersion = NKENTSEU_GFX_VERSION;
-		#elif NKENTSEU_GFX_ACTIVE == NKENTSEU_GFX_METAL
-			caps.api = NkGraphicsApi::NK_GFX_API_METAL;
-			caps.apiVersion = NKENTSEU_GFX_VERSION;
-		// ... autres APIs
-		#else
-			caps.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
-			caps.apiVersion = NKENTSEU_GFX_VERSION;
-		#endif
-
-		// Query hardware info via NKPlatform (implémentation spécifique)
-		auto gpuInfo = nkentseu::platform::QueryGPUInfo();
-		caps.vendor = static_cast<NkGPUVendor>(gpuInfo.vendorId);
-		caps.type = static_cast<NkGPUType>(gpuInfo.deviceType);
-		caps.videoMemoryMB = gpuInfo.dedicatedVideoMemoryMB;
-
-		// Détection des features avancées (runtime)
-		#if defined(NKENTSEU_GRAPHICS_VULKAN_AVAILABLE)
-			if (caps.api == NkGraphicsApi::NK_GFX_API_VULKAN) {
-				caps.supportsRayTracing = CheckVulkanRayTracingSupport();
-				caps.supportsVariableRateShading = CheckVulkanVRSSupport();
-			}
-		#endif
-
-		return caps;
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 5 : Macros conditionnelles pour code cross-platform
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkCGXDetect.h"
-
-	// Déclaration de fonction avec implémentations conditionnelles
-	void CreateSwapchain(void* windowHandle) {
-		NKENTSEU_VULKAN_ONLY(
-			// Vulkan : vkCreateSwapchainKHR
-			VkSwapchainCreateInfoKHR createInfo{};
-			createInfo.surface = GetVulkanSurface(windowHandle);
-			// ... configuration ...
-			vkCreateSwapchainKHR(vkDevice, &createInfo, nullptr, &swapchain);
-		)
-
-		NKENTSEU_METAL_ONLY(
-			// Metal : CAMetalLayer
-			id<CAMetalLayer> metalLayer = (__bridge id<CAMetalLayer>)windowHandle;
-			metalLayer.device = GetMetalDevice();
-			metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
-		)
-
-		NKENTSEU_D3D12_ONLY(
-			// Direct3D 12 : IDXGISwapChain3
-			DXGI_SWAP_CHAIN_DESC1 swapDesc{};
-			swapDesc.BufferCount = 3;
-			swapDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-			// ... configuration ...
-			dxgiFactory->CreateSwapChainForHwnd(
-				d3dCommandQueue, windowHandle, &swapDesc, nullptr, nullptr, &swapChain
-			);
-		)
-
-		NKENTSEU_OPENGL_ONLY(
-			// OpenGL : contexte géré par la fenêtre (GLFW/SDL/etc.)
-			// Pas de création explicite de swapchain
-		)
-	}
-
-	// Fonction utilitaire avec fallback
-	void SetVSyncEnabled(bool enabled) {
-		NKENTSEU_VULKAN_ONLY(
-			SetVulkanVSync(enabled);  // Via VK_KHR_present_wait ou mailbox mode
-		)
-		NKENTSEU_METAL_ONLY(
-			GetMetalDrawableQueue()->setVSyncEnabled(enabled);
-		)
-		NKENTSEU_D3D12_ONLY(
-			dxgiSwapChain->SetSyncInterval(enabled ? 1 : 0);
-		)
-		NKENTSEU_OPENGL_ONLY(
-			#if defined(NKENTSEU_PLATFORM_WINDOWS)
-				wglSwapIntervalEXT(enabled ? 1 : 0);
-			#elif defined(NKENTSEU_PLATFORM_LINUX)
-				glXSwapIntervalEXT(display, drawable, enabled ? 1 : 0);
-			#endif
-		)
-		NKENTSEU_NOT_VULKAN(
-		NKENTSEU_NOT_METAL(
-		NKENTSEU_NOT_D3D12(
-		NKENTSEU_NOT_OPENGL(
-			// Fallback software : pas de VSync supporté
-			NK_UNUSED(enabled);
-		))))
-	}
-*/
-
-// -----------------------------------------------------------------------------
-// Exemple 6 : Configuration via variables d'environnement
-// -----------------------------------------------------------------------------
-/*
-	#include "NKPlatform/NkCGXDetect.h"
-	#include "NKPlatform/NkEnvironment.h"  // Pour GetEnvVar()
-
-	// Sélection de l'API via variable d'environnement NK_GFX_BACKEND
-	nkentseu::platform::graphics::NkGraphicsApi SelectGraphicsAPI() {
-		using namespace nkentseu::platform::graphics;
-
-		const char* envBackend = nkentseu::platform::GetEnvVar("NK_GFX_BACKEND");
-
-		if (envBackend) {
-			// Override manuel par l'utilisateur
-			#if defined(NKENTSEU_GRAPHICS_VULKAN_AVAILABLE)
-				if (strcmp(envBackend, "vulkan") == 0) return NkGraphicsApi::NK_GFX_API_VULKAN;
-			#endif
-			#if defined(NKENTSEU_GRAPHICS_METAL_AVAILABLE)
-				if (strcmp(envBackend, "metal") == 0) return NkGraphicsApi::NK_GFX_API_METAL;
-			#endif
-			#if defined(NKENTSEU_GRAPHICS_D3D12_AVAILABLE)
-				if (strcmp(envBackend, "d3d12") == 0) return NkGraphicsApi::NK_GFX_API_DX12;
-			#endif
-			#if defined(NKENTSEU_GRAPHICS_OPENGL_AVAILABLE)
-				if (strcmp(envBackend, "opengl") == 0) return NkGraphicsApi::NK_GFX_API_OPENGL;
-			#endif
-
-			NK_LOG_WARNING("Unknown graphics backend '%s' in NK_GFX_BACKEND", envBackend);
-		}
-
-		// Fallback vers l'API par défaut détectée
-		return NKENTSEU_GRAPHICS_DEFAULT;
-	}
-*/
+// Exemples : les exemples COMPILÉS et exécutés sont dans Docs/exemples/Foundation/NKPlatform/. Ceux qui étaient
+// ici en commentaire sont gardés tels quels dans Docs/archives/NKPlatform/exemples_des_entetes.md (à convertir).
 
 #endif // NKENTSEU_PLATFORM_NKCGXDETECT_H_INCLUDED
 

@@ -1,0 +1,62 @@
+{
+ "auteur": "TEUGUIA TADJUIDJE Rodolf Séderis, Rihen",
+ "domaine": "docs.rihen-universe.com",
+ "depot": "https://github.com/Rihen-Universe/Nkentseu",
+ "langues": ["fr", "en"],
+ "familles": [
+  {"id": "moteur", "fr": "Moteur", "en": "Engine"},
+  {"id": "outils", "fr": "Outils", "en": "Tools"},
+  {"id": "kits", "fr": "Kits", "en": "Kits"},
+  {"id": "jeux", "fr": "Jeux", "en": "Games"}
+ ],
+ "genres": {
+  "moteur": {"espaces": [
+   {"id": "apprendre", "fr": "Apprendre", "en": "Learn", "rfr": "Premiers pas et tutoriels pas à pas.", "ren": "First steps and step-by-step tutorials."},
+   {"id": "manuel", "fr": "Comprendre", "en": "Understand", "rfr": "Le manuel, domaine par domaine, avec les raisons.", "ren": "The manual, domain by domain, with the reasons."},
+   {"id": "guides", "fr": "Faire", "en": "Do", "rfr": "Guides pratiques et exemples complets.", "ren": "Practical guides and complete examples."},
+   {"id": "reference", "fr": "Consulter", "en": "Reference", "rfr": "La référence d'API, générée depuis les en-têtes.", "ren": "The API reference, generated from the headers."}
+  ]},
+  "jeu": {"espaces": [
+   {"id": "commandes", "fr": "Commandes", "en": "Controls", "rfr": "Les touches, la manette, l'écran tactile.", "ren": "Keys, gamepad, touch screen."},
+   {"id": "regles", "fr": "Règles", "en": "Rules", "rfr": "Le but du jeu et comment on gagne.", "ren": "The goal of the game and how to win."},
+   {"id": "astuces", "fr": "Astuces", "en": "Tips", "rfr": "Pour jouer mieux, sans rien gâcher.", "ren": "To play better, without spoilers."},
+   {"id": "questions", "fr": "Questions fréquentes", "en": "FAQ", "rfr": "Les réponses aux questions qu'on nous pose.", "ren": "Answers to the questions we are asked."}
+  ]}
+ },
+ "projets": [
+  {"id": "nkentseu", "nom": "Nkentseu", "famille": "moteur", "genre": "moteur", "etat": "actif", "principal": true,
+   "fr": "Le moteur de Rihen, de la mémoire au jeu : chaque couche, de Foundation aux applications.",
+   "en": "Rihen's engine, from memory to game: every layer, from Foundation to the applications.",
+   "versions": [{"version": "0.1", "etiquette": "v0.1.0-beta.11", "derniere": true},
+                {"version": "dev", "etiquette": "main", "publiee": false}],
+   "couches": [
+    {"nom": "Foundation", "couleur": "#2f8f9d", "modules": ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath"]},
+    {"nom": "System", "couleur": "#6b8fbf", "modules": ["NKThreading", "NKLogger", "NKTime", "NKFileSystem", "NKReflection", "NKStream", "NKSerialization", "NKNetwork", "NKConverse"]},
+    {"nom": "Runtime", "couleur": "#b88a3a", "modules": ["NKEvent", "NKWindow", "NKImage", "NKFont", "NKAudio", "NKCanvas", "NKCamera", "NKGeometry", "NKCollision", "NKPhysics", "NKNavigation", "NKECS", "NKAnima", "NKRHI", "NKSL", "NKRenderer", "NKVFX", "NKGui", "NKMedia", "NKXR", "NKGraph", "NKSimulation"]},
+    {"nom": "Engine", "couleur": "#c4683a", "modules": ["Noge", "NKEditorKit", "Unkeny"]}
+   ],
+   "documentes": {
+    "NKPlatform": {"couche": "Foundation", "api": "NKPlatform",
+     "fr": "Savoir sur quoi tu tournes : système, processeur, compilateur, ordre des octets, variables d'environnement.",
+     "en": "Know what you run on: system, processor, compiler, byte order, environment variables."}
+   }
+  },
+  {"id": "nkcode", "nom": "NKCode", "famille": "outils", "genre": "moteur", "etat": "a_venir",
+   "fr": "L'éditeur de code de Rihen, hors ligne, avec son assistant.", "en": "Rihen's code editor, offline, with its assistant."},
+  {"id": "nkcraft", "nom": "NKCraft", "famille": "outils", "genre": "moteur", "etat": "a_venir",
+   "fr": "Modéliser en 3D, de la photo ou du texte à l'objet éditable.", "en": "3D modelling, from a photo or text to an editable object."},
+  {"id": "noge", "nom": "Noge et Nogee", "nom_en": "Noge and Nogee", "famille": "outils", "genre": "moteur", "etat": "a_venir",
+   "fr": "Le moteur de jeu et son éditeur.", "en": "The game engine and its editor."},
+  {"id": "nkuidesign", "nom": "NkUIDesign", "famille": "outils", "genre": "moteur", "etat": "a_venir",
+   "fr": "Dessiner des interfaces, puis les faire tourner.", "en": "Design interfaces, then run them."},
+  {"id": "jenga", "nom": "Jenga", "famille": "outils", "genre": "moteur", "etat": "a_venir",
+   "fr": "Le système de construction multiplateforme.", "en": "The multi-platform build system."},
+  {"id": "nkeditorkit", "nom": "NKEditorKit", "famille": "kits", "genre": "moteur", "etat": "a_venir",
+   "fr": "Les composants des éditeurs de Rihen, réutilisables.", "en": "The building blocks of Rihen's editors, reusable."},
+  {"id": "kits-canvas", "nom": "Kits canvas", "nom_en": "Canvas kits", "famille": "kits", "genre": "moteur", "etat": "a_venir",
+   "fr": "Dessiner en 2D et faire des applications légères.", "en": "Draw in 2D and build light applications."},
+  {"id": "jeux", "nom": "Les jeux de Rihen", "nom_en": "Rihen games", "famille": "jeux", "genre": "jeu", "etat": "a_venir",
+   "fr": "Pour chaque jeu, un guide du joueur : commandes, règles, astuces, questions fréquentes.",
+   "en": "For each game, a player's guide: controls, rules, tips, FAQ."}
+ ]
+}

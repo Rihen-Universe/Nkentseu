@@ -1,0 +1,50 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+"""NkDocExemples : les exemples de la documentation, un programme console par fichier .cpp.
+
+Chaque fichier Docs/exemples/<Couche>/<Module>/<nom>.cpp devient le projet NkDocEx_<Module>_<nom>. La
+documentation n'affiche que du code qui compile et tourne : `jenga docs exemples` lance chaque programme depuis la
+racine, compare sa sortie au fichier <nom>.attendu voisin, et l'écrit dans les pages (« compilé et exécuté »).
+
+Inclus par Nkentseu.jenga SEULEMENT avec NK_DOC_EXEMPLES=1 (comme NK_NKORA) : les constructions des autres ne
+changent pas. Les exemples écrivent par NkPrintln (NKContainers/String/NkPrint.h), jamais printf.
+"""
+import os
+import glob
+
+from Jenga import *
+from jengaconfig import *
+
+# Les modules dont un exemple a besoin en plus du sien : NkPrint vit dans NKContainers.
+_BASE = ["NKContainers", "NKMemory", "NKCore", "NKPlatform"]
+
+# Pendant include(), Jenga se place dans le dossier de ce fichier et __file__ y est RELATIF à la racine : on prend
+# donc le dossier qui contient vraiment ce fichier (le dossier courant, ou celui de __file__ s'il est absolu).
+_ICI = next((d for d in (os.path.dirname(__file__) if os.path.isabs(__file__) else "", os.getcwd())
+             if d and os.path.isfile(os.path.join(d, "NkDocExemples.jenga"))), os.getcwd())
+
+
+def _projet_exemple(module, source):
+    nom = os.path.splitext(os.path.basename(source))[0]
+    deps = [module] + [m for m in _BASE if m != module]
+    with project(f"NkDocEx_{module}_{nom}"):
+        consoleapp()
+        language("C++")
+        cppdialect("C++20")
+        location(".")
+        files([os.path.relpath(source, _ICI).replace("\\", "/")])
+        nkentseudependson(deps)
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+        targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/NkDocExemples")
+        with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+            usetoolchain(TC_WINDOWS)
+            defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+            if "mingw" in TC_WINDOWS.lower():
+                ldflags(["-static-libstdc++", "-static-libgcc"])
+        # Linux et macOS : la chaîne par défaut du workspace, comme les modules qu'ils lient.
+        with filter("config:Debug"):
+            defines(["_DEBUG", "DEBUG"])
+
+
+for _src in sorted(glob.glob(os.path.join(_ICI, "*", "*", "*.cpp"))):
+    _module = os.path.basename(os.path.dirname(_src))
+    _projet_exemple(_module, _src)

@@ -1,0 +1,125 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+#
+# Le flux qui construit et publie la documentation sur GitHub Pages (docs.rihen-universe.com).
+#
+# INACTIF ICI : GitHub n'exécute que les fichiers de .github/workflows/. Le copier là-bas (même nom, docs.yml) est
+# l'acte de publication ; il attend le feu vert de Rodolf, comme le réglage « Custom domain » des Pages du dépôt
+# (docs.rihen-universe.com, puis « Enforce HTTPS » une fois le certificat émis). Le DNS est prêt (CNAME docs vers
+# rihen-universe.github.io, domaine vérifié dans l'organisation).
+#
+# Exigence : une version de Jenga qui contient « jenga docs api | exemples | graphe » (branche lot/docs du
+# 25/11/2026, pas encore publiée). config/JENGA_VERSION doit la nommer avant la première exécution.
+#
+# Ce que fait chaque construction, dans l'ordre (un échec arrête tout, rien n'est publié) :
+#   1. construire et lancer les exemples (Docs/exemples, NK_DOC_EXEMPLES=1) ;
+#   2. lire les dépendances (.jenga), puis la référence À L'ÉTIQUETTE publiée de chaque version (clang) ;
+#   3. générer le site, puis le fouiller (banc_site.py : contraste, réseau, tiret long, vouvoiement, liens morts,
+#      exemples, marqueurs privés, taille sous 1 Go) et éprouver le générateur (banc_generateur.py) ;
+#   4. publier par l'environnement « github-pages » : s'il exige une approbation (réglage du dépôt), Rodolf valide.
+
+name: Documentation
+
+on:
+  push:
+    tags: ["v*"]
+    branches: ["doc/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  construire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Dépôt Nkentseu (historique complet : la référence se lit aux étiquettes)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Version de Jenga
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Dépôt Jenga (public)
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: v${{ steps.jenga-version.outputs.version }}
+          path: jenga-src
+
+      - name: clang (lecture de la référence et construction des exemples)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+          clang++ --version | head -1
+
+      - name: 1. Construire les exemples
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+          NK_DOC_EXEMPLES: "1"
+        run: |
+          set -e
+          for f in Docs/exemples/*/*/*.cpp; do
+            module=$(basename "$(dirname "$f")"); nom=$(basename "$f" .cpp)
+            python3 -m Jenga build --target "NkDocEx_${module}_${nom}" --config Debug
+          done
+
+      - name: 2. Dépendances, référence à l'étiquette, exemples lancés
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: |
+          set -e
+          C=build-docs
+          python3 -m Jenga docs graphe --output $C/graphe.json
+          python3 - <<'PY' > modules.txt
+          import json
+          c = json.load(open("Docs/site/site.json", encoding="utf-8"))
+          for p in c["projets"]:
+              for v in p.get("versions", []):
+                  for m in (p.get("documentes") or {}):
+                      print(m, v["version"], v["etiquette"])
+          PY
+          while read -r module version etiquette; do
+            if [ "$etiquette" = "main" ]; then
+              python3 -m Jenga docs api --project "$module" --output $C/api/$version
+            else
+              python3 -m Jenga docs api --project "$module" --etiquette "$etiquette" --output $C/api/$version
+            fi
+            python3 -m Jenga docs api --project "$module" --output $C/api/main
+          done < modules.txt
+          python3 -m Jenga docs exemples --config Debug --output $C/exemples.json
+
+      - name: 3. Générer le site, puis le fouiller
+        run: |
+          set -e
+          python3 -I Docs/outils/generer_site.py --construction build-docs --sortie site
+          python3 -I Docs/outils/banc_site.py --site site --construction build-docs --entetes Kernel/Foundation/NKPlatform/src/NKPlatform --contre-epreuve
+          python3 -I Docs/outils/banc_generateur.py --construction build-docs --jenga "${{ github.workspace }}/jenga-src"
+
+      - name: Artefact des Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  publier:
+    needs: construire
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploiement.outputs.page_url }}
+    steps:
+      - name: Publier sur GitHub Pages
+        id: deploiement
+        uses: actions/deploy-pages@v4
