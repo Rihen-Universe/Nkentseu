@@ -6,6 +6,7 @@
   "Foundation/NKPlatform/journal_fondation": "ok",
   "Foundation/NKPlatform/ordre_des_octets": "ok",
   "Foundation/NKPlatform/processeur": "ok",
+  "Foundation/NKPlatform/processeur_resume": "ok",
   "Foundation/NKPlatform/variables_environnement": "ok"
  },
  "anglais_manquant": {},

@@ -182,6 +182,9 @@ Le même résultat à chaque appel : oui
 > [!attention] Problème connu dans 0.1.0-beta.11 : NkSet, NkGet, NkExists et NkUnset ne se lient pas
 > Ces quatre fonctions sont déclarées `inline` dans `NkEnv.h`, mais leur corps est dans `NkEnv.cpp`. Un programme hors du module qui les appelle reçoit l'avertissement « inline function is not defined », puis l'édition des liens échoue (constaté en construisant l'exemple de cette page). Dans cette version, lis l'environnement avec [[GetEnvVar]]. Corrigé après cette version (voir la documentation de travail).
 
+> [!attention] Problème connu dans 0.1.0-beta.11 : CPUFeatures::ToString ne se lie pas
+> Ses deux formes sont définies `inline` dans `NkCPUFeatures.cpp` et n'entrent pas dans la bibliothèque : un programme hors du module qui les appelle ne se lie pas. Lis les champs de la structure, ou les fonctions `NkHas...` et `NkGet...`. Corrigé après cette version.
+
 
 > [!attention] Les macros de X11
 > Les en-têtes de X11 définissent des macros aux noms très courants (`None`, `Bool`, `Status`...). Si tu inclus X11 avant un en-tête de Nkentseu qui utilise ces noms, le préprocesseur les remplace. `NkX11Clean.h` les retire : inclus-le juste après X11.

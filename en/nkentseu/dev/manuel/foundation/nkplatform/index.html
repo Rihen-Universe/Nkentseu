@@ -184,6 +184,43 @@ Le même résultat à chaque appel : oui</pre></div></div>
 </pre><div class="sortie"><div class="et">Output</div><pre>Écrite : oui
 Lue : bonjour
 Après retrait : (absente)</pre></div></div>
+<p>The readable summary of the processor, for a log:</p>
+<div class="code" data-exemple="Foundation/NKPlatform/processeur_resume"><div class="barre"><span class="fichier">Docs/exemples/Foundation/NKPlatform/processeur_resume.cpp</span><span class="droite-b"><span class="badge compile">✓ compiled and run</span><button data-copier>Copy</button></span></div><pre><span class="cm">// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen</span>
+<span class="cm">// Exemple de la documentation (NKPlatform) : le résumé lisible du processeur, écrit par CPUFeatures::ToString.</span>
+<span class="cm">// Compilé et exécuté à chaque construction de la documentation ; sa sortie est comparée à processeur_resume.attendu.</span>
+<span class="cm">// Montré seulement dans la documentation de travail (dev) : en 0.1.0-beta.11, ToString était défini « inline » dans</span>
+<span class="cm">// NkCPUFeatures.cpp, absent de NKPlatform.lib, et un programme hors du module ne se liait pas (corrigé le 25/11/2026).</span>
+<span class="cm">// Le texte du résumé change d&#x27;une machine à l&#x27;autre : on ne vérifie que sa forme.</span>
+
+<span class="pp">#include</span> <span class="st">&quot;NKPlatform/NkCPUFeatures.h&quot;</span>
+<span class="pp">#include</span> <span class="st">&quot;NKContainers/String/NkPrint.h&quot;</span>
+
+<span class="kw">int</span> <span class="fn">main</span>() {
+	<span class="kw">using</span> <span class="kw">namespace</span> nkentseu;
+	<span class="kw">const</span> platform::<span class="ty">NkCPUFeatures</span> &amp;cpu = platform::<span class="fn">NkGetCPUFeatures</span>();
+
+	<span class="cm">// ToString écrit dans TON tampon et s&#x27;arrête à sa taille : rien n&#x27;est alloué.</span>
+	<span class="kw">char</span> resume[<span class="nu">1024</span>];
+	cpu.<span class="fn">ToString</span>(resume, <span class="kw">sizeof</span>(resume));
+	<span class="kw">bool</span> termine = <span class="kw">false</span>;
+	<span class="kw">for</span> (<span class="ty">size_t</span> i = <span class="nu">0</span>; i &lt; <span class="kw">sizeof</span>(resume); ++i) {
+		<span class="kw">if</span> (resume[i] == <span class="nu">0</span>) {
+			termine = <span class="kw">true</span>;
+			<span class="kw">break</span>;
+		}
+	}
+	<span class="fn">NkPrintln</span>(<span class="st">&quot;Résumé écrit : {}&quot;</span>, resume[<span class="nu">0</span>] != <span class="nu">0</span> ? <span class="st">&quot;oui&quot;</span> : <span class="st">&quot;non&quot;</span>);
+	<span class="fn">NkPrintln</span>(<span class="st">&quot;Terminé dans le tampon : {}&quot;</span>, termine ? <span class="st">&quot;oui&quot;</span> : <span class="st">&quot;non&quot;</span>);
+
+	<span class="cm">// Sans argument, ToString rend un tampon interne : pratique pour un journal, à recopier pour le garder.</span>
+	<span class="kw">const</span> <span class="kw">char</span> *texte = cpu.<span class="fn">ToString</span>();
+	<span class="fn">NkPrintln</span>(<span class="st">&quot;Version sans tampon : {}&quot;</span>, (texte &amp;&amp; texte[<span class="nu">0</span>] != <span class="nu">0</span>) ? <span class="st">&quot;oui&quot;</span> : <span class="st">&quot;non&quot;</span>);
+
+	<span class="kw">return</span> (resume[<span class="nu">0</span>] != <span class="nu">0</span> &amp;&amp; termine &amp;&amp; texte &amp;&amp; texte[<span class="nu">0</span>] != <span class="nu">0</span>) ? <span class="nu">0</span> : <span class="nu">1</span>;
+}
+</pre><div class="sortie"><div class="et">Output</div><pre>Résumé écrit : oui
+Terminé dans le tampon : oui
+Version sans tampon : oui</pre></div></div>
 <div class="note attention"><span class="nt">X11 macros</span>X11 headers define macros with very common names (<code>None</code>, <code>Bool</code>, <code>Status</code>...). If you include X11 before a Nkentseu header that uses these names, the preprocessor replaces them. <code>NkX11Clean.h</code> removes them: include it right after X11.</div>
 <div class="pourquoi"><span class="nt">Why a whole layer for this</span>The rest of the engine depends on it: if every module detected the system on its own, there would be as many ways to get it wrong as there are modules. One detection, at the bottom of the stack, and everyone reads it.</div>
 <h2 id="going-further">Going further</h2>
