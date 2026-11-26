@@ -1179,6 +1179,12 @@ with workspace("Nkentseu", location="."):
     with include("Tutoriels3D/Tutoriels3D.jenga"):
         pass
 
+    # Exemples de la documentation (25/11/2026) : un programme console par Docs/exemples/<Couche>/<Module>/*.cpp,
+    # lance par « jenga docs exemples ». Seulement avec NK_DOC_EXEMPLES=1 : sans la variable, rien ne change.
+    if os.environ.get("NK_DOC_EXEMPLES") == "1":
+        with include("Docs/exemples/NkDocExemples.jenga"):
+            pass
+
     # Etage 0 XR : scene NKRenderer en stereo SIMULEE via NKXR (simulateur
     # desktop, souris = tete). Voir XR_MISSION_IA.md.
 
@@ -1219,12 +1225,6 @@ with workspace("Nkentseu", location="."):
     # L'editeur d'Unkeny. Il vit ici, pas dans Engine : un moteur ne
     # contient pas son outil.
     with includeprive("Applications/UnkenyEditor/UnkenyEditor.jenga"):
-    # Exemples de la documentation (25/11/2026) : un programme console par Docs/exemples/<Couche>/<Module>/*.cpp,
-    # lance par « jenga docs exemples ». Seulement avec NK_DOC_EXEMPLES=1 : sans la variable, rien ne change.
-    if os.environ.get("NK_DOC_EXEMPLES") == "1":
-        with include("Docs/exemples/NkDocExemples.jenga"):
-            pass
-
         pass
 
     # Le joueur autonome d'Unkeny (U5) : ce que l'editeur livre. Un jeu
