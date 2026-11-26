@@ -41,8 +41,17 @@ with project("NKLua"):
         targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
     with filter("system:Android"):
         buildoptions(["-fPIC"])
-    with filter("system:Linux || system:macOS || system:Android || system:iOS"):
+    # (26/11/2026, ecs-std-3) iOS : LUA_USE_IOS, que Lua prévoit (luaconf.h : il pose LUA_USE_POSIX et
+    # LUA_USE_DLOPEN ; loslib.c : os.execute rend -1, car « system » n'existe pas sur iOS). Avant, iOS recevait
+    # LUA_USE_POSIX comme Linux et la construction échouait dans loslib.c (« 'system' is unavailable »). Pas de
+    # LUA_USE_POSIX en plus pour iOS : luaconf.h le redéfinirait (avertissement de redéfinition).
+    with filter("system:Linux || system:macOS || system:Android"):
         defines(["LUA_USE_POSIX"])
+    with filter("system:iOS"):
+        defines(["LUA_USE_IOS"])
+    # Avant (ecs-std-3) :
+    # with filter("system:Linux || system:macOS || system:Android || system:iOS"):
+    #     defines(["LUA_USE_POSIX"])
     with filter("config:Debug"):
         defines(["_DEBUG"])
         optimize("Off")
