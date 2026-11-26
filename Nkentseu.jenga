@@ -447,6 +447,20 @@ with workspace("Nkentseu", location="."):
     with include("Externals/Libs/NKMbedTLS/NKMbedTLS.jenga"):
         pass
 
+    # (25/11/2026, agent scripts, accord du coordinateur) AngelScript 2.39.0, zlib, tiers et isolé (LISEZMOI.md).
+    with include("Externals/Libs/NKAngelScript/NKAngelScript.jenga"):
+        pass
+
+    # (25/11/2026, agent scripts-2, décision de Rodolf : Lua est un langage de base) Lua 5.5.1, MIT, tiers et
+    # isolé (Externals/Libs/NKLua/LISEZMOI.md). Son hôte et ses bancs vivent dans Noge.
+    with include("Externals/Libs/NKLua/NKLua.jenga"):
+        pass
+
+    # (25/11/2026, agent scripts-2, décision de Rodolf : Python est un langage de base, PocketPy partout)
+    # PocketPy 2.2.0, MIT, tiers et isolé (Externals/Libs/NKPocketPy/LISEZMOI.md). Hôte et bancs dans Noge.
+    with include("Externals/Libs/NKPocketPy/NKPocketPy.jenga"):
+        pass
+
     with include("Externals/Libs/pybind11/pybind11.jenga"):
         pass
 

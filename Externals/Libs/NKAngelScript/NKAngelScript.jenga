@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+"""
+NKAngelScript — AngelScript 2.39.0 (zlib), bibliothèque TIERCE copiée sans modification (voir LISEZMOI.md).
+Étape E4 de Tests/agents_14-10/scripts/CONCEPTION_SCRIPTS.md (agent scripts, 25/11/2026).
+
+- Cible à part : bibliothèque statique du seul code tiers (sdk/angelscript/source). Ses avertissements sont
+  coupés ICI seulement (-w) ; notre code (tests/) garde tous les avertissements et vise zéro.
+- AS_MAX_PORTABILITY partout : appels génériques seulement, aucun fichier assembleur, le même chemin sur
+  Windows, Android, iOS et le web (LISEZMOI.md).
+- Le banc NKAngelScript_Tests : la bibliothèque SEULE (compiler, appeler une fonction générique), sans le
+  moteur : le plus petit banc à porter sur le mobile et le web.
+- (25/11/2026, scripts-2) L'HÔTE (ancien pont/) et le banc « la Vie et le Poison » ont DÉMÉNAGÉ dans Noge :
+  Engine/Noge/src/Noge/ECS/Scripting/AngelScript/ et Engine/Noge/tests/test_angelscript_*.cpp : l'hôte a besoin
+  de NkBehaviour, NkActor, NkContactInfo et de la carte d'entrées.
+
+Usage (plus tard, l'hôte de Noge) :
+    dependson(["NKAngelScript"]); includedirs(["%{NKAngelScript.location}/sdk/angelscript/include"])
+    links(["NKAngelScript"]); defines(["AS_MAX_PORTABILITY"])
+"""
+from Jenga import *
+from jengaconfig import *
+
+with project("NKAngelScript"):
+    staticlib()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    includedirs(["sdk/angelscript/include", "sdk/angelscript/source"])
+    defines(["AS_MAX_PORTABILITY"])
+    files([
+        "sdk/angelscript/source/**.cpp",
+        "sdk/angelscript/source/**.h",
+        "sdk/angelscript/include/**.h",
+    ])
+    # Code tiers : ses avertissements ne sont pas les nôtres ; coupés pour CETTE cible seulement.
+    buildoptions(["-w"])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain("nk-windows-clang-mingw")
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
+    with filter("system:Android"):
+        buildoptions(["-fPIC"])
+    with filter("config:Debug"):
+        defines(["_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
+
+    # Banc (ordinateur seulement ce soir ; mobile et web : étapes suivantes de la conception)
+    with filter("(system:Linux || system:macOS || (system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne)) && !system:Android && !system:iOS && !system:Web"):
+        with test():
+            testfiles(["tests/**.cpp"])
+            # Notre code garde les avertissements de la chaîne (le -w ci-dessus n'est PAS hérité par le banc :
+            # Jenga ne recopie que les réglages filtrés du parent, Jenga/Core/Api.py, class test).
+            nkentseudependson(["NKCore"])
+            links(["NKAngelScript"])

@@ -1,0 +1,258 @@
+#include "pocketpy/common/str.h"
+#include "pocketpy/objects/base.h"
+#include "pocketpy/objects/codeobject.h"
+#include "pocketpy/pocketpy.h"
+#include "pocketpy/common/utils.h"
+#include "pocketpy/common/sstream.h"
+#include "pocketpy/interpreter/vm.h"
+#include "pocketpy/common/_generated.h"
+
+
+py_Ref py_getmodule(const char* path) {
+    VM* vm = pk_current_vm;
+    return BinTree__try_get(&vm->modules, (void*)path);
+}
+
+static py_Ref pk_newmodule(const char* path, bool is_init) {
+    c11_sv pathv = {path, strlen(path)};
+    if(pathv.size > PK_MAX_MODULE_PATH_LEN) c11__abort("module path too long: %s", path);
+    if(pathv.size == 0) c11__abort("module path cannot be empty");
+
+    py_ModuleInfo* mi = py_newobject(py_retval(), tp_module, -1, sizeof(py_ModuleInfo));
+    
+    int last_dot = c11_sv__rindex(pathv, '.');
+    if(last_dot == -1 || is_init) {
+        mi->package = c11_string__new(path);
+    } else {
+        // a.b.c -> a.b
+        mi->package = c11_string__new2(path, last_dot);
+    }
+
+    mi->path = c11_string__new(path);
+    path = mi->path->data;
+
+    // we do not allow override in order to avoid memory leak
+    // it is because Module objects are not garbage collected
+    bool exists = BinTree__contains(&pk_current_vm->modules, (void*)path);
+    if(exists) c11__abort("module '%s' already exists", path);
+
+    BinTree__set(&pk_current_vm->modules, (void*)path, py_retval());
+    py_GlobalRef retval = py_getmodule(path);
+    mi->self = retval;
+
+    // setup __name__
+    py_newstrv(py_emplacedict(retval, __name__), c11_string__sv(mi->path));
+    // setup __package__
+    py_newstrv(py_emplacedict(retval, __package__), c11_string__sv(mi->package));
+    return retval;
+}
+
+py_Ref py_newmodule(const char* path) {
+    return pk_newmodule(path, false);
+}
+
+static void py_ModuleInfo__dtor(py_ModuleInfo* mi) {
+    c11_string__delete(mi->package);
+    c11_string__delete(mi->path);
+}
+
+static bool module__repr__(int argc, py_Ref argv) {
+    PY_CHECK_ARGC(1);
+    py_ModuleInfo* self = py_touserdata(argv);
+    c11_sbuf buf;
+    c11_sbuf__ctor(&buf);
+    pk_sprintf(&buf, "<module '%s'>", self->path->data);
+    c11_sbuf__py_submit(&buf, py_retval());
+    return true;
+}
+
+py_Type pk_module__register() {
+    py_Type type = pk_newtype("module", tp_object, NULL, (py_Dtor)py_ModuleInfo__dtor, false, true);
+    py_bindmagic(type, __repr__, module__repr__);
+    return type;
+}
+
+int load_module_from_dll_desktop_only(const char* path) PY_RAISE PY_RETURN;
+
+int py_import(const char* path_cstr) {
+    VM* vm = pk_current_vm;
+    c11_sv path = {path_cstr, strlen(path_cstr)};
+    if(path.size == 0) {
+        ValueError("empty module name");
+        return -1;
+    }
+    if(path.size > PK_MAX_MODULE_PATH_LEN) {
+        ValueError("module name too long: %v", path);
+        return -1;
+    }
+
+    if(path.data[0] == '.') {
+        c11__rtassert(vm->top_frame != NULL && vm->top_frame->module != NULL);
+
+        // try relative import
+        int dot_count = 1;
+        while(dot_count < path.size && path.data[dot_count] == '.')
+            dot_count++;
+
+        py_ModuleInfo* mi = py_touserdata(vm->top_frame->module);
+        c11_sv package_sv = c11_string__sv(mi->package);
+        if(package_sv.size == 0) {
+            ImportError("attempted relative import with no known parent package");
+            return -1;
+        }
+
+        c11_vector /* T=c11_sv */ cpnts = c11_sv__split(package_sv, '.');
+        for(int i = 1; i < dot_count; i++) {
+            if(cpnts.length == 0){
+                ImportError("attempted relative import beyond top-level package");
+                return -1;
+            }
+            c11_vector__pop(&cpnts);
+        }
+
+        if(dot_count < path.size) {
+            c11_sv last_cpnt = c11_sv__slice(path, dot_count);
+            c11_vector__push(c11_sv, &cpnts, last_cpnt);
+        }
+
+        // join cpnts
+        c11_sbuf buf;
+        c11_sbuf__ctor(&buf);
+        for(int i = 0; i < cpnts.length; i++) {
+            if(i > 0) c11_sbuf__write_char(&buf, '.');
+            c11_sbuf__write_sv(&buf, c11__getitem(c11_sv, &cpnts, i));
+        }
+
+        c11_vector__dtor(&cpnts);
+        c11_string* new_path = c11_sbuf__submit(&buf);
+        int res = py_import(new_path->data);
+        c11_string__delete(new_path);
+        return res;
+    }
+
+    c11__rtassert(path.data[0] != '.' && path.data[path.size - 1] != '.');
+
+    // import parent module (implicit recursion)
+    int last_dot_index = c11_sv__rindex(path, '.');
+    if(last_dot_index >= 0) {
+        c11_sv ppath = c11_sv__slice2(path, 0, last_dot_index);
+        py_GlobalRef ext_mod = py_getmodule(ppath.data);
+        if(!ext_mod) {
+            char buf[PK_MAX_MODULE_PATH_LEN + 1];
+            memcpy(buf, ppath.data, ppath.size);
+            buf[ppath.size] = '\0';
+            int res = py_import(buf);
+            if(res != 1) return res;
+            py_newnil(py_retval());
+        }
+    }
+
+    // check existing module
+    py_GlobalRef ext_mod = py_getmodule(path.data);
+    if(ext_mod) {
+        py_assign(py_retval(), ext_mod);
+        return 1;
+    }
+
+    if(vm->callbacks.lazyimport) {
+        py_GlobalRef lazymod = vm->callbacks.lazyimport(path_cstr);
+        if(lazymod) {
+            c11__rtassert(py_istype(lazymod, tp_module));
+            py_assign(py_retval(), lazymod);
+            return 1;
+        }
+    }
+
+    // try import
+    c11_string* slashed_path = c11_sv__replace(path, '.', PK_PLATFORM_SEP);
+    c11_string* filename = c11_string__new3("%s.py", slashed_path->data);
+
+    bool need_free = true;
+    bool is_pyc = false;
+    bool is_init = false;
+    const char* data = load_kPythonLib(path_cstr);
+    int data_size = -1;
+
+    if(data != NULL) {
+        need_free = false;
+        goto __SUCCESS;
+    }
+
+    data = vm->callbacks.importfile(filename->data, &data_size);
+    if(data != NULL) goto __SUCCESS;
+
+    c11_string__delete(filename);
+    filename = c11_string__new3("%s.pyc", slashed_path->data);
+    data = vm->callbacks.importfile(filename->data, &data_size);
+    if(data != NULL) {
+        is_pyc = true;
+        goto __SUCCESS;
+    }
+
+    c11_string__delete(filename);
+    filename = c11_string__new3("%s%c__init__.py", slashed_path->data, PK_PLATFORM_SEP);
+    data = vm->callbacks.importfile(filename->data, &data_size);
+    if(data != NULL) {
+        is_init = true;
+        goto __SUCCESS;
+    }
+
+    c11_string__delete(filename);
+    filename = c11_string__new3("%s%c__init__.pyc", slashed_path->data, PK_PLATFORM_SEP);
+    data = vm->callbacks.importfile(filename->data, &data_size);
+    if(data != NULL) {
+        is_pyc = true;
+        is_init = true;
+        goto __SUCCESS;
+    }
+
+    c11_string__delete(filename);
+    c11_string__delete(slashed_path);
+    // not found
+    return load_module_from_dll_desktop_only(path_cstr);
+
+__SUCCESS:
+    do {
+    } while(0);
+    
+    py_GlobalRef mod = pk_newmodule(path_cstr, is_init);
+
+    bool ok;
+    if(is_pyc) {
+        ok = py_execo(data, data_size, filename->data, mod);
+    } else {
+        ok = py_exec(data, filename->data, EXEC_MODE, mod);
+    }
+    py_assign(py_retval(), mod);
+
+    c11_string__delete(filename);
+    c11_string__delete(slashed_path);
+    if(need_free) PK_FREE((void*)data);
+    return ok ? 1 : -1;
+}
+
+bool py_importlib_reload(py_Ref module) {
+    VM* vm = pk_current_vm;
+    py_ModuleInfo* mi = py_touserdata(module);
+    // We should ensure that the module is its original py_GlobalRef
+    module = mi->self;
+    c11_sv path = c11_string__sv(mi->path);
+    c11_string* slashed_path = c11_sv__replace(path, '.', PK_PLATFORM_SEP);
+    c11_string* filename = c11_string__new3("%s.py", slashed_path->data);
+    // Here we only consider source modules.
+    // Because compiled modules have no source file (it cannot be reloaded)
+    char* data = vm->callbacks.importfile(filename->data, NULL);
+    if(data == NULL) {
+        c11_string__delete(filename);
+        filename = c11_string__new3("%s%c__init__.py", slashed_path->data, PK_PLATFORM_SEP);
+        data = vm->callbacks.importfile(filename->data, NULL);
+    }
+    c11_string__delete(slashed_path);
+    if(data == NULL) return ImportError("module '%v' not found", path);
+    // py_cleardict(module); BUG: removing old classes will cause RELOAD_MODE to fail
+    bool ok = py_exec(data, filename->data, RELOAD_MODE, module);
+    c11_string__delete(filename);
+    PK_FREE(data);
+    py_assign(py_retval(), module);
+    return ok;
+}

@@ -1,0 +1,116 @@
+# =============================================================================
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis - Rihen
+# build-scripts-ios.yml : les trois machines de script (AngelScript, Lua, PocketPy) pour iOS-arm64, et la partie
+# scripts de Noge quand le depot prive est la.
+#
+# Modele : build-kits-ios.yml (meme Jenga, memes etapes, meme nom de plateforme : iOS-arm64).
+# Consigne de Rodolf (26/11/2026) : « on ne doit pas avoir juste Android, mais en plus iOS et HarmonyOS aussi ».
+#
+# QUAND : A LA MAIN seulement  ->  gh workflow run build-scripts-ios.yml
+# CE QUE CA FAIT : construit NKAngelScript, NKLua et NKPocketPy (Debug et Release, iOS-arm64) sans s'arreter au
+# premier echec, ecrit tableau.tsv (cible, config, code, Status), puis, SI Engine/Noge est present (sous-module
+# PRIVE, `update = none` dans .gitmodules : la CI publique ne le clone pas sans secret), la cible NogeScripts
+# (Engine/Noge/NogeScriptsPortable.jenga). Aucune publication.
+#
+# iOS : arm64, SANS JIT. Les trois sont des interpretes de code-octet : aucune page executable ecrite a la
+# volee, donc rien que l'App Store refuse. AngelScript est construit avec AS_MAX_PORTABILITY (NKAngelScript.jenga,
+# toutes plateformes) : appels GENERIQUES seulement (asCALL_GENERIC, ce que nos hotes emploient deja partout), aucun
+# fichier assembleur ni convention d'appel native ; la convention arm64 d'Apple differe de l'AAPCS64 pour les
+# arguments sur la pile et les variadiques, et as_callfunc_arm64 serait alors un risque sans banc sur iPhone.
+#
+# ETAT : ECRIT SANS PREUVE (aucun Mac ici), NON POUSSE (ecs-std-2, 26/11/2026) : le coordinateur le poussera avec
+# l'accord de Rodolf. Les trois bibliotheques doivent d'abord etre commitees dans le depot public
+# (Externals/Libs/NKAngelScript, NKLua, NKPocketPy : non suivies le 26/11).
+# =============================================================================
+name: build-scripts-ios
+
+on:
+  workflow_dispatch:
+    inputs:
+      jenga_ref:
+        description: "Ref de Jenga a la place du tag v<JENGA_VERSION> (vide = .github/JENGA_REF, sinon le tag)"
+        required: false
+        type: string
+        default: ""
+
+env:
+  JENGA_REF_FORCEE: ${{ inputs.jenga_ref || '' }}
+  CIBLES: NKAngelScript NKLua NKPocketPy
+
+jobs:
+  scripts-ios:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      NK_ENABLE_VULKAN: "0"
+      PYTHONPATH: ${{ github.workspace }}/jenga-src
+    steps:
+      - name: Depot Nkentseu (+ sous-modules publics ; Noge, prive, reste absent)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' config/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
+
+      - name: Depot Jenga (public, la source EST le build system)
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: ${{ steps.jenga-version.outputs.ref }}
+          path: jenga-src
+
+      - name: Xcode disponible (on le DIT, on ne le suppose pas)
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path || echo "SDK iphoneos ABSENT"
+
+      - name: Construire les trois machines (Debug et Release, iOS-arm64), sans s'arreter au premier echec
+        run: |
+          set +e
+          mkdir -p journaux
+          printf 'cible\tconfig\tcode\tstatus\n' > tableau.tsv
+          for C in $CIBLES; do
+            for CFG in Debug Release; do
+              python3 -m Jenga build --target "$C" --config "$CFG" --platform iOS-arm64 --no-daemon \
+                > "journaux/build_${C}_${CFG}.log" 2>&1
+              rc=$?
+              ST=$(sed -E 's/\x1b\[[0-9;]*m//g' "journaux/build_${C}_${CFG}.log" | grep -a 'Status:' | tail -1 | sed 's/.*Status: *//')
+              printf '%s\t%s\t%s\t%s\n' "$C" "$CFG" "$rc" "$ST" >> tableau.tsv
+              echo "$C $CFG : code $rc $ST"
+            done
+          done
+          cat tableau.tsv
+
+      - name: La partie scripts de Noge (seulement si le depot prive est present)
+        run: |
+          set +e
+          if [ -f Engine/Noge/NogeScriptsPortable.jenga ]; then
+            python3 -m Jenga build --target NogeScripts --config Debug --platform iOS-arm64 --no-daemon \
+              > journaux/build_NogeScripts_Debug.log 2>&1
+            rc=$?
+            printf '%s\t%s\t%s\t%s\n' "NogeScripts" "Debug" "$rc" "voir le journal" >> tableau.tsv
+            echo "NogeScripts Debug : code $rc"
+          else
+            echo "Engine/Noge absent (prive, update = none) : NogeScripts NON construit ici."
+            printf '%s\t%s\t%s\t%s\n' "NogeScripts" "Debug" "-" "Noge prive absent" >> tableau.tsv
+          fi
+          cat tableau.tsv
+
+      - name: Artefact - tableau et journaux iOS-arm64
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scripts-ios-arm64
+          path: |
+            tableau.tsv
+            journaux/
+
+      - name: Le tableau decide (un code non nul fait echouer le job)
+        run: |
+          awk -F'\t' 'NR>1 && $3!="0" && $3!="-" {bad=1; print "ECHEC : " $1 " " $2 " (code " $3 ")"} END {exit bad}' tableau.tsv

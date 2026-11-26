@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+"""
+NKPocketPy — PocketPy 2.2.0 (MIT, blueloveTH), bibliothèque TIERCE copiée sans modification (voir LISEZMOI.md).
+Agent scripts-2, 25/11/2026 (ordre de Rodolf : AngelScript, Lua, puis PocketPy ; Python est un langage de base).
+
+- Bibliothèque statique en C11 du seul code tiers (sdk/pocketpy/src). Ses avertissements sont coupés ICI
+  seulement (-w). Le README ne garantit sous Windows que MSVC ; notre chaîne est clang (cible MinGW) :
+  c'est ce que cette cible ÉPROUVE (CONCEPTION_SCRIPTS.md, risque 2).
+- Réglages : ni os, ni fils, ni DLL (PK_ENABLE_OS/THREADS/DLL = 0) : un script de jeu ne touche ni aux
+  fichiers, ni aux prises, ni au système ; une machine par fil (le fil principal). Modules optionnels
+  (lz4, cute_png, msgpack, periphery) absents : leurs sources tierces ne sont pas copiées.
+- Aucun banc ici (un banc d'une cible C serait compilé en C) : l'hôte et ses bancs vivent dans Noge
+  (Engine/Noge/src/Noge/ECS/Scripting/Python/NkHotePocketPy.*, Engine/Noge/tests/test_pocketpy_*.cpp).
+
+Usage : dependson(["NKPocketPy"]) ; includedirs(["%{NKPocketPy.location}/sdk/pocketpy/include"]) ;
+        links(["NKPocketPy"]) ; mêmes PK_ENABLE_* que ci-dessous.
+"""
+from Jenga import *
+from jengaconfig import *
+
+with project("NKPocketPy"):
+    staticlib()
+    language("C")
+    cdialect("C11")
+    location(".")
+
+    includedirs(["sdk/pocketpy/include"])
+    defines(["PK_ENABLE_OS=0", "PK_ENABLE_THREADS=0", "PK_ENABLE_DLL=0", "PK_ENABLE_DETERMINISM=0"])
+    files([
+        "sdk/pocketpy/src/**.c",
+        "sdk/pocketpy/include/**.h",
+    ])
+    # Code tiers : ses avertissements ne sont pas les nôtres ; coupés pour CETTE cible seulement.
+    buildoptions(["-w"])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain("nk-windows-clang-mingw")
+        defines(["_CRT_SECURE_NO_WARNINGS"])
+    with filter("system:Windows && options:windows-runtime=uwp"):
+        objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}-uwp/%{prj.name}")
+        targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}-uwp")
+    with filter("system:Android"):
+        buildoptions(["-fPIC"])
+    with filter("config:Debug"):
+        defines(["_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
