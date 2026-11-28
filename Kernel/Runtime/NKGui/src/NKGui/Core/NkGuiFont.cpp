@@ -213,9 +213,23 @@ namespace nkentseu {
 		// de glyphes) -> atlas MINUSCULE + build tres rapide. Reserve aux polices MONOSPACE
 		// (code) : leur police embarquee couvre deja Latin-1/etendu, box-drawing, fleches...
 		// (26/10) `avecCjk` faux : les ideogrammes attendent d'etre demandes (NkGuiFont.h).
-		static void NkMergeFallback(NkFontAtlas &atlas, float32 sizePx, bool ext, bool avecCjk = true) noexcept {
+		static void NkMergeFallback(NkFontAtlas &atlas, float32 sizePx, bool ext, bool avecCjk = true,
+									const NkFontConfig *modele = nullptr) noexcept {
 			if (!ext)
 				return;
+			// (19/11/2026) un repli fusionne recoit le meme traitement que la face (sous le pixel, contour)
+			const auto commeLaFace = [modele](NkFontConfig &c) {
+				if (modele) {
+					c.oversampleH = modele->oversampleH;
+					c.sousPixelH = modele->sousPixelH;
+					c.contourPx = modele->contourPx;
+					c.gammaCouverture = modele->gammaCouverture; // (scripts-22)
+					c.nette = modele->nette;
+					c.calageVertical = modele->calageVertical; // (scripts-23)
+					c.calageHampes = modele->calageHampes;
+					c.contrasteCouverture = modele->contrasteCouverture;
+				}
+			};
 			// (21/10) LES CADRES ET LES BLOCS (U+2500-U+259F) : « ╔═╗ », « █ ». Rodolf : « l'affichage dans
 			// l'assistant n'est pas correct » -- la banniere de `jenga build --verbose`, collee dans
 			// l'Assistant IA de NKCode, s'y dessinait en « ? » : ni la police d'interface (Karla, Inter)
@@ -236,6 +250,7 @@ namespace nkentseu {
 					NkFontConfig cadres;
 					cadres.glyphRanges = kCadres;
 					cadres.mergeMode = true;
+					commeLaFace(cadres);
 					(void)NkFontEmbedded::AddToAtlas(atlas, NkEmbeddedFontId::DejaVuSansMono, sizePx > 0.f ? sizePx : 16.f,
 													 &cadres);
 				}
@@ -250,6 +265,7 @@ namespace nkentseu {
 				NkFontConfig fb;
 				fb.glyphRanges = ranges;
 				fb.mergeMode = true;
+				commeLaFace(fb);
 				const bool ok = atlas.AddFontFromFile(path, sizePx > 0.f ? sizePx : 16.f, &fb) != nullptr;
 				if (std::getenv("NK_TRACE_POLICE"))
 					std::printf("[police] repli %s : %s\n", ok ? "FUSIONNE" : "REFUSE PAR L'ATLAS", path);
@@ -260,12 +276,29 @@ namespace nkentseu {
 			add(gFbEmoji, NkEmojiRanges());
 		}
 
+		// (19/11/2026) Les reglages que la police porte (NkGuiFont.h) : plages, position sous le pixel, contour.
+		static void NkReglagesDeFace(const NkGuiFont &f, NkFontConfig &cfg) noexcept {
+			cfg.glyphRanges = f.plages ? f.plages : NkGlyphRanges();
+			if (f.sousPixel >= 2) {
+				cfg.oversampleH = f.sousPixel;
+				cfg.sousPixelH = true;
+			} else if (f.nette) {
+				cfg.oversampleH = 1; // (27/11/2026, scripts-22) un texel par pixel
+				cfg.nette = true;	 // (le detecteur de NkFontEmbedded ne le remplace pas)
+			}
+			cfg.contourPx = f.contourPx > 0.f ? f.contourPx : 0.f;
+			cfg.gammaCouverture = f.gammaCouverture > 0.f ? f.gammaCouverture : 1.f;
+			cfg.calageVertical = f.calageVertical; // (27/11/2026, scripts-23)
+			cfg.calageHampes = f.calageHampes;
+			cfg.contrasteCouverture = f.contrasteCouverture > 0.f ? f.contrasteCouverture : 0.f;
+		}
+
 		bool NkGuiFont::LoadEmbedded(NkEmbeddedFontId id, float32 sizePx, bool extFallback) noexcept {
 			atlas.Clear();
 			face = nullptr;
 			pixels = nullptr; // rechargeable
 			NkFontConfig cfg;
-			cfg.glyphRanges = NkGlyphRanges();
+			NkReglagesDeFace(*this, cfg);
 			face = NkFontEmbedded::AddToAtlas(atlas, id, sizePx, &cfg);
 			if (!face)
 				return false;
@@ -279,7 +312,7 @@ namespace nkentseu {
 			cjkCharge = extFallback && gFbCjk[0] && !differe;
 			if (differe)
 				NkInscrireDifferee(this);
-			NkMergeFallback(atlas, sizePx, extFallback, !differe); // repli pour les glyphes manquants
+			NkMergeFallback(atlas, sizePx, extFallback, !differe, &cfg); // repli pour les glyphes manquants
 			if (!atlas.Build())
 				return false;
 			int32 bpp = 0;
@@ -297,7 +330,7 @@ namespace nkentseu {
 			face = nullptr;
 			pixels = nullptr; // rechargeable
 			NkFontConfig cfg;
-			cfg.glyphRanges = NkGlyphRanges();
+			NkReglagesDeFace(*this, cfg);
 			face = atlas.AddFontFromFile(path, sizePx > 0.f ? sizePx : 16.f, &cfg);
 			if (!face)
 				return false;
@@ -315,7 +348,7 @@ namespace nkentseu {
 			cjkCharge = extFallback && gFbCjk[0] && !differe;
 			if (differe)
 				NkInscrireDifferee(this);
-			NkMergeFallback(atlas, sizePx > 0.f ? sizePx : 16.f, extFallback, !differe);
+			NkMergeFallback(atlas, sizePx > 0.f ? sizePx : 16.f, extFallback, !differe, &cfg);
 			if (!atlas.Build())
 				return false;
 			int32 bpp = 0;

@@ -33,7 +33,8 @@ with project("NKFont"):
     location(".")
 
     nkentseudependson(
-        ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKThreading", "NKLogger"],
+        # (27/11/2026, ludo-24) NKFileSystem : AddFontFromFile lit par NkFile, qui lit aussi les assets d'un APK.
+        ["NKPlatform", "NKCore", "NKMemory", "NKMath", "NKContainers", "NKThreading", "NKLogger", "NKFileSystem"],
         selfexport="NKFont",
         extra_includes=["src"],
     )

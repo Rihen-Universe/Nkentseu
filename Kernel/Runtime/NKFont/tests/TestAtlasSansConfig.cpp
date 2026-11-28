@@ -58,6 +58,9 @@ void NkTestsAtlasSdf(void (*temoin)(bool, const char *), const nkft_uint8 *octet
 void NkTestsGlyphesComposes(void (*temoin)(bool, const char *));
 /// (07/11) Les temoins du decodage UTF-8 : il s'arrete au terminateur et a la borne (tests/TestDecodageUtf8.cpp).
 void NkTestsDecodageUtf8(void (*temoin)(bool, const char *));
+/// (27/11) Les temoins de la lecture d'un fichier : AddFontFromFile lit par NkFile, entier et en binaire
+/// (tests/TestLectureFichier.cpp).
+void NkTestsLectureFichier(void (*temoin)(bool, const char *), const nkft_uint8 *octets, nkft_uint32 taille);
 
 namespace {
 
@@ -220,6 +223,7 @@ int main() {
 	NkTestsAtlasSdf(&Temoin, octets, taille); // (14/10) l'atlas SDF
 	NkTestsGlyphesComposes(&Temoin); // (05/11) les courbes d'un glyphe compose
 	NkTestsDecodageUtf8(&Temoin); // (07/11) le decodage UTF-8 ne lit jamais apres le zero (le clignotement de NKCode)
+	NkTestsLectureFichier(&Temoin, octets, taille); // (27/11) AddFontFromFile par NkFile (les polices de l'APK)
 	NkFontEmbedded::FreeDecompressedData(octets);
 
 	std::printf("\n===== NKFont_Tests : %d / %d — %s =====\n", gVerts, gVerts + gRouges, gRouges == 0 ? "VERT" : "ROUGE");

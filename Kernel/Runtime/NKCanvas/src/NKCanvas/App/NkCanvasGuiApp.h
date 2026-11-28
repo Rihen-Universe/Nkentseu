@@ -61,6 +61,17 @@ namespace nkentseu {
 
 		class NkCanvasGuiApp : public NkCanvasApp {
 			protected:
+				/// (27/11/2026, scripts-22, la nettete du texte) Les trois polices NETTES (NkGuiFont::nette : un texel
+				/// par pixel) et leur courbe de couverture : a poser par l'application AVANT le chargement des polices
+				/// (son constructeur). Faux, 1 (defaut) : l'atlas d'avant, a l'identique.
+				bool mPolicesNettes = false;
+				float32 mGammaPolices = 1.f;
+				/// (27/11/2026, scripts-23) Le CALAGE sur la grille des pixels (NkGuiFont::calageVertical et calageHampes :
+				/// hauteurs, fûts et barres sur des rangees et des colonnes entieres) et le CONTRASTE de couverture
+				/// (NkGuiFont::contrasteCouverture). Faux, 0 (defaut) : l'atlas d'avant, a l'identique.
+				bool mCalagePolices = false;
+				float32 mContrastePolices = 0.f;
+
 				// --- A remplir par le jeu -------------------------------------
 
 				/// Dessin de la trame. `dl` est deja ouverte et sera soumise.
@@ -330,6 +341,13 @@ namespace nkentseu {
 					mFontBody.texId = 0x4E4B4654u;
 					mFontTitle.texId = mFontBody.texId + 1u;
 					mFontSmall.texId = mFontBody.texId + 2u;
+					// (27/11/2026, scripts-22, la nettete du texte) le reglage que l'application a pose (defaut : aucun)
+					mFontBody.nette = mFontTitle.nette = mFontSmall.nette = mPolicesNettes;
+					mFontBody.gammaCouverture = mFontTitle.gammaCouverture = mFontSmall.gammaCouverture = mGammaPolices;
+					// (scripts-23) le calage et le contraste
+					mFontBody.calageVertical = mFontTitle.calageVertical = mFontSmall.calageVertical = mCalagePolices;
+					mFontBody.calageHampes = mFontTitle.calageHampes = mFontSmall.calageHampes = mCalagePolices;
+					mFontBody.contrasteCouverture = mFontTitle.contrasteCouverture = mFontSmall.contrasteCouverture = mContrastePolices;
 
 					const bool ok = mFontBody.LoadEmbedded(NkEmbeddedFontId::DroidSans, bodyPx) ||
 									mFontBody.LoadEmbedded(NkEmbeddedFontId::ProggyClean, bodyPx);

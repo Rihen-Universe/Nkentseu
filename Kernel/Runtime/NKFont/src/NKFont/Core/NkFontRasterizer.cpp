@@ -94,6 +94,51 @@ namespace nkentseu {
 		static NkREdge sREdges[NK_RE_MAX_EDGES];
 		static nkft_int32 sRNum = 0;
 
+		// (27/11/2026, scripts-23) Le calage vertical du glyphe en cours (NkMakeGlyphBitmapCale) ; nul : aucun, le
+		// contour d'avant au bit pres (NkBuildEdges garde alors son expression d'origine).
+		static const NkCalageVertical *sRCalage = nullptr;
+
+		// (27/11/2026, scripts-23) LES HAMPES d'un glyphe (NkCalageVertical::hampes) : des noeuds en x, en unites (x de
+		// la face -> x cale, tombant sur une colonne entiere) ; calcules sur la forme du glyphe (NkPreparerHampes).
+		struct NkCalageHampes {
+				static constexpr nkft_int32 NK_HAMPES_MAX = 48;
+				nkft_int32 n = 0;
+				nkft_float32 src[NK_HAMPES_MAX] = {};
+				nkft_float32 dst[NK_HAMPES_MAX] = {};
+		};
+		static const NkCalageHampes *sRHampes = nullptr;
+		// Les barres du glyphe en cours : son calage vertical PROPRE (les zones et ses barres) ; nul : sRCalage.
+		static const NkCalageHampes *sRBarres = nullptr;
+
+		/// Entre deux noeuds : lineaire ; au-dela des bouts : la pente 1 (decale) ; sans noeud : v.
+		static nkft_float32 NkInterpNoeuds(nkft_int32 n, const nkft_float32 *src, const nkft_float32 *dst, nkft_float32 v) {
+			if (n <= 0) {
+				return v;
+			}
+			if (v <= src[0]) {
+				return dst[0] + (v - src[0]);
+			}
+			if (v >= src[n - 1]) {
+				return dst[n - 1] + (v - src[n - 1]);
+			}
+			nkft_int32 i = 0;
+			while (i + 1 < n && src[i + 1] <= v) {
+				++i;
+			}
+			const nkft_float32 t = (v - src[i]) / (src[i + 1] - src[i]);
+			return dst[i] + t * (dst[i + 1] - dst[i]);
+		}
+
+		static nkft_float32 NkCalerX(const NkCalageHampes &h, nkft_float32 x) {
+			return NkInterpNoeuds(h.n, h.src, h.dst, x);
+		}
+
+		/// Le y cale du glyphe en cours (sRCalage non nul) : ses barres s'il en a, sinon le calage de la face.
+		static nkft_float32 NkYCale(nkft_float32 y) {
+			return sRBarres ? NkInterpNoeuds(sRBarres->n, sRBarres->src, sRBarres->dst, y)
+							: NkInterpNoeuds(sRCalage->n, sRCalage->src, sRCalage->dst, y);
+		}
+
 		// Pool d'arêtes actives (évite les allocations dynamiques)
 		static NkRActive sRPool[NK_RE_MAX_ACTIVE];
 		static nkft_int32 sRPoolTop = 0;
@@ -246,8 +291,9 @@ namespace nkentseu {
 				const NkFontVertex &v = vb->verts[i];
 
 				// Application de l'échelle et du flip Y (TrueType Y-up → écran Y-down)
-				nkft_float32 vx = v.x * sx + ox;
-				nkft_float32 vy = -v.y * sy + oy;
+				// (scripts-23) le x et le y cales, en flottant (sans calage : l'expression d'origine).
+				nkft_float32 vx = sRHampes ? NkCalerX(*sRHampes, (nkft_float32)v.x) * sx + ox : v.x * sx + ox;
+				nkft_float32 vy = sRCalage ? -NkYCale((nkft_float32)v.y) * sy + oy : -v.y * sy + oy;
 
 				switch (v.type) {
 					case NK_FONT_VERTEX_MOVE:
@@ -264,8 +310,8 @@ namespace nkentseu {
 						break;
 
 					case NK_FONT_VERTEX_CURVE: {
-						nkft_float32 cx = v.cx * sx + ox;
-						nkft_float32 cy = -v.cy * sy + oy;
+						nkft_float32 cx = sRHampes ? NkCalerX(*sRHampes, (nkft_float32)v.cx) * sx + ox : v.cx * sx + ox;
+						nkft_float32 cy = sRCalage ? -NkYCale((nkft_float32)v.cy) * sy + oy : -v.cy * sy + oy;
 						NkFlattenQuad(px, py, cx, cy, vx, vy, flat_sq, 0);
 						px = vx;
 						py = vy;
@@ -273,10 +319,10 @@ namespace nkentseu {
 					}
 
 					case NK_FONT_VERTEX_CUBIC: {
-						nkft_float32 c0x = v.cx * sx + ox;
-						nkft_float32 c0y = -v.cy * sy + oy;
-						nkft_float32 c1x = v.cx1 * sx + ox;
-						nkft_float32 c1y = -v.cy1 * sy + oy;
+						nkft_float32 c0x = sRHampes ? NkCalerX(*sRHampes, (nkft_float32)v.cx) * sx + ox : v.cx * sx + ox;
+						nkft_float32 c0y = sRCalage ? -NkYCale((nkft_float32)v.cy) * sy + oy : -v.cy * sy + oy;
+						nkft_float32 c1x = sRHampes ? NkCalerX(*sRHampes, (nkft_float32)v.cx1) * sx + ox : v.cx1 * sx + ox;
+						nkft_float32 c1y = sRCalage ? -NkYCale((nkft_float32)v.cy1) * sy + oy : -v.cy1 * sy + oy;
 						NkFlattenCubic(px, py, c0x, c0y, c1x, c1y, vx, vy, flat_sq, 0);
 						px = vx;
 						py = vy;
@@ -672,6 +718,460 @@ namespace nkentseu {
 							   nkft_int32 outStride, nkft_float32 scaleX, nkft_float32 scaleY, nkft_float32 shiftX,
 							   nkft_float32 shiftY, NkGlyphId glyph) {
 			NkMakeGlyphBitmapExact(info, output, outW, outH, outStride, scaleX, scaleY, shiftX, shiftY, glyph);
+		}
+
+		// ============================================================
+		// (27/11/2026, scripts-23) LE CALAGE VERTICAL
+		// ============================================================
+		// Ce que fait le hinting de Windows, sur l'axe vertical seulement : les hauteurs qui portent l'oeil (la ligne
+		// de base, la hauteur d'x, les capitales, les montantes, les descendantes) tombent sur des rangees ENTIERES.
+		// Sans lui, le haut d'un « n » a 13 px tombe a 6,8 px de la ligne de base : une rangee a 80 % de gris au lieu
+		// d'une rangee pleine, sur toutes les minuscules ; c'est le flou que le banc de netteté mesurait (juge2).
+		// Les depassements des rondes (« o » monte un peu au-dessus de « x ») s'arrondissent A PART : nuls aux
+		// petites tailles, le haut d'un « o » se cale alors sur celui d'un « x ».
+
+		bool NkPreparerCalageVertical(const NkFontFaceInfo *info, nkft_float32 sy, NkCalageVertical *out) {
+			if (!info || !out || !(sy > 0.f)) {
+				return false;
+			}
+			out->n = 0;
+			out->hauteurX = 0.f;
+			// La borne haute (ou basse) de la lettre `cp`, en unites ; false : la face ne l'a pas.
+			const auto borne = [info](NkFontCodepoint cp, bool haut, nkft_float32 *v) -> bool {
+				const NkGlyphId g = NkFindGlyphIndex(info, cp);
+				nkft_int32 x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+				if (g == 0 || !NkGetGlyphBox(info, g, &x0, &y0, &x1, &y1)) {
+					return false;
+				}
+				*v = static_cast<nkft_float32>(haut ? y1 : y0);
+				return true;
+			};
+			// Le noeud (y, rangee entiere `px`) ; `px` en texels, ramene en unites.
+			const auto noeud = [out, sy](nkft_float32 y, nkft_float32 px) {
+				if (out->n < NkCalageVertical::NK_CALAGE_MAX) {
+					out->src[out->n] = y;
+					out->dst[out->n] = px / sy;
+					++out->n;
+				}
+			};
+			const auto rangee = [sy](nkft_float32 y) -> nkft_float32 { return floorf(y * sy + 0.5f); };
+			// Une zone : sa hauteur principale posee sur la rangee `p`, et le depassement de sa ronde (arrondi a part).
+			const auto zone = [&](nkft_float32 principal, bool aRonde, nkft_float32 ronde, nkft_float32 p) {
+				noeud(principal, p);
+				if (aRonde && ronde != principal) {
+					noeud(ronde, p + floorf((ronde - principal) * sy + 0.5f));
+				}
+			};
+			nkft_float32 v = 0.f, r = 0.f;
+			bool lettres = false;
+			// La ligne de base, et le bas de « o ».
+			zone(0.f, borne(0x6Fu, false, &r) && r < 0.f, r, 0.f);
+			// La hauteur d'x, et le haut de « o ». AUX PETITES TAILLES (moins de 7 texels d'x), elle s'arrondit vers le
+			// HAUT des qu'elle depasse sa rangee d'un cinquieme (ce que font les hinters, « x-height increase » de
+			// ttfautohint) : a 7 px, 3,2 texels d'x font 4 rangees au lieu de 3, et un « a », un « e », un « o » ont
+			// la place de rester distincts.
+			nkft_float32 rangeeX = -1.f;
+			if (borne(0x78u, true, &v)) {
+				lettres = true;
+				out->hauteurX = v;
+				const nkft_float32 t = v * sy;
+				rangeeX = t < 7.f ? floorf(t + 0.8f) : rangee(v);
+				zone(v, borne(0x6Fu, true, &r) && r > v, r, rangeeX);
+			}
+			// Au-dessus de la hauteur d'x, une rangee de plus au moins (une capitale ne se confond pas avec une
+			// minuscule quand la hauteur d'x monte).
+			const auto auDessusX = [&](nkft_float32 p) -> nkft_float32 { return (rangeeX >= 0.f && p < rangeeX + 1.f) ? rangeeX + 1.f : p; };
+			// Les capitales, et le haut de « O ».
+			if (borne(0x48u, true, &v)) {
+				lettres = true;
+				zone(v, borne(0x4Fu, true, &r) && r > v, r, auDessusX(rangee(v)));
+			}
+			// Les montantes (« d ») et les descendantes (« p »).
+			if (borne(0x64u, true, &v)) {
+				lettres = true;
+				zone(v, false, 0.f, auDessusX(rangee(v)));
+			}
+			if (borne(0x70u, false, &v) && v < 0.f) {
+				lettres = true;
+				zone(v, false, 0.f, rangee(v));
+			}
+			if (!lettres) {
+				out->n = 0;
+				return false;
+			}
+			// Du plus bas au plus haut (tri par insertion) ; un noeud a moins d'une demi-unite d'un autre s'en va ;
+			// les y cales ne redescendent jamais (le contour reste dans son ordre).
+			for (nkft_int32 i = 1; i < out->n; ++i) {
+				const nkft_float32 s = out->src[i], d = out->dst[i];
+				nkft_int32 j = i - 1;
+				while (j >= 0 && out->src[j] > s) {
+					out->src[j + 1] = out->src[j];
+					out->dst[j + 1] = out->dst[j];
+					--j;
+				}
+				out->src[j + 1] = s;
+				out->dst[j + 1] = d;
+			}
+			nkft_int32 k = 0;
+			for (nkft_int32 i = 0; i < out->n; ++i) {
+				if (k > 0 && out->src[i] - out->src[k - 1] < 0.5f) {
+					continue;
+				}
+				out->src[k] = out->src[i];
+				out->dst[k] = (k > 0 && out->dst[i] < out->dst[k - 1]) ? out->dst[k - 1] : out->dst[i];
+				++k;
+			}
+			out->n = k;
+			return k > 0;
+		}
+
+		nkft_float32 NkCalerY(const NkCalageVertical &c, nkft_float32 y) {
+			return NkInterpNoeuds(c.n, c.src, c.dst, y);
+		}
+
+		// ── Les hampes (scripts-23) ──
+		// Ce que fait le hinting de Windows sur l'axe horizontal : un fût vertical (le « l », les jambages du « n », le
+		// flanc d'un « o ») large de 1,3 px tombe sur DEUX colonnes grises ; cale, il devient UNE colonne pleine. Les
+		// bords des fûts se lisent sur la forme : un segment presque vertical assez long, ou un point du contour ou la
+		// tangente est verticale (le flanc d'une ronde). Le sens de parcours dit le cote de l'encre (le bord gauche
+		// d'un fût monte dans une face TrueType, descend dans une face PostScript : l'aire signee le dit). Un bord
+		// gauche s'apparie au bord droit le plus proche a sa droite qui le chevauche en hauteur ; la paire devient un
+		// fût de largeur ENTIERE (au moins une colonne), centre au plus pres de sa place. Le reste du glyphe suit,
+		// lineaire entre les fûts ; l'avance ne change pas.
+		//
+		// Les BARRES (le meme travail sur l'autre axe) : la barre d'un « e », d'un « t », le haut et le bas d'une
+		// ronde ; une barre dont un bord tombe deja sur une zone calee (la ligne de base, la hauteur d'x) s'y accroche
+		// et prend son epaisseur entiere de l'autre cote.
+		struct NkFut {
+				nkft_float32 a, b; // les deux bords (a < b), en unites, sur l'axe du calage
+		};
+
+		/// Les fûts de `vb` sur l'axe `axe` (0 : bords en x, les fûts verticaux ; 1 : bords en y, les barres), a
+		/// l'echelle `echelle` (texels par unite) ; rend leur nombre (au plus `maxFuts`).
+		static nkft_int32 NkLireFuts(const NkFontVertexBuffer &vb, nkft_int32 axe, nkft_float32 echelle, nkft_float32 hauteurX,
+									 NkFut *futs, nkft_int32 maxFuts) {
+			const nkft_float32 sx = echelle; // (le nom d'origine : l'echelle de l'axe des bords)
+			if (!(sx > 0.f) || !(hauteurX > 0.f) || vb.count < 2) {
+				return 0;
+			}
+			// La position (sur l'axe) et l'etendue (l'autre axe) d'un point.
+			const auto U = [axe](nkft_float32 x, nkft_float32 y) -> nkft_float32 { return axe == 0 ? x : y; };
+			const auto L = [axe](nkft_float32 x, nkft_float32 y) -> nkft_float32 { return axe == 0 ? y : x; };
+			// 1. L'orientation : l'aire signee (y vers le haut ; positive = sens trigonometrique = PostScript).
+			nkft_float32 aire = 0.f;
+			{
+				nkft_float32 px = 0.f, py = 0.f;
+				for (nkft_uint32 i = 0; i < vb.count; ++i) {
+					const NkFontVertex &v = vb.verts[i];
+					if (v.type != NK_FONT_VERTEX_MOVE) {
+						aire += px * (nkft_float32)v.y - (nkft_float32)v.x * py;
+					}
+					px = (nkft_float32)v.x;
+					py = (nkft_float32)v.y;
+				}
+			}
+			// Le sens (sur l'etendue) d'un bord « bas » d'encre (l'encre du cote des positions croissantes) : en x, un
+			// bord gauche monte dans une face TrueType ; en y (les axes echanges renversent l'orientation), un bord
+			// bas va vers les x decroissants.
+			const nkft_int32 sensGauche = (aire > 0.f ? -1 : 1) * (axe == 0 ? 1 : -1);
+			// 2. Les bords.
+			struct Bord {
+					nkft_float32 x, y0, y1;
+					nkft_int32 sens;
+			};
+			static constexpr nkft_int32 kBords = 96;
+			Bord bords[kBords];
+			nkft_int32 nb = 0;
+			const nkft_float32 minLong = (0.2f * hauteurX > 1.5f / sx) ? 0.2f * hauteurX : 1.5f / sx;
+			const nkft_float32 quartPx = 0.25f / sx;
+			const auto ajouter = [&](nkft_float32 x, nkft_float32 ya, nkft_float32 yb, nkft_int32 sens) {
+				const nkft_float32 y0 = ya < yb ? ya : yb, y1 = ya < yb ? yb : ya;
+				for (nkft_int32 k = 0; k < nb; ++k) { // le meme bord vu deux fois (le segment, puis sa jonction)
+					Bord &b = bords[k];
+					if (b.sens == sens && (b.x - x < quartPx && x - b.x < quartPx) && y0 <= b.y1 && y1 >= b.y0) {
+						b.y0 = b.y0 < y0 ? b.y0 : y0;
+						b.y1 = b.y1 > y1 ? b.y1 : y1;
+						return;
+					}
+				}
+				if (nb < kBords) {
+					bords[nb++] = Bord{x, y0, y1, sens};
+				}
+			};
+			nkft_uint32 debut = 0; // l'indice du MOVE du contour en cours
+			for (nkft_uint32 i = 0; i < vb.count; ++i) {
+				const NkFontVertex &v = vb.verts[i];
+				if (v.type == NK_FONT_VERTEX_MOVE) {
+					debut = i;
+					continue;
+				}
+				const NkFontVertex &p = vb.verts[i - 1]; // i > debut : le point d'avant existe
+				// (« x » : la position sur l'axe ; « y » : l'etendue, sur l'autre axe)
+				const nkft_float32 vx = U((nkft_float32)v.x, (nkft_float32)v.y), vy = L((nkft_float32)v.x, (nkft_float32)v.y);
+				const nkft_float32 px = U((nkft_float32)p.x, (nkft_float32)p.y), py = L((nkft_float32)p.x, (nkft_float32)p.y);
+				// (a) un segment droit presque perpendiculaire a l'axe, assez long
+				if (v.type == NK_FONT_VERTEX_LINE) {
+					const nkft_float32 dx = vx - px, dy = vy - py;
+					const nkft_float32 ady = dy < 0.f ? -dy : dy, adx = dx < 0.f ? -dx : dx;
+					if (ady >= minLong && adx * 8.f <= ady) {
+						ajouter(0.5f * (px + vx), py, vy, dy > 0.f ? 1 : -1);
+					}
+				}
+				// (b) le point v, ou la tangente est verticale (le flanc d'une ronde) : la poignee d'entree et celle
+				// de sortie de part et d'autre de v en hauteur, a peu pres a son aplomb.
+				nkft_uint32 s = i + 1;
+				if (s >= vb.count || vb.verts[s].type == NK_FONT_VERTEX_MOVE) {
+					s = debut + 1; // le contour se referme : la sortie est son premier segment
+				}
+				if (s >= vb.count || s == i) {
+					continue;
+				}
+				const NkFontVertex &w = vb.verts[s];
+				if (v.type != NK_FONT_VERTEX_CURVE && w.type != NK_FONT_VERTEX_CURVE) {
+					continue; // deux droites : (a) s'en charge
+				}
+				const nkft_float32 ax = v.type == NK_FONT_VERTEX_CURVE ? U((nkft_float32)v.cx, (nkft_float32)v.cy) : px;
+				const nkft_float32 ay = v.type == NK_FONT_VERTEX_CURVE ? L((nkft_float32)v.cx, (nkft_float32)v.cy) : py;
+				const nkft_float32 bx = w.type == NK_FONT_VERTEX_CURVE ? U((nkft_float32)w.cx, (nkft_float32)w.cy) : U((nkft_float32)w.x, (nkft_float32)w.y);
+				const nkft_float32 by = w.type == NK_FONT_VERTEX_CURVE ? L((nkft_float32)w.cx, (nkft_float32)w.cy) : L((nkft_float32)w.x, (nkft_float32)w.y);
+				const nkft_float32 dax = ax - vx, day = ay - vy, dbx = bx - vx, dby = by - vy;
+				const bool aplombA = (dax < 0.f ? -dax : dax) * 4.f <= (day < 0.f ? -day : day);
+				const bool aplombB = (dbx < 0.f ? -dbx : dbx) * 4.f <= (dby < 0.f ? -dby : dby);
+				const nkft_float32 etendue = by - ay;
+				if (aplombA && aplombB && day * dby < 0.f && (etendue < 0.f ? -etendue : etendue) >= 0.5f * minLong) {
+					ajouter(vx, ay, by, etendue > 0.f ? 1 : -1);
+				}
+			}
+			// 3. Les fûts : un bord gauche, le bord droit le plus proche a sa droite qui le chevauche en hauteur.
+			const nkft_float32 maxLarge = 0.45f * hauteurX;
+			nkft_int32 n = 0;
+			for (nkft_int32 a = 0; a < nb; ++a) {
+				const Bord &g = bords[a];
+				if (g.sens != sensGauche) {
+					continue;
+				}
+				nkft_int32 meilleur = -1;
+				for (nkft_int32 b = 0; b < nb; ++b) {
+					const Bord &d = bords[b];
+					if (d.sens == sensGauche || d.x <= g.x || d.x - g.x > maxLarge) {
+						continue;
+					}
+					const nkft_float32 haut = g.y1 < d.y1 ? g.y1 : d.y1, bas = g.y0 > d.y0 ? g.y0 : d.y0;
+					const nkft_float32 lg = g.y1 - g.y0, ld = d.y1 - d.y0;
+					if (haut - bas < 0.3f * (lg < ld ? lg : ld)) {
+						continue;
+					}
+					if (meilleur < 0 || d.x < bords[meilleur].x) {
+						meilleur = b;
+					}
+				}
+				if (meilleur < 0 || n >= maxFuts) {
+					continue;
+				}
+				futs[n].a = g.x;
+				futs[n].b = bords[meilleur].x;
+				++n;
+			}
+			return n;
+		}
+
+		/// Des noeuds (src, dst) en vrac -> `h`, du plus bas au plus haut : un noeud a moins d'un quart de texel d'un
+		/// autre s'en va ; un noeud qui reculerait, ou qui ecraserait sous un texel un ecart qui en faisait au moins
+		/// un, s'en va aussi (les premiers venus a egalite gardent la place : tri stable).
+		static void NkRangerNoeuds(nkft_float32 *src, nkft_float32 *dst, nkft_int32 n, nkft_float32 echelle, NkCalageHampes *h) {
+			h->n = 0;
+			const nkft_float32 sx = echelle;
+			const nkft_float32 quartPx = 0.25f / sx;
+			for (nkft_int32 i = 1; i < n; ++i) {
+				const nkft_float32 s = src[i], d = dst[i];
+				nkft_int32 j = i - 1;
+				while (j >= 0 && src[j] > s) {
+					src[j + 1] = src[j];
+					dst[j + 1] = dst[j];
+					--j;
+				}
+				src[j + 1] = s;
+				dst[j + 1] = d;
+			}
+			const nkft_float32 unPx = 1.f / sx;
+			for (nkft_int32 i = 0; i < n && h->n < NkCalageHampes::NK_HAMPES_MAX; ++i) {
+				if (h->n > 0) {
+					const nkft_float32 ecartAvant = src[i] - h->src[h->n - 1];
+					const nkft_float32 ecartApres = dst[i] - h->dst[h->n - 1];
+					if (ecartAvant < quartPx || ecartApres < 0.f || (ecartAvant >= unPx && ecartApres < unPx * 0.999f)) {
+						continue;
+					}
+				}
+				h->src[h->n] = src[i];
+				h->dst[h->n] = dst[i];
+				++h->n;
+			}
+		}
+
+		/// Les HAMPES d'un glyphe : ses fûts verticaux, chacun d'une largeur entiere (au moins une colonne), centre au
+		/// plus pres de sa place.
+		static void NkPreparerHampes(const NkFontVertexBuffer &vb, nkft_float32 sx, nkft_float32 hauteurX, NkCalageHampes *h) {
+			h->n = 0;
+			NkFut futs[NkCalageHampes::NK_HAMPES_MAX / 2];
+			const nkft_int32 nf = NkLireFuts(vb, 0, sx, hauteurX, futs, NkCalageHampes::NK_HAMPES_MAX / 2);
+			nkft_float32 src[NkCalageHampes::NK_HAMPES_MAX], dst[NkCalageHampes::NK_HAMPES_MAX];
+			nkft_int32 n = 0;
+			for (nkft_int32 k = 0; k < nf; ++k) {
+				const nkft_float32 l = (futs[k].b - futs[k].a) * sx;
+				const nkft_float32 W = l < 1.f ? 1.f : floorf(l + 0.5f);
+				const nkft_float32 gauche = floorf(futs[k].a * sx + 0.5f * (l - W) + 0.5f);
+				src[n] = futs[k].a;
+				dst[n] = gauche / sx;
+				src[n + 1] = futs[k].b;
+				dst[n + 1] = (gauche + W) / sx;
+				n += 2;
+			}
+			if (n > 0) {
+				NkRangerNoeuds(src, dst, n, sx, h);
+			}
+		}
+
+		/// Les BARRES d'un glyphe, sur le calage vertical `c` (ses zones restent des noeuds, en premier) : chaque
+		/// barre d'une epaisseur entiere (au moins une rangee) ; un bord deja sur une rangee entiere (une zone) reste,
+		/// l'autre s'en deduit ; sinon, centree au plus pres. Rend dans `h` le calage vertical PROPRE au glyphe.
+		static void NkPreparerBarres(const NkFontVertexBuffer &vb, nkft_float32 sy, const NkCalageVertical &c, NkCalageHampes *h) {
+			h->n = 0;
+			NkFut futs[NkCalageHampes::NK_HAMPES_MAX / 2];
+			const nkft_int32 nf = NkLireFuts(vb, 1, sy, c.hauteurX, futs, NkCalageHampes::NK_HAMPES_MAX / 2 - NkCalageVertical::NK_CALAGE_MAX / 2);
+			if (nf <= 0) {
+				return;
+			}
+			nkft_float32 src[NkCalageHampes::NK_HAMPES_MAX], dst[NkCalageHampes::NK_HAMPES_MAX];
+			nkft_int32 n = 0;
+			for (nkft_int32 i = 0; i < c.n && n < NkCalageHampes::NK_HAMPES_MAX; ++i) {
+				src[n] = c.src[i];
+				dst[n] = c.dst[i];
+				++n;
+			}
+			// Sur une rangee entiere, a l'arrondi du flottant pres.
+			const auto entiere = [](nkft_float32 v) -> bool {
+				const nkft_float32 e = v - floorf(v + 0.5f);
+				return e < 0.01f && e > -0.01f;
+			};
+			for (nkft_int32 k = 0; k < nf && n + 2 <= NkCalageHampes::NK_HAMPES_MAX; ++k) {
+				const nkft_float32 ga = NkCalerY(c, futs[k].a) * sy, gb = NkCalerY(c, futs[k].b) * sy; // en texels
+				const nkft_float32 l = (futs[k].b - futs[k].a) * sy;
+				const nkft_float32 W = l < 1.f ? 1.f : floorf(l + 0.5f);
+				nkft_float32 bas;
+				if (entiere(ga)) {
+					bas = floorf(ga + 0.5f);
+				} else if (entiere(gb)) {
+					bas = floorf(gb + 0.5f) - W;
+				} else {
+					bas = floorf(0.5f * (ga + gb) - 0.5f * W + 0.5f);
+				}
+				src[n] = futs[k].a;
+				dst[n] = bas / sy;
+				src[n + 1] = futs[k].b;
+				dst[n + 1] = (bas + W) / sy;
+				n += 2;
+			}
+			NkRangerNoeuds(src, dst, n, sy, h);
+		}
+
+		/// La boite du glyphe CALE (`c` : le calage vertical ; `h` : ses hampes, nul ou vide : x d'origine).
+		static void NkBoiteCalee(const NkFontFaceInfo *info, NkGlyphId glyph, nkft_float32 sx, nkft_float32 sy,
+								 nkft_float32 shx, nkft_float32 shy, nkft_int32 *ix0, nkft_int32 *iy0, nkft_int32 *ix1,
+								 nkft_int32 *iy1, const NkCalageVertical *c, const NkCalageHampes *h,
+								 const NkCalageHampes *barres = nullptr) {
+			NkGetGlyphBitmapBox(info, glyph, sx, sy, shx, shy, ix0, iy0, ix1, iy1);
+			if (!c) {
+				return;
+			}
+			nkft_int32 gx0 = 0, gy0 = 0, gx1 = 0, gy1 = 0;
+			if (!NkGetGlyphBox(info, glyph, &gx0, &gy0, &gx1, &gy1)) {
+				return;
+			}
+			// Les bords CALES (chaque calage est monotone : le contour cale reste entre eux). La tolerance : un bord
+			// cale tombe sur une rangee (une colonne) entiere, l'arrondi du flottant ne doit pas en ajouter une vide.
+			if (barres && barres->n > 0) {
+				if (iy0) {
+					*iy0 = (nkft_int32)floorf(-NkCalerX(*barres, (nkft_float32)gy1) * sy + shy + 1e-3f);
+				}
+				if (iy1) {
+					*iy1 = (nkft_int32)ceilf(-NkCalerX(*barres, (nkft_float32)gy0) * sy + shy - 1e-3f);
+				}
+			} else if (c->n > 0) {
+				if (iy0) {
+					*iy0 = (nkft_int32)floorf(-NkCalerY(*c, (nkft_float32)gy1) * sy + shy + 1e-3f);
+				}
+				if (iy1) {
+					*iy1 = (nkft_int32)ceilf(-NkCalerY(*c, (nkft_float32)gy0) * sy + shy - 1e-3f);
+				}
+			}
+			if (h && h->n > 0) {
+				if (ix0) {
+					*ix0 = (nkft_int32)floorf(NkCalerX(*h, (nkft_float32)gx0) * sx + shx + 1e-3f);
+				}
+				if (ix1) {
+					*ix1 = (nkft_int32)ceilf(NkCalerX(*h, (nkft_float32)gx1) * sx + shx - 1e-3f);
+				}
+			}
+		}
+
+		void NkGetGlyphBitmapBoxCale(const NkFontFaceInfo *info, NkGlyphId glyph, nkft_float32 sx, nkft_float32 sy,
+									 nkft_float32 shx, nkft_float32 shy, nkft_int32 *ix0, nkft_int32 *iy0,
+									 nkft_int32 *ix1, nkft_int32 *iy1, const NkCalageVertical *c) {
+			if (c && c->hampes) {
+				// Les hampes se lisent sur la forme : la boite les suit (la meme forme, les memes fûts qu'a la
+				// rasterisation : NkMakeGlyphBitmapCale).
+				NkFontVertexBuffer vb;
+				NkCalageHampes h, barres;
+				if (NkGetGlyphShape(info, glyph, &vb) && vb.count > 0) {
+					NkPreparerHampes(vb, sx, c->hauteurX, &h);
+					NkPreparerBarres(vb, sy, *c, &barres);
+				}
+				NkBoiteCalee(info, glyph, sx, sy, shx, shy, ix0, iy0, ix1, iy1, c, &h, &barres);
+				return;
+			}
+			NkBoiteCalee(info, glyph, sx, sy, shx, shy, ix0, iy0, ix1, iy1, c, nullptr);
+		}
+
+		void NkMakeGlyphBitmapCale(const NkFontFaceInfo *info, nkft_uint8 *output, nkft_int32 outW, nkft_int32 outH,
+								   nkft_int32 outStride, nkft_float32 scaleX, nkft_float32 scaleY, nkft_float32 shiftX,
+								   nkft_float32 shiftY, NkGlyphId glyph, const NkCalageVertical *c) {
+			if (!c) {
+				NkMakeGlyphBitmapExact(info, output, outW, outH, outStride, scaleX, scaleY, shiftX, shiftY, glyph);
+				return;
+			}
+			if (!info || !output || outW <= 0 || outH <= 0) {
+				return;
+			}
+			for (nkft_int32 r = 0; r < outH; ++r) {
+				memset(output + r * outStride, 0, (nkft_size)outW);
+			}
+			NkFontVertexBuffer vb;
+			if (!NkGetGlyphShape(info, glyph, &vb) || vb.count == 0) {
+				return;
+			}
+			NkCalageHampes h, barres;
+			if (c->hampes) {
+				NkPreparerHampes(vb, scaleX, c->hauteurX, &h);
+				NkPreparerBarres(vb, scaleY, *c, &barres);
+			}
+			nkft_int32 bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
+			NkBoiteCalee(info, glyph, scaleX, scaleY, shiftX, shiftY, &bx0, &by0, &bx1, &by1, c, &h, &barres);
+			sRCalage = c;
+			sRHampes = h.n > 0 ? &h : nullptr;
+			sRBarres = barres.n > 0 ? &barres : nullptr;
+			NkBuildEdges(&vb, scaleX, scaleY, shiftX - (nkft_float32)bx0, shiftY - (nkft_float32)by0);
+			sRCalage = nullptr;
+			sRHampes = nullptr;
+			sRBarres = nullptr;
+			if (sRNum == 0) {
+				return;
+			}
+			NkSortEdges();
+			if (sRNum < NK_RE_MAX_EDGES) {
+				sREdges[sRNum].y0 = 1e10f;
+				sREdges[sRNum].y1 = 1e10f;
+			}
+			NkDoRasterize(output, outW, outH, outStride, 0, 0);
 		}
 
 	} // namespace nkfont

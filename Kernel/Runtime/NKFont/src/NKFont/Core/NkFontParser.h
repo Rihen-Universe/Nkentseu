@@ -228,6 +228,43 @@ namespace nkentseu {
 							   nkft_float32 shy, NkGlyphId glyph);
 
 		// ============================================================
+		// (27/11/2026, scripts-23) Le CALAGE VERTICAL (NkFontConfig::calageVertical)
+		// ============================================================
+
+		/// Des noeuds, du plus bas au plus haut : un y de la face (en unites) et le y CALE (en unites, mais tombant sur
+		/// une rangee entiere de texels a l'echelle de la preparation). Entre deux noeuds : lineaire ; au-dela des
+		/// bouts : la pente 1 (le contour d'origine, decale).
+		struct NkCalageVertical {
+				static constexpr nkft_int32 NK_CALAGE_MAX = 12;
+				nkft_int32 n = 0;
+				nkft_float32 src[NK_CALAGE_MAX] = {};
+				nkft_float32 dst[NK_CALAGE_MAX] = {};
+				/// (scripts-23) Les HAMPES (NkFontConfig::calageHampes) : chaque glyphe cale aussi ses fûts verticaux
+				/// sur des colonnes entieres (largeur entiere, au moins un texel), calcules sur sa forme. Ne se pose
+				/// qu'a un texel par pixel (oversampleH = 1).
+				bool hampes = false;
+				/// La hauteur d'x de la face, en unites (0 : inconnue) : la longueur minimale d'un fût s'en deduit.
+				nkft_float32 hauteurX = 0.f;
+		};
+
+		/// Les noeuds de `info` a l'echelle verticale `sy` (texels par unite, oversampleV compris) : la ligne de base,
+		/// la hauteur d'x (le haut de « x »), les capitales (« H »), les montantes (« d »), les descendantes (« p »),
+		/// et les depassements des rondes (« o », « O ») arrondis a part. false : aucune lettre de reference.
+		bool NkPreparerCalageVertical(const NkFontFaceInfo *info, nkft_float32 sy, NkCalageVertical *out);
+
+		/// Le y cale (en unites) de `y` (en unites).
+		nkft_float32 NkCalerY(const NkCalageVertical &c, nkft_float32 y);
+
+		/// NkGetGlyphBitmapBox et NkMakeGlyphBitmap, le contour cale par `c` (nul : exactement les fonctions d'avant).
+		void NkGetGlyphBitmapBoxCale(const NkFontFaceInfo *info, NkGlyphId glyph, nkft_float32 sx, nkft_float32 sy,
+									 nkft_float32 shx, nkft_float32 shy, nkft_int32 *ix0, nkft_int32 *iy0,
+									 nkft_int32 *ix1, nkft_int32 *iy1, const NkCalageVertical *c);
+
+		void NkMakeGlyphBitmapCale(const NkFontFaceInfo *info, nkft_uint8 *output, nkft_int32 outW, nkft_int32 outH,
+								   nkft_int32 outStride, nkft_float32 sx, nkft_float32 sy, nkft_float32 shx,
+								   nkft_float32 shy, NkGlyphId glyph, const NkCalageVertical *c);
+
+		// ============================================================
 		// SDF — Signed Distance Field
 		// ============================================================
 
@@ -258,6 +295,29 @@ namespace nkentseu {
 		 */
 		void NkMakeSDFFromBitmapStride(const nkft_uint8 *alpha, nkft_int32 w, nkft_int32 h, nkft_int32 strideIn, nkft_uint8 *sdfOut,
 									   nkft_int32 strideOut, nkft_int32 spread = 6);
+
+		// ============================================================
+		// (19/11/2026) Contour par distance et position sous le pixel (NkFontContour.cpp)
+		// ============================================================
+
+		/**
+		 * @brief Dilate un glyphe deja rasterise de `rayon` pixels ecran (NkFontConfig::contourPx).
+		 *
+		 * `buf` (w x h texels, `stride` octets par ligne) porte la couverture du glyphe ; chaque texel recoit
+		 * max(couverture, clamp(rayon + 0,5 - d, 0, 1)), d = distance du centre du texel au trace vectoriel. Un sommet
+		 * de police (x, y) est au texel (x * sx + ox, -y * sy + oy) ; un texel mesure pasX x pasY pixels ecran.
+		 * @return false si rien n'a ete ecrit (entree invalide, memoire).
+		 */
+		bool NkDilaterGlyphe(const NkFontFaceInfo *info, NkGlyphId glyph, nkft_float32 sx, nkft_float32 sy, nkft_float32 ox,
+							 nkft_float32 oy, nkft_uint8 *buf, nkft_int32 w, nkft_int32 h, nkft_int32 stride, nkft_float32 pasX,
+							 nkft_float32 pasY, nkft_float32 rayon);
+
+		/**
+		 * @brief Filtre horizontal d'un pixel ecran pour un glyphe rasterise a `facteur` fois la resolution
+		 * (NkFontConfig::sousPixelH) : texel i = moyenne des texels [i - facteur + 1, i]. Le texel i couvre alors le pixel
+		 * centre a (i + 0,5) - (facteur - 1) / 2 texels : la face decale ses quads de -(facteur - 1) / (2 facteur) pixel.
+		 */
+		void NkFiltrerSousPixel(nkft_uint8 *buf, nkft_int32 w, nkft_int32 h, nkft_int32 stride, nkft_int32 facteur);
 
 	} // namespace nkfont
 } // namespace nkentseu

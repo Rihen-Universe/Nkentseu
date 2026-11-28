@@ -35,6 +35,31 @@ namespace nkentseu {
 				bool cjkCharge = false;	 ///< l'atlas porte les ideogrammes
 				bool cjkDemande = false; ///< un texte affiche en a demande (NkGuiPolicesSignalerTexte)
 
+				// (19/11/2026) CE QUE LE CHARGEMENT APPLIQUE A L'ATLAS : a poser AVANT LoadEmbedded / LoadFromFile ; un
+				// rechargement (ideogrammes a la demande) les garde. Par defaut : l'atlas d'avant, a l'identique.
+				/// Position sous le pixel : 0 = non ; N >= 2 = N positions par pixel (NkFontConfig::sousPixelH).
+				int32 sousPixel = 0;
+				/// Contour par distance, en pixels : la face dessine le glyphe DILATE (NkFontConfig::contourPx).
+				float32 contourPx = 0.f;
+				/// Plages de glyphes (paires debut, fin, terminees par 0) ; nullptr = celles de l'interface.
+				const uint32 *plages = nullptr;
+				/// (27/11/2026, scripts-22, la nettete du texte) Le texte NET : rasterise au pixel (oversampleH = 1 :
+				/// un texel par pixel, calé par AddText ; avant : deux texels par pixel, que le filtre du GPU melange),
+				/// sans effet avec `sousPixel`. Faux (defaut) : l'atlas d'avant, a l'identique.
+				bool nette = false;
+				/// La courbe de couverture (NkFontConfig::gammaCouverture) ; 1 (defaut) : aucune.
+				float32 gammaCouverture = 1.f;
+				/// (27/11/2026, scripts-23) Le CALAGE VERTICAL sur la grille des pixels (NkFontConfig::calageVertical :
+				/// la ligne de base, la hauteur d'x, les capitales sur des rangees entieres). Faux (defaut) : l'atlas
+				/// d'avant, a l'identique.
+				bool calageVertical = false;
+				/// (scripts-23) Les HAMPES sur la grille (NkFontConfig::calageHampes : les fûts verticaux sur des colonnes
+				/// entieres) ; ne vaut qu'avec `nette`. Faux (defaut) : l'atlas d'avant, a l'identique.
+				bool calageHampes = false;
+				/// (scripts-23) Le CONTRASTE de couverture (NkFontConfig::contrasteCouverture, k dans [0, 1]) ; 0
+				/// (defaut) : aucun.
+				float32 contrasteCouverture = 0.f;
+
 				NkGuiFont() = default;
 				~NkGuiFont();
 				NkGuiFont(const NkGuiFont &) = delete;

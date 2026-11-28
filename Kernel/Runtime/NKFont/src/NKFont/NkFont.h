@@ -59,6 +59,46 @@ namespace nkentseu {
 			bool mergeMode = false;
 			nkft_float32 rasterizerMultiply = 1.f;
 			char name[40] = {};
+			// (19/11/2026) POSITION SOUS LE PIXEL. Vrai (avec oversampleH >= 2) : chaque glyphe est rasterise a
+			// oversampleH fois la resolution horizontale puis filtre par une boite d'UN pixel ecran ; chaque texel vaut
+			// alors la couverture d'un pixel decale de 1/oversampleH. Un texte peut se poser a une position
+			// fractionnaire (NkGuiDrawList ne cale plus x au pixel pour une telle face) avec ses avances EXACTES :
+			// l'ecart entre deux lettres ne varie plus d'un pixel selon l'arrondi (12 px, « Diffic ile a rrivent »).
+			// Faux (defaut) : l'atlas d'avant, a l'identique.
+			bool sousPixelH = false;
+			// (19/11/2026) CONTOUR PAR DISTANCE. > 0 : chaque glyphe est remplace par le glyphe DILATE de contourPx
+			// pixels ecran : alpha = max(couverture, clamp(contourPx + 0,5 - d)), d = distance du centre du texel au
+			// trace vectoriel du glyphe. Un bord anticrenele sur un pixel, rond, sans marche, en UN quad par glyphe ; le
+			// cadre du glyphe s'elargit d'autant (x0, y0, x1, y1). 0 (defaut) : le glyphe lui-meme.
+			nkft_float32 contourPx = 0.f;
+			// (27/11/2026, scripts-22, la netteté du texte) La COURBE DE COUVERTURE : chaque texel a devient
+			// 255 (a / 255)^(1 / gammaCouverture) apres la rasterisation (et rasterizerMultiply). > 1 : le bord
+			// anticrenele s'epaissit (un texte clair sur fond sombre, melange dans l'espace de l'ecran, parait
+			// sinon maigre et flou). 1 (defaut) : l'atlas d'avant, a l'identique.
+			nkft_float32 gammaCouverture = 1.f;
+			// (27/11/2026, scripts-22) Le texte NET : UN texel par pixel (oversampleH = 1), que le choix « optimal » du
+			// detecteur (NkFontDetector::ApplyOptimalConfig, deux texels pour une police vectorielle) ne remplace pas.
+			// Sans effet avec sousPixelH. Faux (defaut) : l'atlas d'avant, a l'identique.
+			bool nette = false;
+			// (27/11/2026, scripts-23, la netteté du texte) Le CALAGE VERTICAL sur la grille des pixels (ce que fait
+			// le hinting de Windows) : avant la rasterisation, le contour de chaque glyphe est deforme, par morceaux
+			// lineaires en y, pour que la ligne de base, la hauteur d'x, la hauteur des capitales, les montantes et
+			// les descendantes tombent sur des rangees ENTIERES de texels (les depassements des lettres rondes sont
+			// arrondis a part : nuls aux petites tailles). Le haut d'un « n » ou d'un « H » devient une rangee pleine au
+			// lieu d'une rangee grise. Les avances, l'ascendant et la ligne ne changent pas. Sans effet avec contourPx
+			// ou un atlas SDF. Faux (defaut) : l'atlas d'avant, a l'identique.
+			bool calageVertical = false;
+			// (27/11/2026, scripts-23) Les HAMPES sur la grille : les fûts verticaux de chaque glyphe (lus sur sa
+			// forme : segments presque verticaux, flancs des rondes) tombent sur des colonnes ENTIERES, d'une largeur
+			// entiere (au moins une) ; le reste du glyphe suit, lineaire entre eux ; l'avance ne change pas. Un « l »
+			// de 1,3 px devient une colonne pleine au lieu de deux grises. Seulement a un texel par pixel
+			// (oversampleH = 1, sans sousPixelH), sans contour ni SDF. Faux (defaut) : l'atlas d'avant, a l'identique.
+			bool calageHampes = false;
+			// (27/11/2026, scripts-23) Le CONTRASTE de couverture, k dans [0, 1] : apres la courbe (gammaCouverture),
+			// chaque texel c devient (1 - k) c + k c^2 (3 - 2 c) (la courbe en S) : les gris faibles du bord baissent,
+			// les forts montent ; un bord reste anticrenele, mais franc (Windows, en niveaux de gris, rend presque en
+			// deux tons aux petites tailles). 0 (defaut) : aucun, l'atlas d'avant a l'identique.
+			nkft_float32 contrasteCouverture = 0.f;
 	};
 
 	// ============================================================

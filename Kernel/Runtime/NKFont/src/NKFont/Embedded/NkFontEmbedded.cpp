@@ -20462,6 +20462,10 @@ namespace nkentseu {
         // Détecte le profil depuis les données décompressées
         NkFontProfile profile = NkFontDetector::AnalyzeBuffer(ttfData, data.originalSize);
         NkFontDetector::ApplyOptimalConfig(profile, sizePx, &cfg);
+        // (19/11/2026) une face demandee « sous le pixel » garde SON sur-echantillonnage (il fixe le pas de position)
+        if (baseCfg && baseCfg->sousPixelH && baseCfg->oversampleH > 1) cfg.oversampleH = baseCfg->oversampleH;
+        // (27/11/2026, scripts-22) une face demandee NETTE garde un texel par pixel
+        else if (baseCfg && baseCfg->nette) cfg.oversampleH = 1;
         cfg.glyphRanges = cfg.glyphRanges ? cfg.glyphRanges : NkFontAtlas::GetGlyphRangesDefault();
 
         // Ajoute à l'atlas (l'atlas prend possession des données)

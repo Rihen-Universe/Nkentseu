@@ -122,7 +122,8 @@ _REGISTRY: dict = {
     "NKVFX"          : _m("NKENTSEU_VFX",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKTime", "NKRenderer"]),
     "NKImage"        : _m("NKENTSEU_IMAGE",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKFileSystem"]),
     "NKMedia"        : _m("NKENTSEU_MEDIA",        ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath", "NKLogger", "NKStream", "NKFileSystem", "NKImage", "NKThreading"]),
-    "NKFont"         : _m("NKENTSEU_FONT",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),
+    # (27/11/2026, ludo-24) NKFileSystem : NkFontAtlas::AddFontFromFile lit par NkFile (les assets d'un APK aussi).
+    "NKFont"         : _m("NKENTSEU_FONT",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKFileSystem"]),
     "NKECS"          : _m("NKENTSEU_ECS",          ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath", "NKThreading", "NKReflection", "NKSerialization"]),
     "NKCamera"       : _m("NKENTSEU_CAMERA",       ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),
     "NKCollision"    : _m("NKENTSEU_COLLISION",    ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKMath"]),

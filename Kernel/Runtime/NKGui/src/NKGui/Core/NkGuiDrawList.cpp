@@ -651,18 +651,24 @@ namespace nkentseu {
 			if (std::fabs(aire) < 1.0e-6f)
 				return;
 			const float32 sg = aire > 0.f ? 1.f : -1.f;
-			NkVec2 ne[64];
-			NkVec2 nvx[64];
-			if (n > 64)
-				n = 64;
-			for (int32 i = 0; i < n; ++i) {
+			// Aucun plafond de points (19/11/2026) : les normales etaient rangees dans deux tableaux de 64, et un
+			// cercle de plus de 64 points etait TRONQUE a ses 64 premiers. Un grand disque a la densite d'un
+			// telephone (3x) en veut davantage pour rester rond a un quart de pixel pres ; la normale d'une arete
+			// se recalcule donc a la volee, sans tableau.
+			auto normale = [&](int32 i) -> NkVec2 {
 				const NkVec2 &p = pts[i], &q = pts[(i + 1) % n];
 				const float32 dx = q.x - p.x, dy = q.y - p.y;
 				const float32 l = std::sqrt(dx * dx + dy * dy);
-				ne[i] = l > 1.0e-6f ? NkVec2{sg * dy / l, -sg * dx / l} : NkVec2{0.f, 0.f};
-			}
+				return l > 1.0e-6f ? NkVec2{sg * dy / l, -sg * dx / l} : NkVec2{0.f, 0.f};
+			};
+			NkColor vide = col;
+			vide.a = 0;
+			const uint32 cp = NkGuiPackColor(col), cv = NkGuiPackColor(vide);
+			const NkVec2 uv{0.f, 0.f};
+			const uint32 base = static_cast<uint32>(vtx.Size());
+			NkVec2 na = normale(n - 1);
 			for (int32 i = 0; i < n; ++i) {
-				const NkVec2 &na = ne[(i - 1 + n) % n], &nb = ne[i];
+				const NkVec2 nb = normale(i);
 				NkVec2 dm{(na.x + nb.x) * 0.5f, (na.y + nb.y) * 0.5f};
 				const float32 d2 = dm.x * dm.x + dm.y * dm.y;
 				if (d2 > 1.0e-6f) {
@@ -672,16 +678,9 @@ namespace nkentseu {
 					dm.x *= k;
 					dm.y *= k;
 				}
-				nvx[i] = dm;
-			}
-			NkColor vide = col;
-			vide.a = 0;
-			const uint32 cp = NkGuiPackColor(col), cv = NkGuiPackColor(vide);
-			const NkVec2 uv{0.f, 0.f};
-			const uint32 base = static_cast<uint32>(vtx.Size());
-			for (int32 i = 0; i < n; ++i) {
-				Vtx({pts[i].x - nvx[i].x * 0.5f, pts[i].y - nvx[i].y * 0.5f}, uv, cp); // dedans
-				Vtx({pts[i].x + nvx[i].x * 0.5f, pts[i].y + nvx[i].y * 0.5f}, uv, cv); // dehors
+				na = nb;
+				Vtx({pts[i].x - dm.x * 0.5f, pts[i].y - dm.y * 0.5f}, uv, cp); // dedans
+				Vtx({pts[i].x + dm.x * 0.5f, pts[i].y + dm.y * 0.5f}, uv, cv); // dehors
 			}
 			for (int32 i = 2; i < n; ++i)
 				Tri(base, base + static_cast<uint32>(i - 1) * 2u, base + static_cast<uint32>(i) * 2u, 0u);
@@ -711,6 +710,14 @@ namespace nkentseu {
 		// hauteur d'un caractère à 13 px et 3,3 % à 15 px.
 		static inline float32 NkGuiPixelSnap(float32 v) noexcept {
 			return (float32)(int32)(v < 0.f ? v - 0.5f : v + 0.5f);
+		}
+
+		// (19/11/2026) LA POSITION HORIZONTALE D'UN GLYPHE. Une face « sous le pixel » (NkFontConfig::sousPixelH) a des
+		// texels de 1/oversampleH pixel deja filtres sur un pixel : posee a sa position EXACTE, elle reste nette, et
+		// l'ecart entre deux lettres suit l'avance vraie (a 12 px, le calage au pixel faisait varier cet ecart de 0 a
+		// 2 px). Les autres faces gardent le calage au pixel ci-dessus, a l'identique.
+		static inline float32 NkGuiGlyphX(const NkFont *face, float32 x) noexcept {
+			return face->config.sousPixelH ? x : NkGuiPixelSnap(x);
 		}
 
 		void NkGuiDrawList::AddText(const NkFont *face, uint32 texId, const NkVec2 &baseline, const char *text,
@@ -793,7 +800,7 @@ namespace nkentseu {
 					// La LARGEUR est reportée telle quelle : arrondir les deux bords
 					// séparément étirerait le glyphe d'un pixel et le rééchantillonnerait,
 					// ce qu'on cherche précisément à éviter.
-					const float32 x0 = NkGuiPixelSnap(x + g->x0), y0 = NkGuiPixelSnap(y + g->y0);
+					const float32 x0 = NkGuiGlyphX(face, x + g->x0), y0 = NkGuiPixelSnap(y + g->y0);
 					const float32 x1 = x0 + (g->x1 - g->x0), y1 = y0 + (g->y1 - g->y0);
 					if (x1 > xEnd)
 						break; // troncature simple
@@ -889,7 +896,7 @@ namespace nkentseu {
 					// Même alignement que dans AddText : sans lui, ce chemin resterait
 					// flou alors que l'autre serait net — et le défaut serait d'autant
 					// plus déroutant qu'il ne toucherait qu'une partie du texte.
-					const float32 x0 = NkGuiPixelSnap(x + g->x0), y0 = NkGuiPixelSnap(y + g->y0);
+					const float32 x0 = NkGuiGlyphX(face, x + g->x0), y0 = NkGuiPixelSnap(y + g->y0);
 					const float32 x1 = x0 + (g->x1 - g->x0), y1 = y0 + (g->y1 - g->y0);
 					const uint32 i0 = Vtx({x0, y0}, {g->u0, g->v0}, c);
 					const uint32 i1 = Vtx({x1, y0}, {g->u1, g->v0}, c);

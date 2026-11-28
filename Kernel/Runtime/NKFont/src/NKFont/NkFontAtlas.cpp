@@ -14,13 +14,16 @@
 #include "NKFont/Core/NkUtils.h"
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NkAllocator.h"
+#include "NKMath/NkFunctions.h"
 #include "Core/NkUtils.h"
+// (27/11/2026, ludo-24) AddFontFromFile lit par NkFile : il lit aussi les assets d'un APK (Android) et d'un HAP.
+#include "NKFileSystem/NkFile.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <fstream>
+// #include <fstream>  (27/11/2026, ludo-24) : ne servait qu'au std::ifstream d'AddFontFromFile, qui lit par NkFile.
 
 namespace nkentseu {
 
@@ -76,6 +79,28 @@ namespace nkentseu {
 			for (nkft_int32 i = 0; i < 256; ++i) {
 				nkft_int32 v = (nkft_int32)(i * f + 0.5f);
 				out[i] = (nkft_uint8)((v > 255) ? 255 : (v < 0) ? 0 : v);
+			}
+		}
+
+		// (27/11/2026, scripts-22) La courbe de couverture (NkFontConfig::gammaCouverture), en table.
+		static void CalcGammaLookup(nkft_uint8 out[256], nkft_float32 g) {
+			for (nkft_int32 i = 0; i < 256; ++i) {
+				const nkft_float32 a = static_cast<nkft_float32>(i) / 255.f;
+				const nkft_int32 v = static_cast<nkft_int32>(math::NkPow(a, 1.f / g) * 255.f + 0.5f);
+				out[i] = static_cast<nkft_uint8>(v > 255 ? 255 : (v < 0 ? 0 : v));
+			}
+		}
+
+		// (27/11/2026, scripts-23) La courbe (gammaCouverture) PUIS le contraste (NkFontConfig::contrasteCouverture, k) en
+		// UNE table (un seul arrondi) : c -> (1 - k) c + k c^2 (3 - 2 c), le melange avec la courbe en S (smoothstep).
+		static void CalcCourbeContrasteLookup(nkft_uint8 out[256], nkft_float32 g, nkft_float32 k) {
+			const nkft_float32 kk = k < 0.f ? 0.f : (k > 1.f ? 1.f : k);
+			for (nkft_int32 i = 0; i < 256; ++i) {
+				const nkft_float32 a = static_cast<nkft_float32>(i) / 255.f;
+				const nkft_float32 c = (g > 0.f && g != 1.f) ? math::NkPow(a, 1.f / g) : a;
+				const nkft_float32 s = c * c * (3.f - 2.f * c);
+				const nkft_int32 v = static_cast<nkft_int32>(((1.f - kk) * c + kk * s) * 255.f + 0.5f);
+				out[i] = static_cast<nkft_uint8>(v > 255 ? 255 : (v < 0 ? 0 : v));
 			}
 		}
 
@@ -227,38 +252,78 @@ namespace nkentseu {
 		texReady = false;
 	}
 
+	// (27/11/2026, ludo-24) La lecture passe par NkFile (NKFileSystem). Avant : std::ifstream pour tester la presence,
+	// puis fopen/fseek/ftell/fread. Ni l'un ni l'autre ne lit un fichier range dans l'APK (Android) ou le HAP
+	// (HarmonyOS) : les polices de NKORA (Lilita One, Nunito, dans assets/Fonts/) n'etaient jamais lues sur Android, et
+	// le jeu se rabattait sur Inter embarquee. NkFile::Open essaie le disque, puis l'AAssetManager (ou le rawfile du
+	// HAP) ; Read et GetSize lisent l'un comme l'autre. Sur le bureau, NkFile ouvre par le meme fopen : rien ne change.
+	// Ce sont aussi deux usages de la bibliotheque standard de moins (l'ancien corps est garde en commentaire plus bas).
 	NkFont *NkFontAtlas::AddFontFromFile(const char *path, nkft_float32 sp, const NkFontConfig *cfg) {
-		{
-			std::ifstream f(path);
-			if (!f.good()) {
-				logger.Info("[NkFontAtlas] Fichier introuvable:{0}\n", path);
-				return nullptr;
-			}
-		}
-		FILE *f = fopen(path, "rb");
-		if (!f)
+		if (!path || !path[0])
 			return nullptr;
-		fseek(f, 0, SEEK_END);
-		long sz = ftell(f);
-		fseek(f, 0, SEEK_SET);
+		// Binaire : NK_READ seul ouvre en « r », qui sous Windows traduit les CRLF et s'arrete au 0x1A d'un TTF.
+		NkFile fichier;
+		if (!fichier.Open(path, NkFileMode::NK_READ_BINARY) || !fichier.IsOpen()) {
+			logger.Info("[NkFontAtlas] Fichier introuvable:{0}\n", path);
+			return nullptr;
+		}
+		const nk_int64 sz = fichier.GetSize();
 		if (sz <= 0) {
-			fclose(f);
+			fichier.Close();
 			return nullptr;
 		}
 		nkft_uint8 *d = (nkft_uint8 *)nkentseu::memory::NkAlloc((nk_size)sz);
 		if (!d) {
-			fclose(f);
+			fichier.Close();
 			return nullptr;
 		}
-		if ((long)fread(d, 1, (nkft_size)sz, f) != sz) {
-			fclose(f);
+		// Un AAsset peut rendre moins que demande en un appel : on lit jusqu'au bout, ou jusqu'a un appel vide.
+		nk_int64 lus = 0;
+		while (lus < sz) {
+			const usize n = fichier.Read(d + lus, (usize)(sz - lus));
+			if (n == 0)
+				break;
+			lus += (nk_int64)n;
+		}
+		fichier.Close();
+		if (lus != sz) {
 			nkentseu::memory::NkFree(d);
 			return nullptr;
 		}
-		fclose(f);
-		logger.Info("[NkFontAtlas] TTF lu:{0}({1}o)\n", path, sz);
+		logger.Info("[NkFontAtlas] TTF lu:{0}({1}o)\n", path, (long long)sz);
 		return AddFontFromMemoryOwned(d, (nkft_size)sz, sp, cfg);
 	}
+	// L'ancien corps (jusqu'au 27/11/2026), garde pour memoire : il ne lisait pas les assets d'un APK.
+	//	{
+	//		std::ifstream f(path);
+	//		if (!f.good()) {
+	//			logger.Info("[NkFontAtlas] Fichier introuvable:{0}\n", path);
+	//			return nullptr;
+	//		}
+	//	}
+	//	FILE *f = fopen(path, "rb");
+	//	if (!f)
+	//		return nullptr;
+	//	fseek(f, 0, SEEK_END);
+	//	long sz = ftell(f);
+	//	fseek(f, 0, SEEK_SET);
+	//	if (sz <= 0) {
+	//		fclose(f);
+	//		return nullptr;
+	//	}
+	//	nkft_uint8 *d = (nkft_uint8 *)nkentseu::memory::NkAlloc((nk_size)sz);
+	//	if (!d) {
+	//		fclose(f);
+	//		return nullptr;
+	//	}
+	//	if ((long)fread(d, 1, (nkft_size)sz, f) != sz) {
+	//		fclose(f);
+	//		nkentseu::memory::NkFree(d);
+	//		return nullptr;
+	//	}
+	//	fclose(f);
+	//	logger.Info("[NkFontAtlas] TTF lu:{0}({1}o)\n", path, sz);
+	//	return AddFontFromMemoryOwned(d, (nkft_size)sz, sp, cfg);
 
 	NkFont *NkFontAtlas::AddFontFromMemory(const nkft_uint8 *d, nkft_size ds, nkft_float32 sp,
 										   const NkFontConfig *cfg) {
@@ -343,6 +408,8 @@ namespace nkentseu {
 
 		static nkfont::NkFontFaceInfo faceInfos[NK_FONT_ATLAS_MAX_FONTS];
 		static nkft_float32 scales[NK_FONT_ATLAS_MAX_FONTS];
+		static nkfont::NkCalageVertical calages[NK_FONT_ATLAS_MAX_FONTS]; // (scripts-23)
+		static const nkfont::NkCalageVertical *calageDe[NK_FONT_ATLAS_MAX_FONTS];
 
 		// Libère les anciens buffers WOFF si nécessaire
 		for (nkft_uint32 i = 0; i < NK_FONT_ATLAS_MAX_FONTS; ++i) {
@@ -370,6 +437,19 @@ namespace nkentseu {
 				return false;
 			}
 			scales[i] = nkfont::NkScaleForPixelHeight(&faceInfos[i], cfg.sizePixels);
+			// (27/11/2026, scripts-23) Le calage vertical de cette configuration (NkFontConfig::calageVertical) :
+			// nul sans l'option, avec un contour ou en SDF (le contour se dilate sur la forme d'origine).
+			calageDe[i] = nullptr;
+			const bool hampes = cfg.calageHampes && cfg.oversampleH == 1 && !cfg.sousPixelH; // (les hampes : au pixel)
+			if ((cfg.calageVertical || hampes) && cfg.contourPx <= 0.f && !sdfMode &&
+				nkfont::NkPreparerCalageVertical(&faceInfos[i], scales[i] * (nkft_float32)(cfg.oversampleV < 1 ? 1 : cfg.oversampleV),
+												 &calages[i])) {
+				if (!cfg.calageVertical) {
+					calages[i].n = 0; // les hampes seules : y d'origine
+				}
+				calages[i].hampes = hampes;
+				calageDe[i] = &calages[i];
+			}
 			if (!cfg.mergeMode) {
 				NkFont *font = fonts[i];
 				if (!font)
@@ -394,10 +474,26 @@ namespace nkentseu {
 		nkft_uint32 totalRects = 0;
 		static constexpr nkft_uint32 MAX_RECTS = NK_FONT_ATLAS_MAX_FONTS * 8192 - 1;
 
+		// (19/11/2026) Les marges d'un glyphe, en texels : le contour par distance (contourPx, plus un pixel de rampe)
+		// des deux cotes, et le filtre sous le pixel (sousPixelH : oversampleH - 1 texels a droite). Zero pour une
+		// configuration sans l'un ni l'autre : son atlas est celui d'avant, a l'identique.
+		const auto margeX = [](const NkFontConfig &c) -> nkft_int32 {
+			return c.contourPx > 0.f ? static_cast<nkft_int32>(math::NkCeil((c.contourPx + 1.f) * static_cast<nkft_float32>(c.oversampleH)))
+									 : 0;
+		};
+		const auto margeY = [](const NkFontConfig &c) -> nkft_int32 {
+			return c.contourPx > 0.f ? static_cast<nkft_int32>(math::NkCeil((c.contourPx + 1.f) * static_cast<nkft_float32>(c.oversampleV)))
+									 : 0;
+		};
+		const auto filtreX = [](const NkFontConfig &c) -> nkft_int32 {
+			return (c.sousPixelH && c.oversampleH > 1) ? c.oversampleH - 1 : 0;
+		};
+
 		for (nkft_uint32 ci = 0; ci < fontCount; ++ci) {
 			const NkFontConfig &cfg = configs[ci];
 			const nkfont::NkFontFaceInfo &fi = faceInfos[ci];
 			nkft_float32 sc = scales[ci];
+			const nkft_int32 mx = margeX(cfg), my = margeY(cfg), fx = filtreX(cfg);
 			const nkft_uint32 *ranges = cfg.glyphRanges ? cfg.glyphRanges : GetGlyphRangesDefault();
 
 			for (nkft_uint32 ri = 0; ranges[ri] && ranges[ri + 1]; ri += 2) {
@@ -406,13 +502,13 @@ namespace nkentseu {
 					if (gid == 0 && cp != cfg.glyphFallback && cp != 0x0020u)
 						continue;
 					nkft_int32 x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-					nkfont::NkGetGlyphBitmapBox(&fi, gid, sc * cfg.oversampleH, sc * cfg.oversampleV, 0, 0, &x0, &y0,
-												&x1, &y1);
+					nkfont::NkGetGlyphBitmapBoxCale(&fi, gid, sc * cfg.oversampleH, sc * cfg.oversampleV, 0, 0, &x0, &y0,
+													&x1, &y1, calageDe[ci]); // (scripts-23) nul : NkGetGlyphBitmapBox
 					nkft_int32 gw = x1 - x0, gh = y1 - y0;
 					bool isSpace = (gw <= 0 || gh <= 0);
 					NkPackRect &r = packRects[totalRects];
-					r.w = isSpace ? 1 : (gw + 1);
-					r.h = isSpace ? 1 : (gh + 1);
+					r.w = isSpace ? 1 : (gw + 1 + 2 * mx + fx);
+					r.h = isSpace ? 1 : (gh + 1 + 2 * my);
 					packCfgIdx[totalRects] = ci;
 					packCp[totalRects] = cp;
 					packGlyphId[totalRects] = gid;
@@ -424,13 +520,13 @@ namespace nkentseu {
 				NkGlyphId gid = nkfont::NkFindGlyphIndex(&fi, cfg.glyphFallback);
 				if (gid) {
 					nkft_int32 x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-					nkfont::NkGetGlyphBitmapBox(&fi, gid, sc * cfg.oversampleH, sc * cfg.oversampleV, 0, 0, &x0, &y0,
-												&x1, &y1);
+					nkfont::NkGetGlyphBitmapBoxCale(&fi, gid, sc * cfg.oversampleH, sc * cfg.oversampleV, 0, 0, &x0, &y0,
+													&x1, &y1, calageDe[ci]); // (scripts-23)
 					nkft_int32 gw = x1 - x0, gh = y1 - y0;
 					bool isSpace = (gw <= 0 || gh <= 0);
 					NkPackRect &r = packRects[totalRects];
-					r.w = isSpace ? 1 : gw + 1;
-					r.h = isSpace ? 1 : gh + cfg.oversampleV;
+					r.w = isSpace ? 1 : gw + 1 + 2 * mx + fx;
+					r.h = isSpace ? 1 : gh + cfg.oversampleV + 2 * my;
 					packCfgIdx[totalRects] = ci;
 					packCp[totalRects] = cfg.glyphFallback;
 					packGlyphId[totalRects] = gid;
@@ -520,11 +616,56 @@ namespace nkentseu {
 			bool isSpace = packIsSpace[ri];
 
 			nkft_int32 bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
-			nkfont::NkGetGlyphBitmapBox(&face, gid, sc * cfg.oversampleH, sc * cfg.oversampleV, 0, 0, &bx0, &by0, &bx1,
-										&by1);
+			nkfont::NkGetGlyphBitmapBoxCale(&face, gid, sc * cfg.oversampleH, sc * cfg.oversampleV, 0, 0, &bx0, &by0, &bx1,
+											&by1, calageDe[ci]); // (scripts-23) nul : NkGetGlyphBitmapBox
 			nkft_int32 bw = bx1 - bx0, bh = by1 - by0;
+			const nkft_int32 mx = margeX(cfg), my = margeY(cfg), fx = filtreX(cfg);
+			const bool cadreElargi = (mx > 0 || my > 0 || fx > 0);
 
-			if (!isSpace && bw > 0 && bh > 0) {
+			if (!isSpace && bw > 0 && bh > 0 && cadreElargi) {
+				// (19/11/2026) Le cadre complet : marges du contour des deux cotes, filtre sous le pixel a droite. Le
+				// glyphe se rasterise a (mx, my) dans ce cadre, puis se filtre, puis se dilate.
+				nkft_int32 cadreW = bw + 2 * mx + fx, cadreH = bh + 2 * my;
+				if (cadreW > atlasW - r.x)
+					cadreW = atlasW - r.x;
+				if (cadreH > atlasH - r.y)
+					cadreH = atlasH - r.y;
+				nkft_int32 drawW = bw < cadreW - mx ? bw : cadreW - mx;
+				nkft_int32 drawH = bh < cadreH - my ? bh : cadreH - my;
+				if (drawW > 0 && drawH > 0) {
+					nkft_uint8 *cadre = texPixels + r.y * atlasW + r.x;
+					nkfont::NkMakeGlyphBitmapCale(&face, cadre + my * atlasW + mx, drawW, drawH, atlasW, sc * cfg.oversampleH,
+												  sc * cfg.oversampleV, 0, 0, gid, calageDe[ci]); // (scripts-23)
+					if (cfg.rasterizerMultiply != 1.f) {
+						nkft_uint8 mt[256];
+						CalcMultiplyLookup(mt, cfg.rasterizerMultiply);
+						ApplyMultiplyRect(mt, texPixels, r.x + mx, r.y + my, drawW, drawH, atlasW);
+					}
+					if (cfg.contrasteCouverture > 0.f) { // (scripts-23) la courbe et le contraste, en une table
+						nkft_uint8 gt[256];
+						CalcCourbeContrasteLookup(gt, cfg.gammaCouverture, cfg.contrasteCouverture);
+						ApplyMultiplyRect(gt, texPixels, r.x + mx, r.y + my, drawW, drawH, atlasW);
+					} else if (cfg.gammaCouverture > 0.f && cfg.gammaCouverture != 1.f) { // (scripts-22)
+						nkft_uint8 gt[256];
+						CalcGammaLookup(gt, cfg.gammaCouverture);
+						ApplyMultiplyRect(gt, texPixels, r.x + mx, r.y + my, drawW, drawH, atlasW);
+					}
+					if (fx > 0) {
+						nkfont::NkFiltrerSousPixel(cadre, cadreW, cadreH, atlasW, cfg.oversampleH);
+					}
+					if (cfg.contourPx > 0.f) {
+						// Un sommet (x, y) est au texel (x sc osH - bx0 + mx, -y sc osV - by0 + my) du glyphe brut ; apres le
+						// filtre, le texel i represente le pixel centre (osH - 1) / 2 texels plus a gauche : le trace se
+						// decale d'autant vers la droite pour que la distance se mesure la ou le texel s'affiche.
+						const nkft_float32 decalage = fx > 0 ? 0.5f * static_cast<nkft_float32>(cfg.oversampleH - 1) : 0.f;
+						nkfont::NkDilaterGlyphe(&face, gid, sc * cfg.oversampleH, sc * cfg.oversampleV,
+												static_cast<nkft_float32>(mx - bx0) + decalage, static_cast<nkft_float32>(my - by0),
+												cadre, cadreW, cadreH, atlasW, 1.f / static_cast<nkft_float32>(cfg.oversampleH),
+												1.f / static_cast<nkft_float32>(cfg.oversampleV), cfg.contourPx);
+					}
+					++glyphsRast;
+				}
+			} else if (!isSpace && bw > 0 && bh > 0) {
 				nkft_int32 drawW = bw;
 				nkft_int32 drawH = bh;
 				if (drawW > atlasW - r.x)
@@ -535,8 +676,8 @@ namespace nkentseu {
 					continue;
 
 				nkft_uint8 *dst = texPixels + r.y * atlasW + r.x;
-				nkfont::NkMakeGlyphBitmap(&face, dst, drawW, drawH, atlasW, sc * cfg.oversampleH, sc * cfg.oversampleV,
-										  0, 0, gid);
+				nkfont::NkMakeGlyphBitmapCale(&face, dst, drawW, drawH, atlasW, sc * cfg.oversampleH, sc * cfg.oversampleV,
+											  0, 0, gid, calageDe[ci]); // (scripts-23) nul : NkMakeGlyphBitmap
 
 				if (sdfMode && sdfTemp) {
 					nkft_uint8 *sdfDst = sdfTemp + r.y * atlasW + r.x;
@@ -554,6 +695,15 @@ namespace nkentseu {
 					CalcMultiplyLookup(mt, cfg.rasterizerMultiply);
 					ApplyMultiplyRect(mt, texPixels, r.x, r.y, drawW, drawH, atlasW);
 				}
+				if (cfg.contrasteCouverture > 0.f) { // (scripts-23) la courbe et le contraste, en une table
+					nkft_uint8 gt[256];
+					CalcCourbeContrasteLookup(gt, cfg.gammaCouverture, cfg.contrasteCouverture);
+					ApplyMultiplyRect(gt, texPixels, r.x, r.y, drawW, drawH, atlasW);
+				} else if (cfg.gammaCouverture > 0.f && cfg.gammaCouverture != 1.f) { // (scripts-22) la courbe de couverture
+					nkft_uint8 gt[256];
+					CalcGammaLookup(gt, cfg.gammaCouverture);
+					ApplyMultiplyRect(gt, texPixels, r.x, r.y, drawW, drawH, atlasW);
+				}
 				++glyphsRast;
 			}
 
@@ -565,6 +715,12 @@ namespace nkentseu {
 			if (advX > cfg.glyphMaxAdvanceX)
 				advX = cfg.glyphMaxAdvanceX;
 			if (cfg.pixelSnapH)
+				advX = (nkft_float32)(nkft_int32)(advX + 0.5f);
+			// (27/11/2026, scripts-23) Avec les HAMPES, l'avance aussi est ENTIERE (ce que fait Windows : les avances
+			// calees). Sans elle, la plume fractionnaire se cale au pixel glyphe par glyphe, les fûts se calent dans
+			// le glyphe : les deux arrondis s'ajoutent et l'espace entre deux lettres varie de deux pixels (capture
+			// 01 de scripts-23 : « Zo ne », « Ot her » a 70 %).
+			else if (calageDe[ci] && calageDe[ci]->hampes)
 				advX = (nkft_float32)(nkft_int32)(advX + 0.5f);
 			advX += cfg.glyphExtraSpacing;
 
@@ -589,7 +745,20 @@ namespace nkentseu {
 			g.v1 = (nkft_float32)(r.y + (isSpace ? 0 : bh)) / (nkft_float32)atlasH;
 			g.visible = (!isSpace && bw > 0 && bh > 0);
 
-			if (!isSpace && cfg.oversampleH > 1) {
+			if (!isSpace && cadreElargi) {
+				// (19/11/2026) Le quad couvre le cadre complet. Avec le filtre sous le pixel, il se decale de
+				// -(osH - 1) / (2 osH) pixel (NkFiltrerSousPixel) et garde ses texels entiers : un texel = 1/osH pixel.
+				const nkft_int32 cadreW = bw + 2 * mx + fx, cadreH = bh + 2 * my;
+				const nkft_float32 decalage = fx > 0 ? -0.5f * (osH - 1.f) / osH : 0.f;
+				g.x0 = (nkft_float32)(bx0 - mx) / osH + decalage + cfg.glyphOffset.x;
+				g.x1 = g.x0 + (nkft_float32)cadreW / osH;
+				g.y0 = (nkft_float32)(by0 - my) / osV + cfg.glyphOffset.y;
+				g.y1 = g.y0 + (nkft_float32)cadreH / osV;
+				g.u1 = (nkft_float32)(r.x + cadreW) / (nkft_float32)atlasW;
+				g.v1 = (nkft_float32)(r.y + cadreH) / (nkft_float32)atlasH;
+			}
+
+			if (!isSpace && cfg.oversampleH > 1 && fx == 0) {
 				nkft_float32 hpx = 0.5f / (nkft_float32)atlasW;
 				g.u0 += hpx;
 				g.u1 -= hpx;
